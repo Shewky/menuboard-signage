@@ -5,20 +5,25 @@
     android:background="#000000"
     android:keepScreenOn="true">
 
-    <!-- Video Alanı -->
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/playerView"
+    <!-- Medya Konteyneri (Animasyonlar Bu Kapsayıcıya Uygulanır) -->
+    <FrameLayout
+        android:id="@+id/mediaContainer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone" />
+        android:layout_height="match_parent">
 
-    <!-- Resim Alanı -->
-    <ImageView
-        android:id="@+id/imageView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="fitCenter"
-        android:visibility="gone" />
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/playerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <!-- Sol Üst Ayar Butonu -->
     <ImageView
@@ -30,17 +35,18 @@
         android:padding="12dp"
         android:src="@android:drawable/ic_menu_preferences" />
 
-    <!-- Alt Logo (Footer) -->
+    <!-- Oynatma Sırasında Sağ Alttaki Küçük & Şeffaf Logo -->
     <ImageView
-        android:id="@+id/imgFooterLogo"
-        android:layout_width="140dp"
-        android:layout_height="60dp"
-        android:layout_gravity="bottom|center_horizontal"
+        android:id="@+id/imgCornerLogo"
+        android:layout_width="85dp"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
         android:layout_marginBottom="16dp"
-        android:alpha="0.85"
+        android:alpha="0.35"
         android:src="@drawable/logo_interfon" />
 
-    <!-- QR Kod Eşleme Paneli -->
+    <!-- QR Kod Eşleme & Ayar Paneli -->
     <LinearLayout
         android:id="@+id/qrOverlay"
         android:layout_width="match_parent"
@@ -70,11 +76,11 @@
 
         <ImageView
             android:id="@+id/imgQrCode"
-            android:layout_width="280dp"
-            android:layout_height="280dp"
-            android:layout_marginTop="24dp"
+            android:layout_width="260dp"
+            android:layout_height="260dp"
+            android:layout_marginTop="20dp"
             android:background="#FFFFFF"
-            android:padding="12dp" />
+            android:padding="10dp" />
 
         <TextView
             android:id="@+id/txtIpAddress"
@@ -85,15 +91,22 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
-        <!-- Geri / Oynatmaya Dön Butonu -->
         <Button
             android:id="@+id/btnCloseQr"
             android:layout_width="200dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="20dp"
             android:backgroundTint="#D32F2F"
             android:text="Oynatmaya Dön (Kapat)"
             android:textColor="#FFFFFF" />
+
+        <!-- Ayar Ekranı Altındaki Logo -->
+        <ImageView
+            android:layout_width="120dp"
+            android:layout_height="50dp"
+            android:layout_marginTop="24dp"
+            android:alpha="0.8"
+            android:src="@drawable/logo_interfon" />
     </LinearLayout>
 
 </FrameLayout>
