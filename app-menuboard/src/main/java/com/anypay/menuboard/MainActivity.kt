@@ -10,7 +10,12 @@ import android.os.Handler
 import android.os.Looper
 import android.text.format.Formatter
 import android.view.View
+import android.view.animation.AlphaAnimation
+import android.view.animation.Animation
+import android.view.animation.ScaleAnimation
+import android.view.animation.TranslateAnimation
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -35,13 +40,16 @@ data class MediaItemModel(
     val fileName: String,
     val type: String,
     val durationSec: Int = 10,
-    val waitAfterSec: Int = 0
+    val waitAfterSec: Int = 0,
+    val animation: String = "fade" // fade, slide_left, slide_right, zoom, none
 )
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var mediaContainer: FrameLayout
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
+    private lateinit var imgCornerLogo: ImageView
     private lateinit var qrOverlay: View
     private lateinit var imgQrCode: ImageView
     private lateinit var txtIpAddress: TextView
@@ -63,8 +71,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        mediaContainer = findViewById(R.id.mediaContainer)
         playerView = findViewById(R.id.playerView)
         imageView = findViewById(R.id.imageView)
+        imgCornerLogo = findViewById(R.id.imgCornerLogo)
         qrOverlay = findViewById(R.id.qrOverlay)
         imgQrCode = findViewById(R.id.imgQrCode)
         txtIpAddress = findViewById(R.id.txtIpAddress)
@@ -146,11 +156,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun showQrOverlay() {
         stopAllPlayback()
+        imgCornerLogo.visibility = View.GONE
         qrOverlay.visibility = View.VISIBLE
     }
 
     private fun hideQrOverlay() {
         qrOverlay.visibility = View.GONE
+        imgCornerLogo.visibility = View.VISIBLE
     }
 
     private fun stopAllPlayback() {
@@ -169,6 +181,26 @@ class MainActivity : AppCompatActivity() {
         playItem(currentIndex % playlist.size)
     }
 
+    private fun applyTransitionAnimation(animationType: String) {
+        val anim: Animation? = when (animationType) {
+            "slide_left" -> TranslateAnimation(
+                Animation.RELATIVE_TO_PARENT, 1.0f, Animation.RELATIVE_TO_PARENT, 0.0f,
+                Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f
+            ).apply { duration = 500 }
+            "slide_right" -> TranslateAnimation(
+                Animation.RELATIVE_TO_PARENT, -1.0f, Animation.RELATIVE_TO_PARENT, 0.0f,
+                Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f
+            ).apply { duration = 500 }
+            "zoom" -> ScaleAnimation(
+                0.8f, 1.0f, 0.8f, 1.0f,
+                Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f
+            ).apply { duration = 400 }
+            "fade" -> AlphaAnimation(0.0f, 1.0f).apply { duration = 400 }
+            else -> null
+        }
+        anim?.let { mediaContainer.startAnimation(it) }
+    }
+
     private fun playItem(index: Int) {
         stopAllPlayback()
         if (playlist.isEmpty()) return
@@ -181,15 +213,23 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        applyTransitionAnimation(item.animation)
+
         if (item.type == "video") {
             playerView.visibility = View.VISIBLE
             exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             exoPlayer?.prepare()
             exoPlayer?.play()
+
+            // Eğer özel video süresi belirtildiyse o sürede kesip sonrakine geç
+            if (item.durationSec > 0) {
+                handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
+            }
         } else {
             imageView.visibility = View.VISIBLE
             imageView.setImageURI(Uri.fromFile(file))
-            handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
+            val dur = if (item.durationSec > 0) item.durationSec else 10
+            handler.postDelayed(mediaEndRunnable, dur * 1000L)
         }
     }
 
@@ -222,12 +262,17 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // 1. Çalma Listesi Çek
+            // Bağlantı Kontrolü (Heartbeat / Ping)
+            if (uri == "/api/ping" && method == Method.GET) {
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "PONG")
+            }
+
+            // Oynatma Listesi Çek
             if (uri == "/api/playlist" && method == Method.GET) {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(playlist))
             }
 
-            // 2. Çalma Listesi Güncelle (Sıralama, Süre Değişimi veya Silme Sonrası)
+            // Oynatma Listesi Güncelle
             if (uri == "/api/playlist" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
@@ -248,7 +293,7 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
-            // 3. Dosya Yükleme
+            // Dosya Yükleme
             if (uri == "/api/upload" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
@@ -268,7 +313,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // 4. Kumanda İçin Hafif Thumbnail (Küçük Önizleme) Sağlayıcı
+            // Kumanda Önizleme Thumbnail
             if (uri == "/api/thumbnail" && method == Method.GET) {
                 val filename = session.parameters["filename"]?.firstOrNull() ?: ""
                 val file = File(filesDir, filename)
