@@ -4,8 +4,11 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
 import android.view.LayoutInflater
 import android.view.View
@@ -13,6 +16,7 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
@@ -26,13 +30,16 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.util.Collections
 
 data class MediaItemModel(
     val id: String,
     var fileName: String,
     val type: String,
     var durationSec: Int,
-    var waitAfterSec: Int
+    var waitAfterSec: Int,
+    var animation: String = "fade",
+    var fileDurationSec: Int = 0 // Videonun gerçek süresi
 )
 
 class MainActivity : AppCompatActivity() {
@@ -42,14 +49,28 @@ class MainActivity : AppCompatActivity() {
     private lateinit var panelControls: View
     private lateinit var edtDuration: EditText
     private lateinit var edtWaitAfter: EditText
+    private lateinit var spinnerAnim: Spinner
     private lateinit var btnPickMedia: Button
     private lateinit var recyclerViewPlaylist: RecyclerView
 
     private val httpClient = OkHttpClient()
     private val gson = Gson()
     private var targetHost = ""
+    private var isConnected = false
     private var playlist = mutableListOf<MediaItemModel>()
     private lateinit var adapter: MediaAdapter
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
+    private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
+
+    // Her 10 saniyede bir bağlantıyı denetleyen Heartbeat döngüsü
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            checkConnectionAndSync()
+            handler.postDelayed(this, 10000L)
+        }
+    }
 
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
@@ -64,8 +85,7 @@ class MainActivity : AppCompatActivity() {
                     .putString("saved_host", targetHost)
                     .apply()
 
-                updateConnectionUi(true)
-                fetchPlaylist()
+                checkConnectionAndSync()
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
             }
@@ -74,7 +94,7 @@ class MainActivity : AppCompatActivity() {
 
     private val pickMediaLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK && res.data?.data != null) {
-            uploadMediaFile(res.data!!.data!!)
+            uploadMediaFile(res.data!!.data!)
         }
     }
 
@@ -87,12 +107,34 @@ class MainActivity : AppCompatActivity() {
         panelControls = findViewById(R.id.panelControls)
         edtDuration = findViewById(R.id.edtDuration)
         edtWaitAfter = findViewById(R.id.edtWaitAfter)
+        spinnerAnim = findViewById(R.id.spinnerAnim)
         btnPickMedia = findViewById(R.id.btnPickMedia)
         recyclerViewPlaylist = findViewById(R.id.recyclerViewPlaylist)
+
+        spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
 
         adapter = MediaAdapter()
         recyclerViewPlaylist.layoutManager = LinearLayoutManager(this)
         recyclerViewPlaylist.adapter = adapter
+
+        // Sürükle ve Bırak (Drag & Drop) Sıralama Desteği
+        val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
+            override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+                val fromPos = vh.adapterPosition
+                val toPos = target.adapterPosition
+                Collections.swap(playlist, fromPos, toPos)
+                adapter.notifyItemMoved(fromPos, toPos)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                syncPlaylistToMenuboard() // Taşıma bitince yeni sırayı menuboard'a anında kaydet
+            }
+        })
+        itemTouchHelper.attachToRecyclerView(recyclerViewPlaylist)
 
         btnScanQr.setOnClickListener {
             val options = ScanOptions().apply {
@@ -112,23 +154,55 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
-        val saved = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("saved_host", null)
-        if (!saved.isNullOrEmpty()) {
-            targetHost = saved
-            updateConnectionUi(true)
-            fetchPlaylist()
+        targetHost = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("saved_host", "") ?: ""
+    }
+
+    override fun onResume() {
+        super.onResume()
+        handler.post(heartbeatRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(heartbeatRunnable)
+    }
+
+    private fun checkConnectionAndSync() {
+        if (targetHost.isEmpty()) {
+            updateConnectionUi(false)
+            return
         }
+
+        val request = Request.Builder().url("http://$targetHost/api/ping").build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                updateConnectionUi(false)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    val wasDisconnected = !isConnected
+                    updateConnectionUi(true)
+                    if (wasDisconnected) {
+                        fetchPlaylist()
+                    }
+                } else {
+                    updateConnectionUi(false)
+                }
+            }
+        })
     }
 
     private fun updateConnectionUi(connected: Boolean) {
+        isConnected = connected
         runOnUiThread {
             if (connected) {
                 txtConnectionStatus.text = "Bağlı ($targetHost)"
                 txtConnectionStatus.setTextColor(0xFF2E7D32.toInt())
                 panelControls.visibility = View.VISIBLE
             } else {
-                txtConnectionStatus.text = "Bağlantı Yok"
-                txtConnectionStatus.setTextColor(0xFFD32F2F.toInt())
+                txtConnectionStatus.text = if (targetHost.isEmpty()) "QR Okutun" else "Bağlantı Bekleniyor... ($targetHost)"
+                txtConnectionStatus.setTextColor(0xFFE65100.toInt())
                 panelControls.visibility = View.GONE
             }
         }
@@ -166,6 +240,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Video ise gerçek süresini oku
+        var fileDurationSec = 0
+        if (isVideo) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(this, uri)
+                val time = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                fileDurationSec = ((time?.toLong() ?: 0L) / 1000).toInt()
+            } catch (_: Exception) {}
+        }
+
         val inputStream = contentResolver.openInputStream(uri) ?: return
         val bytes = inputStream.readBytes()
         inputStream.close()
@@ -189,15 +274,18 @@ class MainActivity : AppCompatActivity() {
 
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
-                    val dur = edtDuration.text.toString().toIntOrNull() ?: 10
+                    val dur = edtDuration.text.toString().toIntOrNull() ?: 0
                     val wait = edtWaitAfter.text.toString().toIntOrNull() ?: 0
+                    val anim = animValues[spinnerAnim.selectedItemPosition]
 
                     val newItem = MediaItemModel(
                         id = System.currentTimeMillis().toString(),
                         fileName = fileName,
                         type = type,
                         durationSec = dur,
-                        waitAfterSec = wait
+                        waitAfterSec = wait,
+                        animation = anim,
+                        fileDurationSec = fileDurationSec
                     )
                     playlist.add(newItem)
                     syncPlaylistToMenuboard()
@@ -222,7 +310,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onResponse(call: Call, response: Response) {
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Liste Güncellendi!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Menuboard Güncellendi!", Toast.LENGTH_SHORT).show()
                     fetchPlaylist()
                 }
             }
@@ -230,9 +318,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showEditDialog(item: MediaItemModel) {
-        val view = LayoutInflater.from(this).inflate(R.layout.activity_main, null)
         val edtDur = EditText(this).apply {
-            hint = "Görsel Süresi (sn)"
+            hint = "Süre (sn / Video için 0=tamamı)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText(item.durationSec.toString())
         }
@@ -241,20 +328,30 @@ class MainActivity : AppCompatActivity() {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText(item.waitAfterSec.toString())
         }
+        val spAnim = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
+            val index = animValues.indexOf(item.animation)
+            if (index >= 0) setSelection(index)
+        }
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(50, 40, 50, 10)
+            addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" })
             addView(edtDur)
+            addView(TextView(this@MainActivity).apply { text = "İki Medya Arası Bekleme (sn):" })
             addView(edtWait)
+            addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" })
+            addView(spAnim)
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Parametreleri Düzenle")
+            .setTitle("Medya Ayarları")
             .setView(layout)
             .setPositiveButton("Kaydet") { _, _ ->
                 item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
                 item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
+                item.animation = animValues[spAnim.selectedItemPosition]
                 syncPlaylistToMenuboard()
             }
             .setNegativeButton("İptal", null)
@@ -269,6 +366,7 @@ class MainActivity : AppCompatActivity() {
             val txtTypeBadge: TextView = v.findViewById(R.id.txtTypeBadge)
             val txtFileName: TextView = v.findViewById(R.id.txtFileName)
             val txtDetails: TextView = v.findViewById(R.id.txtDetails)
+            val txtAnimBadge: TextView = v.findViewById(R.id.txtAnimBadge)
             val btnEdit: ImageButton = v.findViewById(R.id.btnEdit)
             val btnDelete: ImageButton = v.findViewById(R.id.btnDelete)
         }
@@ -283,11 +381,19 @@ class MainActivity : AppCompatActivity() {
             holder.txtFileName.text = item.fileName
             holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
             holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
-            
-            val details = if (item.type == "video") "Oynatılıyor | +${item.waitAfterSec}s bekleme" else "${item.durationSec}s süre | +${item.waitAfterSec}s bekleme"
-            holder.txtDetails.text = details
 
-            // Menuboard'dan küçük resmi hafif olarak çek (Videoyu asla oynatmaz)
+            if (item.type == "video") {
+                val totalStr = if (item.fileDurationSec > 0) "${item.fileDurationSec}sn" else "Bilinmiyor"
+                val playStr = if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı ($totalStr)"
+                holder.txtDetails.text = "Video: $playStr | +${item.waitAfterSec}s ara"
+            } else {
+                val dur = if (item.durationSec > 0) item.durationSec else 10
+                holder.txtDetails.text = "Resim: ${dur}s süre | +${item.waitAfterSec}s ara"
+            }
+
+            val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
+            holder.txtAnimBadge.text = "Animasyon: $animName"
+
             val thumbUrl = "http://$targetHost/api/thumbnail?filename=${item.fileName}"
             Glide.with(holder.itemView.context)
                 .load(thumbUrl)
