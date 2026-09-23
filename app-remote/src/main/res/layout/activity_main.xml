@@ -3,9 +3,9 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="12dp">
 
-    <!-- Üst Kontrol & Durum Çubuğu -->
+    <!-- Üst Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -29,18 +29,15 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginVertical="12dp"
-        android:background="#DDDDDD" />
-
-    <!-- Medya Ekleme Kontrolleri -->
+    <!-- Yeni Medya Yükleme Paneli -->
     <LinearLayout
         android:id="@+id/panelControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="#F5F5F5"
         android:orientation="vertical"
+        android:padding="8dp"
         android:visibility="gone">
 
         <LinearLayout
@@ -53,7 +50,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Görsel Süresi (sn)"
+                android:hint="Süre (sn)"
                 android:inputType="number"
                 android:text="10" />
 
@@ -72,23 +69,31 @@
             android:id="@+id/btnPickMedia"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="+ Telefonda Medya Seç ve Gönder" />
+            android:layout_marginTop="4dp"
+            android:text="+ Yeni Medya Seç ve Gönder" />
     </LinearLayout>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="12dp"
         android:text="Menuboard Oynatma Listesi:"
         android:textStyle="bold" />
 
-    <!-- Oynatma Listesi -->
-    <ListView
-        android:id="@+id/listViewPlaylist"
+    <!-- Medya Listesi (Kart Görünümlü) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerViewPlaylist"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="8dp"
         android:layout_weight="1" />
+
+    <!-- Alt Logo (Footer) -->
+    <ImageView
+        android:id="@+id/imgFooterLogo"
+        android:layout_width="140dp"
+        android:layout_height="50dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:src="@drawable/logo_interfon" />
 
 </LinearLayout>
