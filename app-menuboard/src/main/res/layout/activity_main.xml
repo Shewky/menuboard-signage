@@ -20,25 +20,36 @@
         android:scaleType="fitCenter"
         android:visibility="gone" />
 
-    <!-- Sol Üstteki Gizli / Küçük Ayar Butonu (Mouse Tıklaması İçin) -->
+    <!-- Sol Üst Ayar Butonu -->
     <ImageView
         android:id="@+id/btnSettings"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
         android:layout_gravity="top|start"
-        android:alpha="0.2"
-        android:padding="8dp"
+        android:alpha="0.25"
+        android:padding="12dp"
         android:src="@android:drawable/ic_menu_preferences" />
+
+    <!-- Alt Logo (Footer) -->
+    <ImageView
+        android:id="@+id/imgFooterLogo"
+        android:layout_width="140dp"
+        android:layout_height="60dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:alpha="0.85"
+        android:src="@drawable/logo_interfon" />
 
     <!-- QR Kod Eşleme Paneli -->
     <LinearLayout
         android:id="@+id/qrOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#E6000000"
+        android:background="#FA111111"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:padding="24dp"
+        android:visibility="gone">
 
         <TextView
             android:layout_width="wrap_content"
@@ -53,7 +64,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Telefon uygulamasından QR kodu taratın"
+            android:text="Kumandadan QR Kodu Okutun"
             android:textColor="#CCCCCC"
             android:textSize="16sp" />
 
@@ -70,8 +81,19 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:textColor="#888888"
-            android:textSize="14sp" />
+            android:textColor="#00E676"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- Geri / Oynatmaya Dön Butonu -->
+        <Button
+            android:id="@+id/btnCloseQr"
+            android:layout_width="200dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:backgroundTint="#D32F2F"
+            android:text="Oynatmaya Dön (Kapat)"
+            android:textColor="#FFFFFF" />
     </LinearLayout>
 
 </FrameLayout>
