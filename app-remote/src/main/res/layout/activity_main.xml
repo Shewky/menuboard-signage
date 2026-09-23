@@ -5,7 +5,7 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-    <!-- Üst Bar -->
+    <!-- Üst Bar & Durum -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -24,8 +24,8 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:layout_weight="1"
-            android:text="Bağlantı Yok"
-            android:textColor="#D32F2F"
+            android:text="Bağlantı Aranıyor..."
+            android:textColor="#E65100"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -50,19 +50,26 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Süre (sn)"
+                android:hint="Süre (sn / 0:tam)"
                 android:inputType="number"
-                android:text="10" />
+                android:text="0" />
 
             <EditText
                 android:id="@+id/edtWaitAfter"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="6dp"
                 android:layout_weight="1"
                 android:hint="Ara Bekleme (sn)"
                 android:inputType="number"
                 android:text="0" />
+
+            <Spinner
+                android:id="@+id/spinnerAnim"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1.2" />
         </LinearLayout>
 
         <Button
@@ -76,24 +83,26 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Menuboard Oynatma Listesi:"
+        android:layout_marginTop="10dp"
+        android:text="Oynatma Listesi (Sıralamak için basılı tutup sürükleyin):"
+        android:textSize="12sp"
         android:textStyle="bold" />
 
-    <!-- Medya Listesi (Kart Görünümlü) -->
+    <!-- Sıralanabilir Liste -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewPlaylist"
         android:layout_width="match_parent"
         android:layout_height="0dp"
+        android:layout_marginTop="4dp"
         android:layout_weight="1" />
 
-    <!-- Alt Logo (Footer) -->
+    <!-- Alt Logo -->
     <ImageView
         android:id="@+id/imgFooterLogo"
-        android:layout_width="140dp"
-        android:layout_height="50dp"
+        android:layout_width="130dp"
+        android:layout_height="45dp"
         android:layout_gravity="center_horizontal"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="6dp"
         android:src="@drawable/logo_interfon" />
 
 </LinearLayout>
