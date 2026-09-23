@@ -39,7 +39,7 @@ data class MediaItemModel(
     var durationSec: Int,
     var waitAfterSec: Int,
     var animation: String = "fade",
-    var fileDurationSec: Int = 0 // Videonun gerçek süresi
+    var fileDurationSec: Int = 0
 )
 
 class MainActivity : AppCompatActivity() {
@@ -64,7 +64,6 @@ class MainActivity : AppCompatActivity() {
     private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
 
-    // Her 10 saniyede bir bağlantıyı denetleyen Heartbeat döngüsü
     private val heartbeatRunnable = object : Runnable {
         override fun run() {
             checkConnectionAndSync()
@@ -94,7 +93,8 @@ class MainActivity : AppCompatActivity() {
 
     private val pickMediaLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK && res.data?.data != null) {
-            uploadMediaFile(res.data!!.data!)
+            val uri = res.data!!.data!!
+            uploadMediaFile(uri)
         }
     }
 
@@ -117,7 +117,6 @@ class MainActivity : AppCompatActivity() {
         recyclerViewPlaylist.layoutManager = LinearLayoutManager(this)
         recyclerViewPlaylist.adapter = adapter
 
-        // Sürükle ve Bırak (Drag & Drop) Sıralama Desteği
         val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
             override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
                 val fromPos = vh.adapterPosition
@@ -131,7 +130,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
                 super.clearView(recyclerView, viewHolder)
-                syncPlaylistToMenuboard() // Taşıma bitince yeni sırayı menuboard'a anında kaydet
+                syncPlaylistToMenuboard()
             }
         })
         itemTouchHelper.attachToRecyclerView(recyclerViewPlaylist)
@@ -240,7 +239,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Video ise gerçek süresini oku
         var fileDurationSec = 0
         if (isVideo) {
             val retriever = MediaMetadataRetriever()
@@ -358,7 +356,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // RecyclerView Adaptörü
     inner class MediaAdapter : RecyclerView.Adapter<MediaAdapter.MediaViewHolder>() {
 
         inner class MediaViewHolder(v: View) : RecyclerView.ViewHolder(v) {
