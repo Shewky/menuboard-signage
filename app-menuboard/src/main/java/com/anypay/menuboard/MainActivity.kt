@@ -2,6 +2,7 @@ package com.anypay.menuboard
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Bundle
@@ -9,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.format.Formatter
 import android.view.View
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +23,8 @@ import com.google.gson.reflect.TypeToken
 import com.journeyapps.barcodescanner.BarcodeEncoder
 import com.google.zxing.BarcodeFormat
 import fi.iki.elonen.NanoHTTPD
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -29,9 +33,9 @@ import java.util.UUID
 data class MediaItemModel(
     val id: String = UUID.randomUUID().toString(),
     val fileName: String,
-    val type: String, // "video" veya "image"
-    val durationSec: Int = 10, // Resim veya video oynatma süresi
-    val waitAfterSec: Int = 0  // İki medya arası siyah ekranda bekleme süresi
+    val type: String,
+    val durationSec: Int = 10,
+    val waitAfterSec: Int = 0
 )
 
 class MainActivity : AppCompatActivity() {
@@ -42,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var imgQrCode: ImageView
     private lateinit var txtIpAddress: TextView
     private lateinit var btnSettings: ImageView
+    private lateinit var btnCloseQr: Button
 
     private var exoPlayer: ExoPlayer? = null
     private var httpServer: SignageServer? = null
@@ -51,6 +56,8 @@ class MainActivity : AppCompatActivity() {
     private var playlist = mutableListOf<MediaItemModel>()
     private var currentIndex = 0
     private var currentPairToken = ""
+
+    private val mediaEndRunnable = Runnable { scheduleNextMedia() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,12 +69,17 @@ class MainActivity : AppCompatActivity() {
         imgQrCode = findViewById(R.id.imgQrCode)
         txtIpAddress = findViewById(R.id.txtIpAddress)
         btnSettings = findViewById(R.id.btnSettings)
+        btnCloseQr = findViewById(R.id.btnCloseQr)
 
         initPlayer()
         loadSavedState()
 
-        btnSettings.setOnClickListener {
-            showQrOverlay()
+        btnSettings.setOnClickListener { showQrOverlay() }
+        btnCloseQr.setOnClickListener {
+            if (playlist.isNotEmpty()) {
+                hideQrOverlay()
+                startPlayback()
+            }
         }
 
         startLocalServer()
@@ -112,7 +124,6 @@ class MainActivity : AppCompatActivity() {
     private fun startLocalServer() {
         val ip = getLocalIpAddress()
         txtIpAddress.text = "IP: $ip:8080"
-        
         generateQr(ip, currentPairToken)
 
         httpServer = SignageServer(8080)
@@ -123,7 +134,7 @@ class MainActivity : AppCompatActivity() {
         val payload = "{\"ip\":\"$ip\",\"port\":8080,\"token\":\"$token\"}"
         try {
             val barcodeEncoder = BarcodeEncoder()
-            val bitmap: Bitmap = barcodeEncoder.encodeBitmap(payload, BarcodeFormat.QR_CODE, 500, 500)
+            val bitmap = barcodeEncoder.encodeBitmap(payload, BarcodeFormat.QR_CODE, 500, 500)
             imgQrCode.setImageBitmap(bitmap)
         } catch (_: Exception) {}
     }
@@ -134,13 +145,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showQrOverlay() {
-        handler.removeCallbacksAndMessages(null)
-        exoPlayer?.pause()
+        stopAllPlayback()
         qrOverlay.visibility = View.VISIBLE
     }
 
     private fun hideQrOverlay() {
         qrOverlay.visibility = View.GONE
+    }
+
+    private fun stopAllPlayback() {
+        handler.removeCallbacksAndMessages(null)
+        exoPlayer?.stop()
+        exoPlayer?.clearMediaItems()
+        playerView.visibility = View.GONE
+        imageView.visibility = View.GONE
     }
 
     private fun startPlayback() {
@@ -152,7 +170,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playItem(index: Int) {
+        stopAllPlayback()
         if (playlist.isEmpty()) return
+
         currentIndex = index
         val item = playlist[index]
         val file = File(filesDir, item.fileName)
@@ -162,28 +182,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (item.type == "video") {
-            imageView.visibility = View.GONE
             playerView.visibility = View.VISIBLE
             exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             exoPlayer?.prepare()
             exoPlayer?.play()
         } else {
-            playerView.visibility = View.GONE
             imageView.visibility = View.VISIBLE
             imageView.setImageURI(Uri.fromFile(file))
-
-            handler.postDelayed({
-                scheduleNextMedia()
-            }, item.durationSec * 1000L)
+            handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
         }
     }
 
     private fun scheduleNextMedia() {
-        val currentItem = if (playlist.isNotEmpty()) playlist[currentIndex % playlist.size] else null
-        val waitTime = (currentItem?.waitAfterSec ?: 0) * 1000L
+        stopAllPlayback()
+        if (playlist.isEmpty()) return
 
-        playerView.visibility = View.GONE
-        imageView.visibility = View.GONE
+        val currentItem = playlist[currentIndex % playlist.size]
+        val waitTime = currentItem.waitAfterSec * 1000L
 
         handler.postDelayed({
             currentIndex = (currentIndex + 1) % playlist.size
@@ -191,16 +206,28 @@ class MainActivity : AppCompatActivity() {
         }, waitTime)
     }
 
-    // Gömülü HTTP Sunucusu (Telefonun iletişim kuracağı API)
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (qrOverlay.visibility == View.VISIBLE && playlist.isNotEmpty()) {
+            hideQrOverlay()
+            startPlayback()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    // HTTP API
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
 
+            // 1. Çalma Listesi Çek
             if (uri == "/api/playlist" && method == Method.GET) {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(playlist))
             }
 
+            // 2. Çalma Listesi Güncelle (Sıralama, Süre Değişimi veya Silme Sonrası)
             if (uri == "/api/playlist" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
@@ -221,12 +248,13 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
+            // 3. Dosya Yükleme
             if (uri == "/api/upload" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
                 val params = session.parameters
                 val filename = params["filename"]?.firstOrNull() ?: "media_${System.currentTimeMillis()}"
-                
+
                 val tempFilePath = files["file"]
                 if (tempFilePath != null) {
                     val tempFile = File(tempFilePath)
@@ -237,6 +265,32 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     return newFixedLengthResponse(Response.Status.OK, "text/plain", filename)
+                }
+            }
+
+            // 4. Kumanda İçin Hafif Thumbnail (Küçük Önizleme) Sağlayıcı
+            if (uri == "/api/thumbnail" && method == Method.GET) {
+                val filename = session.parameters["filename"]?.firstOrNull() ?: ""
+                val file = File(filesDir, filename)
+                if (file.exists()) {
+                    val isVideo = filename.endsWith(".mp4", ignoreCase = true) || filename.endsWith(".mkv", ignoreCase = true)
+                    val bitmap: Bitmap? = if (isVideo) {
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(file.absolutePath)
+                            retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        } catch (_: Exception) { null }
+                    } else {
+                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                    }
+
+                    if (bitmap != null) {
+                        val thumb = Bitmap.createScaledBitmap(bitmap, 120, 120, true)
+                        val stream = ByteArrayOutputStream()
+                        thumb.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                        val bytes = stream.toByteArray()
+                        return newFixedLengthResponse(Response.Status.OK, "image/jpeg", ByteArrayInputStream(bytes), bytes.size.toLong())
+                    }
                 }
             }
 
