@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.util.Size
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -39,6 +40,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class MediaItemModel(
     val id: String,
@@ -55,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnScanQr: Button
     private lateinit var txtConnectionStatus: TextView
     private lateinit var panelLiveActions: View
+    private lateinit var spinnerStreamQuality: Spinner
     private lateinit var btnLiveCamera: Button
     private lateinit var btnLiveScreen: Button
     private lateinit var btnStopScreenShare: Button
@@ -74,11 +77,19 @@ class MainActivity : AppCompatActivity() {
     private var isConnected = false
     private var isSharingScreen = false
     private var isCameraStreaming = false
+    private val isCameraFrameSending = AtomicBoolean(false)
     private var playlist = mutableListOf<MediaItemModel>()
     private lateinit var adapter: MediaAdapter
 
     private val handler = Handler(Looper.getMainLooper())
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+
+    private val qualityOptions = arrayOf(
+        "⚡ Akıcı (360p - Düşük Gecikme)",
+        "⚖️ Dengeli (540p - Önerilen)",
+        "💎 Yüksek Netlik (720p - Güçlü Wi-Fi)"
+    )
+
     private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
 
@@ -115,7 +126,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Ekran Paylaşımı İzin Yakalayıcı
     private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK && res.data != null) {
             startScreenShareService(res.resultCode, res.data!!)
@@ -131,6 +141,7 @@ class MainActivity : AppCompatActivity() {
         btnScanQr = findViewById(R.id.btnScanQr)
         txtConnectionStatus = findViewById(R.id.txtConnectionStatus)
         panelLiveActions = findViewById(R.id.panelLiveActions)
+        spinnerStreamQuality = findViewById(R.id.spinnerStreamQuality)
         btnLiveCamera = findViewById(R.id.btnLiveCamera)
         btnLiveScreen = findViewById(R.id.btnLiveScreen)
         btnStopScreenShare = findViewById(R.id.btnStopScreenShare)
@@ -143,6 +154,9 @@ class MainActivity : AppCompatActivity() {
         cameraOverlay = findViewById(R.id.cameraOverlay)
         previewView = findViewById(R.id.previewView)
         btnCloseCamera = findViewById(R.id.btnCloseCamera)
+
+        spinnerStreamQuality.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, qualityOptions)
+        spinnerStreamQuality.setSelection(1) // Varsayılan olarak Dengeli mod
 
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
 
@@ -186,24 +200,15 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
-        // 1. Canlı Kamera Başlat
-        btnLiveCamera.setOnClickListener {
-            startLiveCamera()
-        }
+        btnLiveCamera.setOnClickListener { startLiveCamera() }
+        btnCloseCamera.setOnClickListener { stopLiveCamera() }
 
-        btnCloseCamera.setOnClickListener {
-            stopLiveCamera()
-        }
-
-        // 2. Ekran Paylaşımı Başlat
         btnLiveScreen.setOnClickListener {
             val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             screenCaptureLauncher.launch(mpManager.createScreenCaptureIntent())
         }
 
-        btnStopScreenShare.setOnClickListener {
-            stopScreenShareService()
-        }
+        btnStopScreenShare.setOnClickListener { stopScreenShareService() }
 
         targetHost = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("saved_host", "") ?: ""
     }
@@ -226,17 +231,13 @@ class MainActivity : AppCompatActivity() {
 
         val request = Request.Builder().url("http://$targetHost/api/ping").build()
         httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                updateConnectionUi(false)
-            }
+            override fun onFailure(call: Call, e: IOException) { updateConnectionUi(false) }
 
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
                     val wasDisconnected = !isConnected
                     updateConnectionUi(true)
-                    if (wasDisconnected) {
-                        fetchPlaylist()
-                    }
+                    if (wasDisconnected) fetchPlaylist()
                 } else {
                     updateConnectionUi(false)
                 }
@@ -261,17 +262,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Kamera Canlı Akışı Başlat
     private fun startLiveCamera() {
         isCameraStreaming = true
         cameraOverlay.visibility = View.VISIBLE
 
-        // Menuboard'a akış başlat sinyali at
         val request = Request.Builder().url("http://$targetHost/api/live/start").post("".toRequestBody(null)).build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) { response.close() }
         })
+
+        // Seçilen çözünürlük
+        val qualityPos = spinnerStreamQuality.selectedItemPosition
+        val (camWidth, camHeight, qualityVal) = when (qualityPos) {
+            0 -> Triple(360, 640, 45)
+            2 -> Triple(720, 1280, 75)
+            else -> Triple(540, 960, 60)
+        }
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
@@ -281,34 +288,37 @@ class MainActivity : AppCompatActivity() {
             }
 
             val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(android.util.Size(540, 960))
+                .setTargetResolution(Size(camWidth, camHeight))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            var lastFrameTime = 0L
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                val now = System.currentTimeMillis()
-                if (now - lastFrameTime > 80L && isCameraStreaming) { // Saniyede ~12 FPS akış
-                    lastFrameTime = now
+                if (isCameraStreaming && !isCameraFrameSending.get()) {
+                    isCameraFrameSending.set(true)
                     val bitmap = imageProxy.toBitmap()
                     val stream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, qualityVal, stream)
                     val bytes = stream.toByteArray()
 
                     val body = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
                     val frameReq = Request.Builder().url("http://$targetHost/api/live/frame").post(body).build()
                     httpClient.newCall(frameReq).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {}
-                        override fun onResponse(call: Call, response: Response) { response.close() }
+                        override fun onFailure(call: Call, e: IOException) {
+                            isCameraFrameSending.set(false)
+                        }
+
+                        override fun onResponse(call: Call, response: Response) {
+                            response.close()
+                            isCameraFrameSending.set(false)
+                        }
                     })
                 }
                 imageProxy.close()
             }
 
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
             } catch (_: Exception) {}
 
         }, ContextCompat.getMainExecutor(this))
@@ -323,7 +333,6 @@ class MainActivity : AppCompatActivity() {
             cameraProviderFuture.get().unbindAll()
         }, ContextCompat.getMainExecutor(this))
 
-        // Menuboard'a akış bitti sinyali gönder
         val request = Request.Builder().url("http://$targetHost/api/live/stop").post("".toRequestBody(null)).build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
@@ -331,13 +340,11 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // Ekran Paylaşımı Başlat
     private fun startScreenShareService(resultCode: Int, data: Intent) {
         isSharingScreen = true
         btnLiveScreen.visibility = View.GONE
         btnStopScreenShare.visibility = View.VISIBLE
 
-        // Menuboard'a ekran akışı başlat sinyali at
         val request = Request.Builder().url("http://$targetHost/api/live/start").post("".toRequestBody(null)).build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
@@ -348,10 +355,9 @@ class MainActivity : AppCompatActivity() {
             putExtra("result_code", resultCode)
             putExtra("result_data", data)
             putExtra("target_host", targetHost)
+            putExtra("quality_level", spinnerStreamQuality.selectedItemPosition)
         }
         ContextCompat.startForegroundService(this, serviceIntent)
-
-        // Kullanıcı diğer uygulamalarda telefonunu kullanabilsin diye kumandayı arka plana gönder
         moveTaskToBack(true)
     }
 
