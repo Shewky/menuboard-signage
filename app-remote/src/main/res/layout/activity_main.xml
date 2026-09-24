@@ -1,108 +1,177 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="12dp">
+    android:layout_height="match_parent">
 
-    <!-- Üst Bar & Durum -->
+    <!-- Ana Panel -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btnScanQr"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="QR Kod Tara" />
-
-        <TextView
-            android:id="@+id/txtConnectionStatus"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:text="Bağlantı Aranıyor..."
-            android:textColor="#E65100"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <!-- Yeni Medya Yükleme Paneli -->
-    <LinearLayout
-        android:id="@+id/panelControls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:background="#F5F5F5"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="8dp"
-        android:visibility="gone">
+        android:padding="12dp">
 
+        <!-- Üst Bar & Durum -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/edtDuration"
-                android:layout_width="0dp"
+            <Button
+                android:id="@+id/btnScanQr"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Süre (sn / 0:tam)"
-                android:inputType="number"
-                android:text="0" />
+                android:text="QR Kod Tara" />
 
-            <EditText
-                android:id="@+id/edtWaitAfter"
+            <TextView
+                android:id="@+id/txtConnectionStatus"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="12dp"
                 android:layout_weight="1"
-                android:hint="Ara Bekleme (sn)"
-                android:inputType="number"
-                android:text="0" />
-
-            <Spinner
-                android:id="@+id/spinnerAnim"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1.2" />
+                android:text="Bağlantı Aranıyor..."
+                android:textColor="#E65100"
+                android:textStyle="bold" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/btnPickMedia"
+        <!-- Canlı Akış Butonları (Kamera & Ekran Paylaşımı) -->
+        <LinearLayout
+            android:id="@+id/panelLiveActions"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <Button
+                android:id="@+id/btnLiveCamera"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:backgroundTint="#0288D1"
+                android:text="📷 Canlı Kamera"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnLiveScreen"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:backgroundTint="#7B1FA2"
+                android:text="📱 Ekran Paylaş"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnStopScreenShare"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:backgroundTint="#D32F2F"
+                android:text="Durdur"
+                android:textColor="#FFFFFF"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Medya Yükleme Paneli -->
+        <LinearLayout
+            android:id="@+id/panelControls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#F5F5F5"
+            android:orientation="vertical"
+            android:padding="8dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/edtDuration"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Süre (sn / 0:tam)"
+                    android:inputType="number"
+                    android:text="0" />
+
+                <EditText
+                    android:id="@+id/edtWaitAfter"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:hint="Ara Bekleme (sn)"
+                    android:inputType="number"
+                    android:text="0" />
+
+                <Spinner
+                    android:id="@+id/spinnerAnim"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1.2" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnPickMedia"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="+ Yeni Medya Seç ve Gönder" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Oynatma Listesi:"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerViewPlaylist"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_marginTop="4dp"
-            android:text="+ Yeni Medya Seç ve Gönder" />
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/imgFooterLogo"
+            android:layout_width="130dp"
+            android:layout_height="45dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="6dp"
+            android:src="@drawable/logo_interfon" />
+
     </LinearLayout>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:text="Oynatma Listesi (Sıralamak için basılı tutup sürükleyin):"
-        android:textSize="12sp"
-        android:textStyle="bold" />
-
-    <!-- Sıralanabilir Liste -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerViewPlaylist"
+    <!-- Tam Ekran Kamera Önizleme (Kamera Modu Açıldığında Aktif Olur) -->
+    <FrameLayout
+        android:id="@+id/cameraOverlay"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="4dp"
-        android:layout_weight="1" />
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:visibility="gone">
 
-    <!-- Alt Logo -->
-    <ImageView
-        android:id="@+id/imgFooterLogo"
-        android:layout_width="130dp"
-        android:layout_height="45dp"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginTop="6dp"
-        android:src="@drawable/logo_interfon" />
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
 
-</LinearLayout>
+        <Button
+            android:id="@+id/btnCloseCamera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="16dp"
+            android:backgroundTint="#D32F2F"
+            android:text="← Kamerayı Kapat"
+            android:textColor="#FFFFFF" />
+    </FrameLayout>
+
+</FrameLayout>
