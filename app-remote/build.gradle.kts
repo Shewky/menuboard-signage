@@ -47,4 +47,9 @@ dependencies {
     // JSON Ayrıştırma
     implementation("com.google.code.gson:gson:2.10.1")
 implementation("com.github.bumptech.glide:glide:4.16.0")
+// CameraX Kütüphaneleri
+    implementation("androidx.camera:camera-core:1.3.1")
+    implementation("androidx.camera:camera-camera2:1.3.1")
+    implementation("androidx.camera:camera-lifecycle:1.3.1")
+    implementation("androidx.camera:camera-view:1.3.1")
 }
