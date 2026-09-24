@@ -34,6 +34,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.util.Collections
 import java.util.UUID
 
 data class MediaItemModel(
@@ -141,7 +142,6 @@ class MainActivity : AppCompatActivity() {
         httpServer?.start()
     }
 
-    // IP adresini gerçek zamanlı fiziksel arayüzlerden bulan fonksiyon
     private fun refreshIpAndQr() {
         val ip = getActiveLocalIpAddress()
         txtIpAddress.text = "IP: $ip:8080"
@@ -150,15 +150,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun getActiveLocalIpAddress(): String {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val intf = interfaces.nextElement()
-                if (intf.isLoopback || !intf.isUp) continue
-                val addresses = intf.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val addr = addresses.nextElement()
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
-                        return addr.hostAddress ?: "127.0.0.1"
+            val en = NetworkInterface.getNetworkInterfaces()
+            if (en != null) {
+                for (intf in Collections.list(en)) {
+                    if (intf.isLoopback || !intf.isUp) continue
+                    for (addr in Collections.list(intf.inetAddresses)) {
+                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                            return addr.hostAddress ?: "127.0.0.1"
+                        }
                     }
                 }
             }
@@ -176,7 +175,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showQrOverlay() {
-        refreshIpAndQr() // Ağ değişmişse anında yeni IP ve QR oluştur
+        refreshIpAndQr()
         stopAllPlayback()
         imgCornerLogo.visibility = View.GONE
         qrOverlay.visibility = View.VISIBLE
@@ -280,13 +279,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // HTTP API Motoru
+    // HTTP Sunucu Dinleyicisi
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
 
-            // Canlı Akış Başlatma Sinyali (Kamera veya Ekran)
+            // Canlı Akış Başlatma Sinyali
             if (uri == "/api/live/start" && method == Method.POST) {
                 isLiveStreaming = true
                 runOnUiThread {
@@ -306,13 +305,18 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STOPPED")
             }
 
-            // Canlı Kare (Frame) Alma
+            // Canlı Kare (Frame) Alma (readFully yerine standart güvenli okuma)
             if (uri == "/api/live/frame" && method == Method.POST) {
                 val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
                 if (contentLength > 0) {
                     val buffer = ByteArray(contentLength)
-                    session.inputStream.readFully(buffer)
-                    val bitmap = BitmapFactory.decodeByteArray(buffer, 0, buffer.size)
+                    var totalRead = 0
+                    while (totalRead < contentLength) {
+                        val count = session.inputStream.read(buffer, totalRead, contentLength - totalRead)
+                        if (count == -1) break
+                        totalRead += count
+                    }
+                    val bitmap = BitmapFactory.decodeByteArray(buffer, 0, totalRead)
                     if (bitmap != null) {
                         runOnUiThread {
                             if (isLiveStreaming) {
