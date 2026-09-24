@@ -3,7 +3,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Ana Panel -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -34,44 +33,73 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Canlı Akış Butonları (Kamera & Ekran Paylaşımı) -->
+        <!-- Canlı Akış Paneli & Çözünürlük/Kalite Ayarı -->
         <LinearLayout
             android:id="@+id/panelLiveActions"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:orientation="horizontal"
+            android:background="#EDE7F6"
+            android:orientation="vertical"
+            android:padding="8dp"
             android:visibility="gone">
 
-            <Button
-                android:id="@+id/btnLiveCamera"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:backgroundTint="#0288D1"
-                android:text="📷 Canlı Kamera"
-                android:textColor="#FFFFFF" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <Button
-                android:id="@+id/btnLiveScreen"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:backgroundTint="#7B1FA2"
-                android:text="📱 Ekran Paylaş"
-                android:textColor="#FFFFFF" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Akış Kalitesi:"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/btnStopScreenShare"
-                android:layout_width="0dp"
+                <Spinner
+                    android:id="@+id/spinnerStreamQuality"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:backgroundTint="#D32F2F"
-                android:text="Durdur"
-                android:textColor="#FFFFFF"
-                android:visibility="gone" />
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnLiveCamera"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:backgroundTint="#0288D1"
+                    android:text="📷 Kamera"
+                    android:textColor="#FFFFFF" />
+
+                <Button
+                    android:id="@+id/btnLiveScreen"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#7B1FA2"
+                    android:text="📱 Ekran Paylaş"
+                    android:textColor="#FFFFFF" />
+
+                <Button
+                    android:id="@+id/btnStopScreenShare"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#D32F2F"
+                    android:text="Durdur"
+                    android:textColor="#FFFFFF"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Medya Yükleme Paneli -->
@@ -150,7 +178,7 @@
 
     </LinearLayout>
 
-    <!-- Tam Ekran Kamera Önizleme (Kamera Modu Açıldığında Aktif Olur) -->
+    <!-- Kamera Önizleme Katmanı -->
     <FrameLayout
         android:id="@+id/cameraOverlay"
         android:layout_width="match_parent"
