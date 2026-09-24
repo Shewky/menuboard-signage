@@ -15,13 +15,13 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
-class ScreenCaptureService :荆Service() {
+class ScreenCaptureService : Service() {
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -31,11 +31,22 @@ class ScreenCaptureService :荆Service() {
     private var targetHost = ""
     private var isRunning = false
 
+    // Kalite Ayarları
+    private var targetWidth = 540
+    private var targetHeight = 960
+    private var jpegQuality = 60
+    private var frameIntervalMs = 70L // ~14 FPS
+
+    // Drop-frame Kilidi: Ağ önceki kareyi bitirmeden yeni kare göndermez
+    private val isFrameSending = AtomicBoolean(false)
+
     private val captureRunnable = object : Runnable {
         override fun run() {
             if (!isRunning) return
-            captureAndSendFrame()
-            handler.postDelayed(this, 100L) // Saniyede ~10 FPS ile akıcı ekran aktarımı
+            if (!isFrameSending.get()) {
+                captureAndSendFrame()
+            }
+            handler.postDelayed(this, frameIntervalMs)
         }
     }
 
@@ -50,6 +61,9 @@ class ScreenCaptureService :荆Service() {
         }
 
         targetHost = intent?.getStringExtra("target_host") ?: ""
+        val qualityLevel = intent?.getIntExtra("quality_level", 1) ?: 1
+        applyQualityProfile(qualityLevel)
+
         val resultCode = intent?.getIntExtra("result_code", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
         val resultData = intent?.getParcelableExtra<Intent>("result_data")
 
@@ -66,6 +80,29 @@ class ScreenCaptureService :荆Service() {
         return START_STICKY
     }
 
+    private fun applyQualityProfile(level: Int) {
+        when (level) {
+            0 -> { // Düşük (Hızlı / Akıcı)
+                targetWidth = 360
+                targetHeight = 640
+                jpegQuality = 45
+                frameIntervalMs = 85L // ~12 FPS
+            }
+            2 -> { // Yüksek (Net)
+                targetWidth = 720
+                targetHeight = 1280
+                jpegQuality = 75
+                frameIntervalMs = 50L // ~20 FPS
+            }
+            else -> { // Dengeli (Önerilen)
+                targetWidth = 540
+                targetHeight = 960
+                jpegQuality = 60
+                frameIntervalMs = 65L // ~15 FPS
+            }
+        }
+    }
+
     private fun startForegroundNotification() {
         val channelId = "screen_capture_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -76,7 +113,7 @@ class ScreenCaptureService :荆Service() {
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Menuboard Ekran Paylaşımı")
-            .setContentText("Telefon ekranınız menuboarda aktarılıyor...")
+            .setContentText("Görüntü aktarımı aktif (${targetWidth}x${targetHeight})")
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .build()
 
@@ -84,15 +121,11 @@ class ScreenCaptureService :荆Service() {
     }
 
     private fun setupVirtualDisplay() {
-        val metrics = resources.displayMetrics
-        val width = 540 // Ağ trafiğini hafif tutmak için 540x960 çözünürlüğe ölçeklenir
-        val height = 960
-        val dpi = metrics.densityDpi
-
-        imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+        val dpi = resources.displayMetrics.densityDpi
+        imageReader = ImageReader.newInstance(targetWidth, targetHeight, PixelFormat.RGBA_8888, 2)
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "ScreenCapture",
-            width, height, dpi,
+            targetWidth, targetHeight, dpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader?.surface, null, null
         )
@@ -100,6 +133,8 @@ class ScreenCaptureService :荆Service() {
 
     private fun captureAndSendFrame() {
         val image = imageReader?.acquireLatestImage() ?: return
+        isFrameSending.set(true)
+
         val planes = image.planes
         val buffer = planes[0].buffer
         val pixelStride = planes[0].pixelStride
@@ -116,7 +151,7 @@ class ScreenCaptureService :荆Service() {
 
         val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height)
         val stream = ByteArrayOutputStream()
-        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
+        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
         val bytes = stream.toByteArray()
 
         if (targetHost.isNotEmpty()) {
@@ -125,10 +160,19 @@ class ScreenCaptureService :荆Service() {
                 .url("http://$targetHost/api/live/frame")
                 .post(body)
                 .build()
-            httpClient.newCall(request).enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
-                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close() }
+
+            httpClient.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: java.io.IOException) {
+                    isFrameSending.set(false)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.close()
+                    isFrameSending.set(false)
+                }
             })
+        } else {
+            isFrameSending.set(false)
         }
     }
 
@@ -139,12 +183,11 @@ class ScreenCaptureService :荆Service() {
         imageReader?.close()
         mediaProjection?.stop()
 
-        // Menuboard'a yayın bitti sinyali gönder
         if (targetHost.isNotEmpty()) {
             val request = Request.Builder().url("http://$targetHost/api/live/stop").post("".toRequestBody(null)).build()
-            httpClient.newCall(request).enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
-                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close() }
+            httpClient.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: java.io.IOException) {}
+                override fun onResponse(call: Call, response: Response) { response.close() }
             })
         }
     }
