@@ -1,408 +1,587 @@
-package com.anypay.menuboard
+package com.anypay.remote
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
+import android.view.LayoutInflater
 import android.view.View
-import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
-import android.view.animation.ScaleAnimation
-import android.view.animation.TranslateAnimation
-import android.widget.Button
-import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.TextView
+import android.view.ViewGroup
+import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.journeyapps.barcodescanner.BarcodeEncoder
-import com.google.zxing.BarcodeFormat
-import fi.iki.elonen.NanoHTTPD
-import java.io.ByteArrayInputStream
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.net.Inet4Address
-import java.net.NetworkInterface
-import java.util.UUID
+import java.io.IOException
+import java.util.Collections
+import java.util.concurrent.Executors
 
 data class MediaItemModel(
-    val id: String = UUID.randomUUID().toString(),
-    val fileName: String,
+    val id: String,
+    var fileName: String,
     val type: String,
-    val durationSec: Int = 10,
-    val waitAfterSec: Int = 0,
-    val animation: String = "fade"
+    var durationSec: Int,
+    var waitAfterSec: Int,
+    var animation: String = "fade",
+    var fileDurationSec: Int = 0
 )
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var mediaContainer: FrameLayout
-    private lateinit var playerView: PlayerView
-    private lateinit var imageView: ImageView
-    private lateinit var imgLiveStream: ImageView
-    private lateinit var imgCornerLogo: ImageView
-    private lateinit var qrOverlay: View
-    private lateinit var imgQrCode: ImageView
-    private lateinit var txtIpAddress: TextView
-    private lateinit var btnSettings: ImageView
-    private lateinit var btnCloseQr: Button
+    private lateinit var btnScanQr: Button
+    private lateinit var txtConnectionStatus: TextView
+    private lateinit var panelLiveActions: View
+    private lateinit var btnLiveCamera: Button
+    private lateinit var btnLiveScreen: Button
+    private lateinit var btnStopScreenShare: Button
+    private lateinit var panelControls: View
+    private lateinit var edtDuration: EditText
+    private lateinit var edtWaitAfter: EditText
+    private lateinit var spinnerAnim: Spinner
+    private lateinit var btnPickMedia: Button
+    private lateinit var recyclerViewPlaylist: RecyclerView
+    private lateinit var cameraOverlay: View
+    private lateinit var previewView: PreviewView
+    private lateinit var btnCloseCamera: Button
 
-    private var exoPlayer: ExoPlayer? = null
-    private var httpServer: SignageServer? = null
+    private val httpClient = OkHttpClient()
     private val gson = Gson()
-    private val handler = Handler(Looper.getMainLooper())
-
+    private var targetHost = ""
+    private var isConnected = false
+    private var isSharingScreen = false
+    private var isCameraStreaming = false
     private var playlist = mutableListOf<MediaItemModel>()
-    private var currentIndex = 0
-    private var currentPairToken = ""
-    private var isLiveStreaming = false
+    private lateinit var adapter: MediaAdapter
 
-    private val mediaEndRunnable = Runnable { scheduleNextMedia() }
+    private val handler = Handler(Looper.getMainLooper())
+    private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
+    private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
+
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            checkConnectionAndSync()
+            handler.postDelayed(this, 10000L)
+        }
+    }
+
+    private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            try {
+                val json = JSONObject(result.contents)
+                val ip = json.getString("ip")
+                val port = json.getInt("port")
+                targetHost = "$ip:$port"
+
+                getSharedPreferences("remote_prefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("saved_host", targetHost)
+                    .apply()
+
+                checkConnectionAndSync()
+            } catch (_: Exception) {
+                Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val pickMediaLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK && res.data?.data != null) {
+            uploadMediaFile(res.data!!.data!!)
+        }
+    }
+
+    // Ekran Paylaşımı İzin Yakalayıcı
+    private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK && res.data != null) {
+            startScreenShareService(res.resultCode, res.data!!)
+        } else {
+            Toast.makeText(this, "Ekran paylaşım izni verilmedi", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        mediaContainer = findViewById(R.id.mediaContainer)
-        playerView = findViewById(R.id.playerView)
-        imageView = findViewById(R.id.imageView)
-        imgLiveStream = findViewById(R.id.imgLiveStream)
-        imgCornerLogo = findViewById(R.id.imgCornerLogo)
-        qrOverlay = findViewById(R.id.qrOverlay)
-        imgQrCode = findViewById(R.id.imgQrCode)
-        txtIpAddress = findViewById(R.id.txtIpAddress)
-        btnSettings = findViewById(R.id.btnSettings)
-        btnCloseQr = findViewById(R.id.btnCloseQr)
+        btnScanQr = findViewById(R.id.btnScanQr)
+        txtConnectionStatus = findViewById(R.id.txtConnectionStatus)
+        panelLiveActions = findViewById(R.id.panelLiveActions)
+        btnLiveCamera = findViewById(R.id.btnLiveCamera)
+        btnLiveScreen = findViewById(R.id.btnLiveScreen)
+        btnStopScreenShare = findViewById(R.id.btnStopScreenShare)
+        panelControls = findViewById(R.id.panelControls)
+        edtDuration = findViewById(R.id.edtDuration)
+        edtWaitAfter = findViewById(R.id.edtWaitAfter)
+        spinnerAnim = findViewById(R.id.spinnerAnim)
+        btnPickMedia = findViewById(R.id.btnPickMedia)
+        recyclerViewPlaylist = findViewById(R.id.recyclerViewPlaylist)
+        cameraOverlay = findViewById(R.id.cameraOverlay)
+        previewView = findViewById(R.id.previewView)
+        btnCloseCamera = findViewById(R.id.btnCloseCamera)
 
-        initPlayer()
-        loadSavedState()
+        spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
 
-        btnSettings.setOnClickListener { showQrOverlay() }
-        btnCloseQr.setOnClickListener {
-            if (playlist.isNotEmpty()) {
-                hideQrOverlay()
-                startPlayback()
+        adapter = MediaAdapter()
+        recyclerViewPlaylist.layoutManager = LinearLayoutManager(this)
+        recyclerViewPlaylist.adapter = adapter
+
+        val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
+            override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+                val fromPos = vh.adapterPosition
+                val toPos = target.adapterPosition
+                Collections.swap(playlist, fromPos, toPos)
+                adapter.notifyItemMoved(fromPos, toPos)
+                return true
             }
-        }
 
-        startLocalServer()
-    }
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
 
-    private fun initPlayer() {
-        exoPlayer = ExoPlayer.Builder(this).build().apply {
-            playerView.player = this
-            playerView.useController = false
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(state: Int) {
-                    if (state == Player.STATE_ENDED) {
-                        scheduleNextMedia()
-                    }
-                }
-            })
-        }
-    }
-
-    private fun loadSavedState() {
-        val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
-        currentPairToken = prefs.getString("pair_token", "") ?: ""
-        if (currentPairToken.isEmpty()) {
-            currentPairToken = UUID.randomUUID().toString().take(8)
-            prefs.edit().putString("pair_token", currentPairToken).apply()
-        }
-
-        val json = prefs.getString("playlist_json", null)
-        if (!json.isNullOrEmpty()) {
-            val type = object : TypeToken<MutableList<MediaItemModel>>() {}.type
-            playlist = gson.fromJson(json, type)
-        }
-
-        if (playlist.isNotEmpty()) {
-            hideQrOverlay()
-            startPlayback()
-        } else {
-            showQrOverlay()
-        }
-    }
-
-    private fun startLocalServer() {
-        refreshIpAndQr()
-        httpServer = SignageServer(8080)
-        httpServer?.start()
-    }
-
-    // IP adresini gerçek zamanlı fiziksel arayüzlerden bulan fonksiyon
-    private fun refreshIpAndQr() {
-        val ip = getActiveLocalIpAddress()
-        txtIpAddress.text = "IP: $ip:8080"
-        generateQr(ip, currentPairToken)
-    }
-
-    private fun getActiveLocalIpAddress(): String {
-        try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val intf = interfaces.nextElement()
-                if (intf.isLoopback || !intf.isUp) continue
-                val addresses = intf.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val addr = addresses.nextElement()
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
-                        return addr.hostAddress ?: "127.0.0.1"
-                    }
-                }
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                syncPlaylistToMenuboard()
             }
-        } catch (_: Exception) {}
-        return "127.0.0.1"
-    }
+        })
+        itemTouchHelper.attachToRecyclerView(recyclerViewPlaylist)
 
-    private fun generateQr(ip: String, token: String) {
-        val payload = "{\"ip\":\"$ip\",\"port\":8080,\"token\":\"$token\"}"
-        try {
-            val barcodeEncoder = BarcodeEncoder()
-            val bitmap = barcodeEncoder.encodeBitmap(payload, BarcodeFormat.QR_CODE, 500, 500)
-            imgQrCode.setImageBitmap(bitmap)
-        } catch (_: Exception) {}
-    }
-
-    private fun showQrOverlay() {
-        refreshIpAndQr() // Ağ değişmişse anında yeni IP ve QR oluştur
-        stopAllPlayback()
-        imgCornerLogo.visibility = View.GONE
-        qrOverlay.visibility = View.VISIBLE
-    }
-
-    private fun hideQrOverlay() {
-        qrOverlay.visibility = View.GONE
-        imgCornerLogo.visibility = View.VISIBLE
-    }
-
-    private fun stopAllPlayback() {
-        handler.removeCallbacksAndMessages(null)
-        exoPlayer?.stop()
-        exoPlayer?.clearMediaItems()
-        playerView.visibility = View.GONE
-        imageView.visibility = View.GONE
-    }
-
-    private fun startPlayback() {
-        if (isLiveStreaming) return
-        if (playlist.isEmpty()) {
-            showQrOverlay()
-            return
+        btnScanQr.setOnClickListener {
+            val options = ScanOptions().apply {
+                setPrompt("Menuboard üzerindeki QR kodu taratın")
+                setBeepEnabled(true)
+                setOrientationLocked(false)
+            }
+            qrLauncher.launch(options)
         }
-        playItem(currentIndex % playlist.size)
-    }
 
-    private fun applyTransitionAnimation(animationType: String) {
-        val anim: Animation? = when (animationType) {
-            "slide_left" -> TranslateAnimation(
-                Animation.RELATIVE_TO_PARENT, 1.0f, Animation.RELATIVE_TO_PARENT, 0.0f,
-                Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f
-            ).apply { duration = 500 }
-            "slide_right" -> TranslateAnimation(
-                Animation.RELATIVE_TO_PARENT, -1.0f, Animation.RELATIVE_TO_PARENT, 0.0f,
-                Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f
-            ).apply { duration = 500 }
-            "zoom" -> ScaleAnimation(
-                0.8f, 1.0f, 0.8f, 1.0f,
-                Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f
-            ).apply { duration = 400 }
-            "fade" -> AlphaAnimation(0.0f, 1.0f).apply { duration = 400 }
-            else -> null
+        btnPickMedia.setOnClickListener {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+            }
+            pickMediaLauncher.launch(intent)
         }
-        anim?.let { mediaContainer.startAnimation(it) }
+
+        // 1. Canlı Kamera Başlat
+        btnLiveCamera.setOnClickListener {
+            startLiveCamera()
+        }
+
+        btnCloseCamera.setOnClickListener {
+            stopLiveCamera()
+        }
+
+        // 2. Ekran Paylaşımı Başlat
+        btnLiveScreen.setOnClickListener {
+            val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            screenCaptureLauncher.launch(mpManager.createScreenCaptureIntent())
+        }
+
+        btnStopScreenShare.setOnClickListener {
+            stopScreenShareService()
+        }
+
+        targetHost = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("saved_host", "") ?: ""
     }
 
-    private fun playItem(index: Int) {
-        if (isLiveStreaming) return
-        stopAllPlayback()
-        if (playlist.isEmpty()) return
+    override fun onResume() {
+        super.onResume()
+        handler.post(heartbeatRunnable)
+    }
 
-        currentIndex = index
-        val item = playlist[index]
-        val file = File(filesDir, item.fileName)
-        if (!file.exists()) {
-            scheduleNextMedia()
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(heartbeatRunnable)
+    }
+
+    private fun checkConnectionAndSync() {
+        if (targetHost.isEmpty()) {
+            updateConnectionUi(false)
             return
         }
 
-        applyTransitionAnimation(item.animation)
-
-        if (item.type == "video") {
-            playerView.visibility = View.VISIBLE
-            exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
-            exoPlayer?.prepare()
-            exoPlayer?.play()
-
-            if (item.durationSec > 0) {
-                handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
+        val request = Request.Builder().url("http://$targetHost/api/ping").build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                updateConnectionUi(false)
             }
-        } else {
-            imageView.visibility = View.VISIBLE
-            imageView.setImageURI(Uri.fromFile(file))
-            val dur = if (item.durationSec > 0) item.durationSec else 10
-            handler.postDelayed(mediaEndRunnable, dur * 1000L)
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    val wasDisconnected = !isConnected
+                    updateConnectionUi(true)
+                    if (wasDisconnected) {
+                        fetchPlaylist()
+                    }
+                } else {
+                    updateConnectionUi(false)
+                }
+            }
+        })
+    }
+
+    private fun updateConnectionUi(connected: Boolean) {
+        isConnected = connected
+        runOnUiThread {
+            if (connected) {
+                txtConnectionStatus.text = "Bağlı ($targetHost)"
+                txtConnectionStatus.setTextColor(0xFF2E7D32.toInt())
+                panelControls.visibility = View.VISIBLE
+                panelLiveActions.visibility = View.VISIBLE
+            } else {
+                txtConnectionStatus.text = if (targetHost.isEmpty()) "QR Okutun" else "Bağlantı Bekleniyor... ($targetHost)"
+                txtConnectionStatus.setTextColor(0xFFE65100.toInt())
+                panelControls.visibility = View.GONE
+                panelLiveActions.visibility = View.GONE
+            }
         }
     }
 
-    private fun scheduleNextMedia() {
-        if (isLiveStreaming) return
-        stopAllPlayback()
-        if (playlist.isEmpty()) return
+    // Kamera Canlı Akışı Başlat
+    private fun startLiveCamera() {
+        isCameraStreaming = true
+        cameraOverlay.visibility = View.VISIBLE
 
-        val currentItem = playlist[currentIndex % playlist.size]
-        val waitTime = currentItem.waitAfterSec * 1000L
+        // Menuboard'a akış başlat sinyali at
+        val request = Request.Builder().url("http://$targetHost/api/live/start").post("".toRequestBody(null)).build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
 
-        handler.postDelayed({
-            currentIndex = (currentIndex + 1) % playlist.size
-            playItem(currentIndex)
-        }, waitTime)
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setTargetResolution(android.util.Size(540, 960))
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+
+            var lastFrameTime = 0L
+            imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                val now = System.currentTimeMillis()
+                if (now - lastFrameTime > 80L && isCameraStreaming) { // Saniyede ~12 FPS akış
+                    lastFrameTime = now
+                    val bitmap = imageProxy.toBitmap()
+                    val stream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
+                    val bytes = stream.toByteArray()
+
+                    val body = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                    val frameReq = Request.Builder().url("http://$targetHost/api/live/frame").post(body).build()
+                    httpClient.newCall(frameReq).enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {}
+                        override fun onResponse(call: Call, response: Response) { response.close() }
+                    })
+                }
+                imageProxy.close()
+            }
+
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+            } catch (_: Exception) {}
+
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun stopLiveCamera() {
+        isCameraStreaming = false
+        cameraOverlay.visibility = View.GONE
+
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            cameraProviderFuture.get().unbindAll()
+        }, ContextCompat.getMainExecutor(this))
+
+        // Menuboard'a akış bitti sinyali gönder
+        val request = Request.Builder().url("http://$targetHost/api/live/stop").post("".toRequestBody(null)).build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+    }
+
+    // Ekran Paylaşımı Başlat
+    private fun startScreenShareService(resultCode: Int, data: Intent) {
+        isSharingScreen = true
+        btnLiveScreen.visibility = View.GONE
+        btnStopScreenShare.visibility = View.VISIBLE
+
+        // Menuboard'a ekran akışı başlat sinyali at
+        val request = Request.Builder().url("http://$targetHost/api/live/start").post("".toRequestBody(null)).build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+
+        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            putExtra("result_code", resultCode)
+            putExtra("result_data", data)
+            putExtra("target_host", targetHost)
+        }
+        ContextCompat.startForegroundService(this, serviceIntent)
+
+        // Kullanıcı diğer uygulamalarda telefonunu kullanabilsin diye kumandayı arka plana gönder
+        moveTaskToBack(true)
+    }
+
+    private fun stopScreenShareService() {
+        isSharingScreen = false
+        btnLiveScreen.visibility = View.VISIBLE
+        btnStopScreenShare.visibility = View.GONE
+
+        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            action = "STOP"
+            putExtra("target_host", targetHost)
+        }
+        startService(serviceIntent)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (qrOverlay.visibility == View.VISIBLE && playlist.isNotEmpty()) {
-            hideQrOverlay()
-            startPlayback()
+        if (isCameraStreaming) {
+            stopLiveCamera()
         } else {
             super.onBackPressed()
         }
     }
 
-    // HTTP API Motoru
-    inner class SignageServer(port: Int) : NanoHTTPD(port) {
-        override fun serve(session: IHTTPSession): Response {
-            val uri = session.uri
-            val method = session.method
+    private fun fetchPlaylist() {
+        if (targetHost.isEmpty()) return
+        val request = Request.Builder().url("http://$targetHost/api/playlist").build()
 
-            // Canlı Akış Başlatma Sinyali (Kamera veya Ekran)
-            if (uri == "/api/live/start" && method == Method.POST) {
-                isLiveStreaming = true
-                runOnUiThread {
-                    stopAllPlayback()
-                    imgLiveStream.visibility = View.VISIBLE
-                }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STARTED")
-            }
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { updateConnectionUi(false) }
 
-            // Canlı Akış Durdurma Sinyali
-            if (uri == "/api/live/stop" && method == Method.POST) {
-                isLiveStreaming = false
-                runOnUiThread {
-                    imgLiveStream.visibility = View.GONE
-                    startPlayback()
-                }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STOPPED")
-            }
-
-            // Canlı Kare (Frame) Alma
-            if (uri == "/api/live/frame" && method == Method.POST) {
-                val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
-                if (contentLength > 0) {
-                    val buffer = ByteArray(contentLength)
-                    session.inputStream.readFully(buffer)
-                    val bitmap = BitmapFactory.decodeByteArray(buffer, 0, buffer.size)
-                    if (bitmap != null) {
-                        runOnUiThread {
-                            if (isLiveStreaming) {
-                                imgLiveStream.setImageBitmap(bitmap)
-                            }
-                        }
-                    }
-                }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
-            }
-
-            if (uri == "/api/ping" && method == Method.GET) {
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "PONG")
-            }
-
-            if (uri == "/api/playlist" && method == Method.GET) {
-                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(playlist))
-            }
-
-            if (uri == "/api/playlist" && method == Method.POST) {
-                val files = HashMap<String, String>()
-                session.parseBody(files)
-                val postData = files["postData"] ?: ""
-                val type = object : TypeToken<MutableList<MediaItemModel>>() {}.type
-                playlist = gson.fromJson(postData, type)
-
-                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("playlist_json", postData)
-                    .apply()
-
-                runOnUiThread {
-                    hideQrOverlay()
-                    currentIndex = 0
-                    startPlayback()
-                }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
-            }
-
-            if (uri == "/api/upload" && method == Method.POST) {
-                val files = HashMap<String, String>()
-                session.parseBody(files)
-                val params = session.parameters
-                val filename = params["filename"]?.firstOrNull() ?: "media_${System.currentTimeMillis()}"
-
-                val tempFilePath = files["file"]
-                if (tempFilePath != null) {
-                    val tempFile = File(tempFilePath)
-                    val targetFile = File(filesDir, filename)
-                    FileInputStream(tempFile).use { input ->
-                        FileOutputStream(targetFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    return newFixedLengthResponse(Response.Status.OK, "text/plain", filename)
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : TypeToken<MutableList<MediaItemModel>>() {}.type
+                    playlist = gson.fromJson(body, type)
+                    runOnUiThread { adapter.notifyDataSetChanged() }
                 }
             }
-
-            if (uri == "/api/thumbnail" && method == Method.GET) {
-                val filename = session.parameters["filename"]?.firstOrNull() ?: ""
-                val file = File(filesDir, filename)
-                if (file.exists()) {
-                    val isVideo = filename.endsWith(".mp4", ignoreCase = true) || filename.endsWith(".mkv", ignoreCase = true)
-                    val bitmap: Bitmap? = if (isVideo) {
-                        val retriever = MediaMetadataRetriever()
-                        try {
-                            retriever.setDataSource(file.absolutePath)
-                            retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        } catch (_: Exception) { null }
-                    } else {
-                        BitmapFactory.decodeFile(file.absolutePath)
-                    }
-
-                    if (bitmap != null) {
-                        val thumb = Bitmap.createScaledBitmap(bitmap, 120, 120, true)
-                        val stream = ByteArrayOutputStream()
-                        thumb.compress(Bitmap.CompressFormat.JPEG, 70, stream)
-                        val bytes = stream.toByteArray()
-                        return newFixedLengthResponse(Response.Status.OK, "image/jpeg", ByteArrayInputStream(bytes), bytes.size.toLong())
-                    }
-                }
-            }
-
-            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not Found")
-        }
+        })
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        httpServer?.stop()
-        exoPlayer?.release()
+    private fun uploadMediaFile(uri: Uri) {
+        val contentResolver = applicationContext.contentResolver
+        val mimeType = contentResolver.getType(uri) ?: ""
+        val isVideo = mimeType.startsWith("video")
+        val type = if (isVideo) "video" else "image"
+
+        var fileName = "media_${System.currentTimeMillis()}"
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && nameIndex >= 0) {
+                fileName = cursor.getString(nameIndex)
+            }
+        }
+
+        var fileDurationSec = 0
+        if (isVideo) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(this, uri)
+                val time = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                fileDurationSec = ((time?.toLong() ?: 0L) / 1000).toInt()
+            } catch (_: Exception) {}
+        }
+
+        val inputStream = contentResolver.openInputStream(uri) ?: return
+        val bytes = inputStream.readBytes()
+        inputStream.close()
+
+        Toast.makeText(this, "Yükleniyor...", Toast.LENGTH_SHORT).show()
+
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", fileName, bytes.toRequestBody("application/octet-stream".toMediaTypeOrNull()))
+            .build()
+
+        val uploadRequest = Request.Builder()
+            .url("http://$targetHost/api/upload?filename=$fileName")
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(uploadRequest).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Yükleme Başarısız!", Toast.LENGTH_SHORT).show() }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    val dur = edtDuration.text.toString().toIntOrNull() ?: 0
+                    val wait = edtWaitAfter.text.toString().toIntOrNull() ?: 0
+                    val anim = animValues[spinnerAnim.selectedItemPosition]
+
+                    val newItem = MediaItemModel(
+                        id = System.currentTimeMillis().toString(),
+                        fileName = fileName,
+                        type = type,
+                        durationSec = dur,
+                        waitAfterSec = wait,
+                        animation = anim,
+                        fileDurationSec = fileDurationSec
+                    )
+                    playlist.add(newItem)
+                    syncPlaylistToMenuboard()
+                }
+            }
+        })
+    }
+
+    private fun syncPlaylistToMenuboard() {
+        val jsonPayload = gson.toJson(playlist)
+        val body = jsonPayload.toRequestBody("application/json".toMediaTypeOrNull())
+
+        val request = Request.Builder()
+            .url("http://$targetHost/api/playlist")
+            .post(body)
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Senkronizasyon Başarısız!", Toast.LENGTH_SHORT).show() }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Menuboard Güncellendi!", Toast.LENGTH_SHORT).show()
+                    fetchPlaylist()
+                }
+            }
+        })
+    }
+
+    private fun showEditDialog(item: MediaItemModel) {
+        val edtDur = EditText(this).apply {
+            hint = "Süre (sn / Video için 0=tamamı)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(item.durationSec.toString())
+        }
+        val edtWait = EditText(this).apply {
+            hint = "Ara Bekleme (sn)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(item.waitAfterSec.toString())
+        }
+        val spAnim = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
+            val index = animValues.indexOf(item.animation)
+            if (index >= 0) setSelection(index)
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 40, 50, 10)
+            addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" })
+            addView(edtDur)
+            addView(TextView(this@MainActivity).apply { text = "İki Medya Arası Bekleme (sn):" })
+            addView(edtWait)
+            addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" })
+            addView(spAnim)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Medya Ayarları")
+            .setView(layout)
+            .setPositiveButton("Kaydet") { _, _ ->
+                item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
+                item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
+                item.animation = animValues[spAnim.selectedItemPosition]
+                syncPlaylistToMenuboard()
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    inner class MediaAdapter : RecyclerView.Adapter<MediaAdapter.MediaViewHolder>() {
+
+        inner class MediaViewHolder(v: View) : RecyclerView.ViewHolder(v) {
+            val imgThumb: ImageView = v.findViewById(R.id.imgThumb)
+            val txtTypeBadge: TextView = v.findViewById(R.id.txtTypeBadge)
+            val txtFileName: TextView = v.findViewById(R.id.txtFileName)
+            val txtDetails: TextView = v.findViewById(R.id.txtDetails)
+            val txtAnimBadge: TextView = v.findViewById(R.id.txtAnimBadge)
+            val btnEdit: ImageButton = v.findViewById(R.id.btnEdit)
+            val btnDelete: ImageButton = v.findViewById(R.id.btnDelete)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MediaViewHolder {
+            val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media, parent, false)
+            return MediaViewHolder(v)
+        }
+
+        override fun onBindViewHolder(holder: MediaViewHolder, position: Int) {
+            val item = playlist[position]
+            holder.txtFileName.text = item.fileName
+            holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
+            holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
+
+            if (item.type == "video") {
+                val totalStr = if (item.fileDurationSec > 0) "${item.fileDurationSec}sn" else "Bilinmiyor"
+                val playStr = if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı ($totalStr)"
+                holder.txtDetails.text = "Video: $playStr | +${item.waitAfterSec}s ara"
+            } else {
+                val dur = if (item.durationSec > 0) item.durationSec else 10
+                holder.txtDetails.text = "Resim: ${dur}s süre | +${item.waitAfterSec}s ara"
+            }
+
+            val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
+            holder.txtAnimBadge.text = "Animasyon: $animName"
+
+            val thumbUrl = "http://$targetHost/api/thumbnail?filename=${item.fileName}"
+            Glide.with(holder.itemView.context)
+                .load(thumbUrl)
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                .centerCrop()
+                .into(holder.imgThumb)
+
+            holder.btnEdit.setOnClickListener { showEditDialog(item) }
+
+            holder.btnDelete.setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Medyayı Sil")
+                    .setMessage("${item.fileName} menuboard'dan silinsin mi?")
+                    .setPositiveButton("Sil") { _, _ ->
+                        playlist.removeAt(holder.adapterPosition)
+                        syncPlaylistToMenuboard()
+                    }
+                    .setNegativeButton("İptal", null)
+                    .show()
+            }
+        }
+
+        override fun getItemCount(): Int = playlist.size
     }
 }
