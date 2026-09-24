@@ -5,7 +5,7 @@
     android:background="#000000"
     android:keepScreenOn="true">
 
-    <!-- Medya Konteyneri (Animasyonlar Bu Kapsayıcıya Uygulanır) -->
+    <!-- Medya Konteyneri -->
     <FrameLayout
         android:id="@+id/mediaContainer"
         android:layout_width="match_parent"
@@ -25,6 +25,14 @@
             android:visibility="gone" />
     </FrameLayout>
 
+    <!-- Canlı Kamera / Ekran Yansıtma Katmanı -->
+    <ImageView
+        android:id="@+id/imgLiveStream"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
     <!-- Sol Üst Ayar Butonu -->
     <ImageView
         android:id="@+id/btnSettings"
@@ -35,7 +43,7 @@
         android:padding="12dp"
         android:src="@android:drawable/ic_menu_preferences" />
 
-    <!-- Oynatma Sırasında Sağ Alttaki Küçük & Şeffaf Logo -->
+    <!-- Sağ Alttaki Küçük & Şeffaf Logo -->
     <ImageView
         android:id="@+id/imgCornerLogo"
         android:layout_width="85dp"
@@ -100,7 +108,6 @@
             android:text="Oynatmaya Dön (Kapat)"
             android:textColor="#FFFFFF" />
 
-        <!-- Ayar Ekranı Altındaki Logo -->
         <ImageView
             android:layout_width="120dp"
             android:layout_height="50dp"
