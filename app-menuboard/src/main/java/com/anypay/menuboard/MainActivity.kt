@@ -2,13 +2,12 @@ package com.anypay.menuboard
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.format.Formatter
 import android.view.View
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
@@ -33,6 +32,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.util.UUID
 
 data class MediaItemModel(
@@ -41,7 +42,7 @@ data class MediaItemModel(
     val type: String,
     val durationSec: Int = 10,
     val waitAfterSec: Int = 0,
-    val animation: String = "fade" // fade, slide_left, slide_right, zoom, none
+    val animation: String = "fade"
 )
 
 class MainActivity : AppCompatActivity() {
@@ -49,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaContainer: FrameLayout
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
+    private lateinit var imgLiveStream: ImageView
     private lateinit var imgCornerLogo: ImageView
     private lateinit var qrOverlay: View
     private lateinit var imgQrCode: ImageView
@@ -64,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private var playlist = mutableListOf<MediaItemModel>()
     private var currentIndex = 0
     private var currentPairToken = ""
+    private var isLiveStreaming = false
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
 
@@ -74,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         mediaContainer = findViewById(R.id.mediaContainer)
         playerView = findViewById(R.id.playerView)
         imageView = findViewById(R.id.imageView)
+        imgLiveStream = findViewById(R.id.imgLiveStream)
         imgCornerLogo = findViewById(R.id.imgCornerLogo)
         qrOverlay = findViewById(R.id.qrOverlay)
         imgQrCode = findViewById(R.id.imgQrCode)
@@ -132,12 +136,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startLocalServer() {
-        val ip = getLocalIpAddress()
-        txtIpAddress.text = "IP: $ip:8080"
-        generateQr(ip, currentPairToken)
-
+        refreshIpAndQr()
         httpServer = SignageServer(8080)
         httpServer?.start()
+    }
+
+    // IP adresini gerçek zamanlı fiziksel arayüzlerden bulan fonksiyon
+    private fun refreshIpAndQr() {
+        val ip = getActiveLocalIpAddress()
+        txtIpAddress.text = "IP: $ip:8080"
+        generateQr(ip, currentPairToken)
+    }
+
+    private fun getActiveLocalIpAddress(): String {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val intf = interfaces.nextElement()
+                if (intf.isLoopback || !intf.isUp) continue
+                val addresses = intf.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        return addr.hostAddress ?: "127.0.0.1"
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return "127.0.0.1"
     }
 
     private fun generateQr(ip: String, token: String) {
@@ -149,12 +175,8 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    private fun getLocalIpAddress(): String {
-        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        return Formatter.formatIpAddress(wm.connectionInfo.ipAddress)
-    }
-
     private fun showQrOverlay() {
+        refreshIpAndQr() // Ağ değişmişse anında yeni IP ve QR oluştur
         stopAllPlayback()
         imgCornerLogo.visibility = View.GONE
         qrOverlay.visibility = View.VISIBLE
@@ -174,6 +196,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPlayback() {
+        if (isLiveStreaming) return
         if (playlist.isEmpty()) {
             showQrOverlay()
             return
@@ -202,6 +225,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playItem(index: Int) {
+        if (isLiveStreaming) return
         stopAllPlayback()
         if (playlist.isEmpty()) return
 
@@ -221,7 +245,6 @@ class MainActivity : AppCompatActivity() {
             exoPlayer?.prepare()
             exoPlayer?.play()
 
-            // Eğer özel video süresi belirtildiyse o sürede kesip sonrakine geç
             if (item.durationSec > 0) {
                 handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
             }
@@ -234,6 +257,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleNextMedia() {
+        if (isLiveStreaming) return
         stopAllPlayback()
         if (playlist.isEmpty()) return
 
@@ -256,23 +280,58 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // HTTP API
+    // HTTP API Motoru
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
 
-            // Bağlantı Kontrolü (Heartbeat / Ping)
+            // Canlı Akış Başlatma Sinyali (Kamera veya Ekran)
+            if (uri == "/api/live/start" && method == Method.POST) {
+                isLiveStreaming = true
+                runOnUiThread {
+                    stopAllPlayback()
+                    imgLiveStream.visibility = View.VISIBLE
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STARTED")
+            }
+
+            // Canlı Akış Durdurma Sinyali
+            if (uri == "/api/live/stop" && method == Method.POST) {
+                isLiveStreaming = false
+                runOnUiThread {
+                    imgLiveStream.visibility = View.GONE
+                    startPlayback()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STOPPED")
+            }
+
+            // Canlı Kare (Frame) Alma
+            if (uri == "/api/live/frame" && method == Method.POST) {
+                val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
+                if (contentLength > 0) {
+                    val buffer = ByteArray(contentLength)
+                    session.inputStream.readFully(buffer)
+                    val bitmap = BitmapFactory.decodeByteArray(buffer, 0, buffer.size)
+                    if (bitmap != null) {
+                        runOnUiThread {
+                            if (isLiveStreaming) {
+                                imgLiveStream.setImageBitmap(bitmap)
+                            }
+                        }
+                    }
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+            }
+
             if (uri == "/api/ping" && method == Method.GET) {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "PONG")
             }
 
-            // Oynatma Listesi Çek
             if (uri == "/api/playlist" && method == Method.GET) {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(playlist))
             }
 
-            // Oynatma Listesi Güncelle
             if (uri == "/api/playlist" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
@@ -293,7 +352,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
-            // Dosya Yükleme
             if (uri == "/api/upload" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
@@ -313,7 +371,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Kumanda Önizleme Thumbnail
             if (uri == "/api/thumbnail" && method == Method.GET) {
                 val filename = session.parameters["filename"]?.firstOrNull() ?: ""
                 val file = File(filesDir, filename)
@@ -326,7 +383,7 @@ class MainActivity : AppCompatActivity() {
                             retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         } catch (_: Exception) { null }
                     } else {
-                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                        BitmapFactory.decodeFile(file.absolutePath)
                     }
 
                     if (bitmap != null) {
