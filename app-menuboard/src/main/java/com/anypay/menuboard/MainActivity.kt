@@ -141,7 +141,6 @@ class MainActivity : AppCompatActivity() {
         httpServer?.start()
     }
 
-    // IP adresini gerçek zamanlı fiziksel arayüzlerden bulan fonksiyon
     private fun refreshIpAndQr() {
         val ip = getActiveLocalIpAddress()
         txtIpAddress.text = "IP: $ip:8080"
@@ -176,7 +175,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showQrOverlay() {
-        refreshIpAndQr() // Ağ değişmişse anında yeni IP ve QR oluştur
+        refreshIpAndQr()
         stopAllPlayback()
         imgCornerLogo.visibility = View.GONE
         qrOverlay.visibility = View.VISIBLE
@@ -280,13 +279,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // HTTP API Motoru
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
 
-            // Canlı Akış Başlatma Sinyali (Kamera veya Ekran)
             if (uri == "/api/live/start" && method == Method.POST) {
                 isLiveStreaming = true
                 runOnUiThread {
@@ -296,7 +293,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STARTED")
             }
 
-            // Canlı Akış Durdurma Sinyali
             if (uri == "/api/live/stop" && method == Method.POST) {
                 isLiveStreaming = false
                 runOnUiThread {
@@ -306,17 +302,25 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STOPPED")
             }
 
-            // Canlı Kare (Frame) Alma
+            // Canlı kareleri okuma
             if (uri == "/api/live/frame" && method == Method.POST) {
                 val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
                 if (contentLength > 0) {
                     val buffer = ByteArray(contentLength)
-                    session.inputStream.readFully(buffer)
-                    val bitmap = BitmapFactory.decodeByteArray(buffer, 0, buffer.size)
-                    if (bitmap != null) {
-                        runOnUiThread {
-                            if (isLiveStreaming) {
-                                imgLiveStream.setImageBitmap(bitmap)
+                    var totalRead = 0
+                    val input = session.inputStream
+                    while (totalRead < contentLength) {
+                        val readCount = input.read(buffer, totalRead, contentLength - totalRead)
+                        if (readCount <= 0) break
+                        totalRead += readCount
+                    }
+                    if (totalRead > 0) {
+                        val bitmap = BitmapFactory.decodeByteArray(buffer, 0, totalRead)
+                        if (bitmap != null) {
+                            runOnUiThread {
+                                if (isLiveStreaming) {
+                                    imgLiveStream.setImageBitmap(bitmap)
+                                }
                             }
                         }
                     }
