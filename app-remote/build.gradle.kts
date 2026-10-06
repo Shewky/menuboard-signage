@@ -41,15 +41,12 @@ dependencies {
     // QR Tarayıcı
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
-    // HTTP İletişimi & Dosya Yükleme (OkHttp)
+    // HTTP İletişimi
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // JSON Ayrıştırma
     implementation("com.google.code.gson:gson:2.10.1")
-implementation("com.github.bumptech.glide:glide:4.16.0")
-// CameraX Kütüphaneleri
-    implementation("androidx.camera:camera-core:1.3.1")
-    implementation("androidx.camera:camera-camera2:1.3.1")
-    implementation("androidx.camera:camera-lifecycle:1.3.1")
-    implementation("androidx.camera:camera-view:1.3.1")
+
+    // Görsel Yükleyici
+    implementation("com.github.bumptech.glide:glide:4.16.0")
 }
