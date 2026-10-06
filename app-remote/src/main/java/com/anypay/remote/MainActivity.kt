@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.media.MediaMetadataRetriever
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -16,6 +17,7 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -30,10 +32,13 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.util.Collections
 
 data class DeviceItem(
-    val host: String, // "192.168.1.50:8080"
+    val id: String,
+    var host: String,
     var nameTag: String,
     var isFinding: Boolean = false
 )
@@ -50,24 +55,22 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
-    // Sekmeler
     private lateinit var tabDevices: Button
     private lateinit var tabMedia: Button
     private lateinit var panelTabDevices: View
     private lateinit var panelTabMedia: View
 
-    // Durum Çubuğu
     private lateinit var txtActiveDeviceName: TextView
     private lateinit var txtConnectionStatus: TextView
 
-    // Cihazlar Sekmesi
-    private lateinit var btnScanNewDevice: Button
+    private lateinit var btnScanNetwork: Button
+    private lateinit var btnScanQr: Button
     private lateinit var rvDevices: RecyclerView
     private lateinit var deviceAdapter: DeviceAdapter
     private var deviceList = mutableListOf<DeviceItem>()
     private var activeDevice: DeviceItem? = null
 
-    // Medya Sekmesi
+    private lateinit var btnToggleScreenShare: Button
     private lateinit var edtDuration: EditText
     private lateinit var edtWaitAfter: EditText
     private lateinit var spinnerAnim: Spinner
@@ -80,6 +83,8 @@ class MainActivity : AppCompatActivity() {
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
     private var isConnected = false
+    private var isSharingScreen = false
+    private var isUdpListening = true
 
     private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
@@ -91,26 +96,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // QR Tarama: Yeni cihaz ekleme veya güncelleme
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
             try {
                 val json = JSONObject(result.contents)
+                val id = json.optString("id", System.currentTimeMillis().toString())
                 val ip = json.getString("ip")
                 val port = json.getInt("port")
+                val tag = json.optString("tag", "Menuboard ${deviceList.size + 1}")
                 val host = "$ip:$port"
 
-                var existing = deviceList.find { it.host == host }
-                if (existing == null) {
-                    val newTag = "Menuboard ${deviceList.size + 1}"
-                    existing = DeviceItem(host, newTag)
-                    deviceList.add(existing)
-                }
-                saveDevices()
-                deviceAdapter.notifyDataSetChanged()
-
-                // Taranan cihazı aktif yap ve medyasına geç
-                selectDevice(existing)
+                updateOrAddDevice(id, host, tag)
                 switchTab(false)
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
@@ -121,6 +117,35 @@ class MainActivity : AppCompatActivity() {
     private val pickMediaLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK && res.data?.data != null) {
             uploadMediaFile(res.data!!.data!!)
+        }
+    }
+
+    // Ekran Paylaşımı İzin Başlatıcı
+    private val screenShareLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK && res.data != null) {
+            val host = activeDevice?.host ?: return@registerForActivityResult
+
+            // Önce Menuboard'a ekran yayını başlıyor sinyali yolla
+            val req = Request.Builder().url("http://$host/api/screen/start").post("".toRequestBody(null)).build()
+            httpClient.newCall(req).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {}
+                override fun onResponse(call: Call, response: Response) { response.close() }
+            })
+
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra("result_code", res.resultCode)
+                putExtra("result_data", res.data)
+                putExtra("target_host", host)
+            }
+            ContextCompat.startForegroundService(this, serviceIntent)
+
+            isSharingScreen = true
+            btnToggleScreenShare.text = "⏹ Paylaşımı Durdur"
+            btnToggleScreenShare.setBackgroundColor(0xFFD32F2F.toInt())
+
+            moveTaskToBack(true) // Ekranı rahat kullanabilsin diye arka plana at
+        } else {
+            Toast.makeText(this, "Ekran paylaşımına izin verilmedi", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -136,9 +161,11 @@ class MainActivity : AppCompatActivity() {
         txtActiveDeviceName = findViewById(R.id.txtActiveDeviceName)
         txtConnectionStatus = findViewById(R.id.txtConnectionStatus)
 
-        btnScanNewDevice = findViewById(R.id.btnScanNewDevice)
+        btnScanNetwork = findViewById(R.id.btnScanNetwork)
+        btnScanQr = findViewById(R.id.btnScanQr)
         rvDevices = findViewById(R.id.rvDevices)
 
+        btnToggleScreenShare = findViewById(R.id.btnToggleScreenShare)
         edtDuration = findViewById(R.id.edtDuration)
         edtWaitAfter = findViewById(R.id.edtWaitAfter)
         spinnerAnim = findViewById(R.id.spinnerAnim)
@@ -178,13 +205,31 @@ class MainActivity : AppCompatActivity() {
         tabDevices.setOnClickListener { switchTab(true) }
         tabMedia.setOnClickListener { switchTab(false) }
 
-        btnScanNewDevice.setOnClickListener {
+        btnScanQr.setOnClickListener {
             val options = ScanOptions().apply {
                 setPrompt("Menuboard üzerindeki QR kodu taratın")
                 setBeepEnabled(true)
                 setOrientationLocked(false)
             }
             qrLauncher.launch(options)
+        }
+
+        btnScanNetwork.setOnClickListener {
+            Toast.makeText(this, "Ağ taranıyor...", Toast.LENGTH_SHORT).show()
+        }
+
+        btnToggleScreenShare.setOnClickListener {
+            if (activeDevice == null) {
+                Toast.makeText(this, "Önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (!isSharingScreen) {
+                val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                screenShareLauncher.launch(mpManager.createScreenCaptureIntent())
+            } else {
+                stopScreenShare()
+            }
         }
 
         btnPickMedia.setOnClickListener {
@@ -203,6 +248,60 @@ class MainActivity : AppCompatActivity() {
         if (deviceList.isNotEmpty()) {
             selectDevice(deviceList.first())
         }
+
+        startUdpListener()
+    }
+
+    private fun stopScreenShare() {
+        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply { action = "STOP" }
+        startService(serviceIntent)
+        isSharingScreen = false
+        btnToggleScreenShare.text = "📱 Ekranı Paylaş"
+        btnToggleScreenShare.setBackgroundColor(0xFF7B1FA2.toInt())
+    }
+
+    // UDP Dinleyicisi: Modem resetlense veya IP değişse bile ID üzerinden nametag'i koruyup günceller
+    private fun startUdpListener() {
+        Thread {
+            try {
+                val socket = DatagramSocket(8888)
+                val buffer = ByteArray(1024)
+                while (isUdpListening) {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    socket.receive(packet)
+                    val msg = String(packet.data, 0, packet.length)
+                    if (msg.startsWith("ANYPAY_DISCOVERY:")) {
+                        val parts = msg.split(":")
+                        if (parts.size >= 5) {
+                            val id = parts[1]
+                            val tag = parts[2]
+                            val ip = parts[3]
+                            val port = parts[4]
+                            val host = "$ip:$port"
+                            runOnUiThread {
+                                updateOrAddDevice(id, host, tag)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }.start()
+    }
+
+    private fun updateOrAddDevice(id: String, host: String, tag: String) {
+        val existing = deviceList.find { it.id == id }
+        if (existing != null) {
+            existing.host = host // IP değişmişse anında yeni IP'yi kaydet
+        } else {
+            deviceList.add(DeviceItem(id, host, tag))
+        }
+        saveDevices()
+        deviceAdapter.notifyDataSetChanged()
+
+        if (activeDevice?.id == id) {
+            activeDevice?.host = host
+            txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"
+        }
     }
 
     private fun switchTab(showDevices: Boolean) {
@@ -220,10 +319,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectDevice(device: DeviceItem) {
+        if (isSharingScreen) stopScreenShare()
         activeDevice = device
         txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
 
-        // Eski cihazın içeriklerinin takılı kalmasını önlemek için anında temizle
+        // Eski cihazın içeriklerini anında temizle
         playlist.clear()
         mediaAdapter.notifyDataSetChanged()
 
@@ -379,11 +479,7 @@ class MainActivity : AppCompatActivity() {
         val jsonPayload = gson.toJson(playlist)
         val body = jsonPayload.toRequestBody("application/json".toMediaTypeOrNull())
 
-        val request = Request.Builder()
-            .url("http://$host/api/playlist")
-            .post(body)
-            .build()
-
+        val request = Request.Builder().url("http://$host/api/playlist").post(body).build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread { Toast.makeText(this@MainActivity, "Senkronizasyon Başarısız!", Toast.LENGTH_SHORT).show() }
@@ -405,7 +501,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Menuboard Nametag Belirle")
+            .setTitle("Nametag Belirle")
             .setView(input)
             .setPositiveButton("Kaydet") { _, _ ->
                 val newTag = input.text.toString().trim()
@@ -413,9 +509,15 @@ class MainActivity : AppCompatActivity() {
                     device.nameTag = newTag
                     saveDevices()
                     deviceAdapter.notifyDataSetChanged()
-                    if (activeDevice?.host == device.host) {
+                    if (activeDevice?.id == device.id) {
                         txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
                     }
+                    // Menuboarda da yeni tag'i bildir
+                    val req = Request.Builder().url("http://${device.host}/api/tag?tag=${Uri.encode(newTag)}").post("".toRequestBody(null)).build()
+                    httpClient.newCall(req).enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {}
+                        override fun onResponse(call: Call, response: Response) { response.close() }
+                    })
                 }
             }
             .setNegativeButton("İptal", null)
@@ -434,45 +536,9 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showEditMediaDialog(item: MediaItemModel) {
-        val edtDur = EditText(this).apply {
-            hint = "Süre (0=tamamı)"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(item.durationSec.toString())
-        }
-        val edtWait = EditText(this).apply {
-            hint = "Ara Bekleme (sn)"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(item.waitAfterSec.toString())
-        }
-        val spAnim = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
-            val index = animValues.indexOf(item.animation)
-            if (index >= 0) setSelection(index)
-        }
-
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(50, 40, 50, 10)
-            addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" })
-            addView(edtDur)
-            addView(TextView(this@MainActivity).apply { text = "İki Medya Arası Bekleme (sn):" })
-            addView(edtWait)
-            addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" })
-            addView(spAnim)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Medya Ayarları")
-            .setView(layout)
-            .setPositiveButton("Kaydet") { _, _ ->
-                item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
-                item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
-                item.animation = animValues[spAnim.selectedItemPosition]
-                syncPlaylistToMenuboard()
-            }
-            .setNegativeButton("İptal", null)
-            .show()
+    override fun onDestroy() {
+        super.onDestroy()
+        isUdpListening = false
     }
 
     // --- RECYCLERVIEW ADAPTÖRLERİ ---
@@ -496,7 +562,7 @@ class MainActivity : AppCompatActivity() {
             val dev = deviceList[position]
             holder.txtDeviceTag.text = dev.nameTag
             holder.txtDeviceIp.text = dev.host
-            holder.rbSelected.isChecked = (activeDevice?.host == dev.host)
+            holder.rbSelected.isChecked = (activeDevice?.id == dev.id)
 
             if (dev.isFinding) {
                 holder.btnFindDevice.text = "Gizle"
@@ -508,7 +574,7 @@ class MainActivity : AppCompatActivity() {
 
             holder.itemView.setOnClickListener {
                 selectDevice(dev)
-                switchTab(false) // Seçilen cihazın medya ekranına doğrudan geç
+                switchTab(false)
             }
 
             holder.btnEditTag.setOnClickListener { showEditTagDialog(dev) }
@@ -517,14 +583,14 @@ class MainActivity : AppCompatActivity() {
             holder.btnDeleteDevice.setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Cihazı Kaldır")
-                    .setMessage("${dev.nameTag} listeden kaldırılsın mı?")
+                    .setMessage("${dev.nameTag} silinsin mi?")
                     .setPositiveButton("Kaldır") { _, _ ->
                         deviceList.removeAt(holder.adapterPosition)
-                        if (activeDevice?.host == dev.host) {
+                        if (activeDevice?.id == dev.id) {
                             activeDevice = deviceList.firstOrNull()
                             if (activeDevice != null) selectDevice(activeDevice!!)
                             else {
-                                txtActiveDeviceName.text = "Aktif: Seçili Cihaz Yok"
+                                txtActiveDeviceName.text = "Seçili Cihaz Yok"
                                 playlist.clear()
                                 mediaAdapter.notifyDataSetChanged()
                             }
@@ -582,8 +648,6 @@ class MainActivity : AppCompatActivity() {
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .centerCrop()
                 .into(holder.imgThumb)
-
-            holder.btnEdit.setOnClickListener { showEditMediaDialog(item) }
 
             holder.btnDelete.setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
