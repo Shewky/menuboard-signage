@@ -46,7 +46,7 @@ class ScreenCaptureService : Service() {
             if (!isSending.get()) {
                 captureAndSend()
             }
-            handler.postDelayed(this, 70L)
+            handler.postDelayed(this, 75L)
         }
     }
 
@@ -78,7 +78,6 @@ class ScreenCaptureService : Service() {
             val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpManager.getMediaProjection(resultCode, resultData)
 
-            // Android 14 Zorunluluğu: createVirtualDisplay öncesi Callback kaydı
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     stopCapture()
@@ -144,9 +143,10 @@ class ScreenCaptureService : Service() {
             bitmap.copyPixelsFromBuffer(buffer)
             image.close()
 
-            val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height)
+            // Doğru en-boy oranında kırpıp JPEG olarak paketle
+            val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, 540, 960)
             val stream = ByteArrayOutputStream()
-            croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
+            cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 65, stream)
             val bytes = stream.toByteArray()
 
             if (targetHost.isNotEmpty()) {
