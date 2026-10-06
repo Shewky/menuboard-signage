@@ -34,6 +34,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.util.Collections
 import java.util.UUID
 
 data class MediaItemModel(
@@ -50,13 +51,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaContainer: FrameLayout
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
-    private lateinit var imgLiveStream: ImageView
     private lateinit var imgCornerLogo: ImageView
     private lateinit var qrOverlay: View
     private lateinit var imgQrCode: ImageView
     private lateinit var txtIpAddress: TextView
     private lateinit var btnSettings: ImageView
     private lateinit var btnCloseQr: Button
+    private lateinit var findMeOverlay: View
+    private lateinit var txtFindMeTag: TextView
 
     private var exoPlayer: ExoPlayer? = null
     private var httpServer: SignageServer? = null
@@ -66,7 +68,6 @@ class MainActivity : AppCompatActivity() {
     private var playlist = mutableListOf<MediaItemModel>()
     private var currentIndex = 0
     private var currentPairToken = ""
-    private var isLiveStreaming = false
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
 
@@ -77,13 +78,14 @@ class MainActivity : AppCompatActivity() {
         mediaContainer = findViewById(R.id.mediaContainer)
         playerView = findViewById(R.id.playerView)
         imageView = findViewById(R.id.imageView)
-        imgLiveStream = findViewById(R.id.imgLiveStream)
         imgCornerLogo = findViewById(R.id.imgCornerLogo)
         qrOverlay = findViewById(R.id.qrOverlay)
         imgQrCode = findViewById(R.id.imgQrCode)
         txtIpAddress = findViewById(R.id.txtIpAddress)
         btnSettings = findViewById(R.id.btnSettings)
         btnCloseQr = findViewById(R.id.btnCloseQr)
+        findMeOverlay = findViewById(R.id.findMeOverlay)
+        txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
         initPlayer()
         loadSavedState()
@@ -149,15 +151,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun getActiveLocalIpAddress(): String {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val intf = interfaces.nextElement()
-                if (intf.isLoopback || !intf.isUp) continue
-                val addresses = intf.inetAddresses
-                while (addresses.hasMoreElements()) {
-                    val addr = addresses.nextElement()
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
-                        return addr.hostAddress ?: "127.0.0.1"
+            val en = NetworkInterface.getNetworkInterfaces()
+            if (en != null) {
+                for (intf in Collections.list(en)) {
+                    if (intf.isLoopback || !intf.isUp) continue
+                    for (addr in Collections.list(intf.inetAddresses)) {
+                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                            return addr.hostAddress ?: "127.0.0.1"
+                        }
                     }
                 }
             }
@@ -195,7 +196,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPlayback() {
-        if (isLiveStreaming) return
         if (playlist.isEmpty()) {
             showQrOverlay()
             return
@@ -224,7 +224,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playItem(index: Int) {
-        if (isLiveStreaming) return
         stopAllPlayback()
         if (playlist.isEmpty()) return
 
@@ -256,7 +255,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleNextMedia() {
-        if (isLiveStreaming) return
         stopAllPlayback()
         if (playlist.isEmpty()) return
 
@@ -284,45 +282,18 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            if (uri == "/api/live/start" && method == Method.POST) {
-                isLiveStreaming = true
-                runOnUiThread {
-                    stopAllPlayback()
-                    imgLiveStream.visibility = View.VISIBLE
-                }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STARTED")
-            }
+            // "Menuboard Bul" (Identify) API'si
+            if (uri == "/api/identify" && method == Method.POST) {
+                val params = session.parameters
+                val show = params["show"]?.firstOrNull() == "true"
+                val tag = params["tag"]?.firstOrNull() ?: "MENUBOARD"
 
-            if (uri == "/api/live/stop" && method == Method.POST) {
-                isLiveStreaming = false
                 runOnUiThread {
-                    imgLiveStream.visibility = View.GONE
-                    startPlayback()
-                }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "STREAM_STOPPED")
-            }
-
-            // Canlı kareleri okuma
-            if (uri == "/api/live/frame" && method == Method.POST) {
-                val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
-                if (contentLength > 0) {
-                    val buffer = ByteArray(contentLength)
-                    var totalRead = 0
-                    val input = session.inputStream
-                    while (totalRead < contentLength) {
-                        val readCount = input.read(buffer, totalRead, contentLength - totalRead)
-                        if (readCount <= 0) break
-                        totalRead += readCount
-                    }
-                    if (totalRead > 0) {
-                        val bitmap = BitmapFactory.decodeByteArray(buffer, 0, totalRead)
-                        if (bitmap != null) {
-                            runOnUiThread {
-                                if (isLiveStreaming) {
-                                    imgLiveStream.setImageBitmap(bitmap)
-                                }
-                            }
-                        }
+                    if (show) {
+                        txtFindMeTag.text = tag
+                        findMeOverlay.visibility = View.VISIBLE
+                    } else {
+                        findMeOverlay.visibility = View.GONE
                     }
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
