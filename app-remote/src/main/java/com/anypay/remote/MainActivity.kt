@@ -4,25 +4,18 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
-import android.util.Size
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.*
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -36,11 +29,14 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Collections
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+
+data class DeviceItem(
+    val host: String, // "192.168.1.50:8080"
+    var nameTag: String,
+    var isFinding: Boolean = false
+)
 
 data class MediaItemModel(
     val id: String,
@@ -54,41 +50,36 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var btnScanQr: Button
+    // Sekmeler
+    private lateinit var tabDevices: Button
+    private lateinit var tabMedia: Button
+    private lateinit var panelTabDevices: View
+    private lateinit var panelTabMedia: View
+
+    // Durum Çubuğu
+    private lateinit var txtActiveDeviceName: TextView
     private lateinit var txtConnectionStatus: TextView
-    private lateinit var panelLiveActions: View
-    private lateinit var spinnerStreamQuality: Spinner
-    private lateinit var btnLiveCamera: Button
-    private lateinit var btnLiveScreen: Button
-    private lateinit var btnStopScreenShare: Button
-    private lateinit var panelControls: View
+
+    // Cihazlar Sekmesi
+    private lateinit var btnScanNewDevice: Button
+    private lateinit var rvDevices: RecyclerView
+    private lateinit var deviceAdapter: DeviceAdapter
+    private var deviceList = mutableListOf<DeviceItem>()
+    private var activeDevice: DeviceItem? = null
+
+    // Medya Sekmesi
     private lateinit var edtDuration: EditText
     private lateinit var edtWaitAfter: EditText
     private lateinit var spinnerAnim: Spinner
     private lateinit var btnPickMedia: Button
     private lateinit var recyclerViewPlaylist: RecyclerView
-    private lateinit var cameraOverlay: View
-    private lateinit var previewView: PreviewView
-    private lateinit var btnCloseCamera: Button
+    private lateinit var mediaAdapter: MediaAdapter
+    private var playlist = mutableListOf<MediaItemModel>()
 
     private val httpClient = OkHttpClient()
     private val gson = Gson()
-    private var targetHost = ""
-    private var isConnected = false
-    private var isSharingScreen = false
-    private var isCameraStreaming = false
-    private val isCameraFrameSending = AtomicBoolean(false)
-    private var playlist = mutableListOf<MediaItemModel>()
-    private lateinit var adapter: MediaAdapter
-
     private val handler = Handler(Looper.getMainLooper())
-    private val cameraExecutor = Executors.newSingleThreadExecutor()
-
-    private val qualityOptions = arrayOf(
-        "⚡ Akıcı (360p - Düşük Gecikme)",
-        "⚖️ Dengeli (540p - Önerilen)",
-        "💎 Yüksek Netlik (720p - Güçlü Wi-Fi)"
-    )
+    private var isConnected = false
 
     private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
@@ -100,20 +91,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // QR Tarama: Yeni cihaz ekleme veya güncelleme
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
             try {
                 val json = JSONObject(result.contents)
                 val ip = json.getString("ip")
                 val port = json.getInt("port")
-                targetHost = "$ip:$port"
+                val host = "$ip:$port"
 
-                getSharedPreferences("remote_prefs", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("saved_host", targetHost)
-                    .apply()
+                var existing = deviceList.find { it.host == host }
+                if (existing == null) {
+                    val newTag = "Menuboard ${deviceList.size + 1}"
+                    existing = DeviceItem(host, newTag)
+                    deviceList.add(existing)
+                }
+                saveDevices()
+                deviceAdapter.notifyDataSetChanged()
 
-                checkConnectionAndSync()
+                // Taranan cihazı aktif yap ve medyasına geç
+                selectDevice(existing)
+                switchTab(false)
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
             }
@@ -126,50 +124,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (res.resultCode == Activity.RESULT_OK && res.data != null) {
-            startScreenShareService(res.resultCode, res.data!!)
-        } else {
-            Toast.makeText(this, "Ekran paylaşım izni verilmedi", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        btnScanQr = findViewById(R.id.btnScanQr)
+        tabDevices = findViewById(R.id.tabDevices)
+        tabMedia = findViewById(R.id.tabMedia)
+        panelTabDevices = findViewById(R.id.panelTabDevices)
+        panelTabMedia = findViewById(R.id.panelTabMedia)
+
+        txtActiveDeviceName = findViewById(R.id.txtActiveDeviceName)
         txtConnectionStatus = findViewById(R.id.txtConnectionStatus)
-        panelLiveActions = findViewById(R.id.panelLiveActions)
-        spinnerStreamQuality = findViewById(R.id.spinnerStreamQuality)
-        btnLiveCamera = findViewById(R.id.btnLiveCamera)
-        btnLiveScreen = findViewById(R.id.btnLiveScreen)
-        btnStopScreenShare = findViewById(R.id.btnStopScreenShare)
-        panelControls = findViewById(R.id.panelControls)
+
+        btnScanNewDevice = findViewById(R.id.btnScanNewDevice)
+        rvDevices = findViewById(R.id.rvDevices)
+
         edtDuration = findViewById(R.id.edtDuration)
         edtWaitAfter = findViewById(R.id.edtWaitAfter)
         spinnerAnim = findViewById(R.id.spinnerAnim)
         btnPickMedia = findViewById(R.id.btnPickMedia)
         recyclerViewPlaylist = findViewById(R.id.recyclerViewPlaylist)
-        cameraOverlay = findViewById(R.id.cameraOverlay)
-        previewView = findViewById(R.id.previewView)
-        btnCloseCamera = findViewById(R.id.btnCloseCamera)
-
-        spinnerStreamQuality.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, qualityOptions)
-        spinnerStreamQuality.setSelection(1) // Varsayılan olarak Dengeli mod
 
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
 
-        adapter = MediaAdapter()
+        loadSavedDevices()
+
+        deviceAdapter = DeviceAdapter()
+        rvDevices.layoutManager = LinearLayoutManager(this)
+        rvDevices.adapter = deviceAdapter
+
+        mediaAdapter = MediaAdapter()
         recyclerViewPlaylist.layoutManager = LinearLayoutManager(this)
-        recyclerViewPlaylist.adapter = adapter
+        recyclerViewPlaylist.adapter = mediaAdapter
 
         val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
             override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
                 val fromPos = vh.adapterPosition
                 val toPos = target.adapterPosition
                 Collections.swap(playlist, fromPos, toPos)
-                adapter.notifyItemMoved(fromPos, toPos)
+                mediaAdapter.notifyItemMoved(fromPos, toPos)
                 return true
             }
 
@@ -182,7 +175,10 @@ class MainActivity : AppCompatActivity() {
         })
         itemTouchHelper.attachToRecyclerView(recyclerViewPlaylist)
 
-        btnScanQr.setOnClickListener {
+        tabDevices.setOnClickListener { switchTab(true) }
+        tabMedia.setOnClickListener { switchTab(false) }
+
+        btnScanNewDevice.setOnClickListener {
             val options = ScanOptions().apply {
                 setPrompt("Menuboard üzerindeki QR kodu taratın")
                 setBeepEnabled(true)
@@ -192,6 +188,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnPickMedia.setOnClickListener {
+            if (activeDevice == null) {
+                Toast.makeText(this, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "*/*"
@@ -200,17 +200,50 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
-        btnLiveCamera.setOnClickListener { startLiveCamera() }
-        btnCloseCamera.setOnClickListener { stopLiveCamera() }
-
-        btnLiveScreen.setOnClickListener {
-            val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            screenCaptureLauncher.launch(mpManager.createScreenCaptureIntent())
+        if (deviceList.isNotEmpty()) {
+            selectDevice(deviceList.first())
         }
+    }
 
-        btnStopScreenShare.setOnClickListener { stopScreenShareService() }
+    private fun switchTab(showDevices: Boolean) {
+        if (showDevices) {
+            panelTabDevices.visibility = View.VISIBLE
+            panelTabMedia.visibility = View.GONE
+            tabDevices.setTextColor(0xFF00E676.toInt())
+            tabMedia.setTextColor(0xFF888888.toInt())
+        } else {
+            panelTabDevices.visibility = View.GONE
+            panelTabMedia.visibility = View.VISIBLE
+            tabDevices.setTextColor(0xFF888888.toInt())
+            tabMedia.setTextColor(0xFF00E676.toInt())
+        }
+    }
 
-        targetHost = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("saved_host", "") ?: ""
+    private fun selectDevice(device: DeviceItem) {
+        activeDevice = device
+        txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
+
+        // Eski cihazın içeriklerinin takılı kalmasını önlemek için anında temizle
+        playlist.clear()
+        mediaAdapter.notifyDataSetChanged()
+
+        saveDevices()
+        deviceAdapter.notifyDataSetChanged()
+        checkConnectionAndSync()
+    }
+
+    private fun loadSavedDevices() {
+        val prefs = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE)
+        val json = prefs.getString("device_list_json", null)
+        if (!json.isNullOrEmpty()) {
+            val type = object : TypeToken<MutableList<DeviceItem>>() {}.type
+            deviceList = gson.fromJson(json, type)
+        }
+    }
+
+    private fun saveDevices() {
+        val prefs = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("device_list_json", gson.toJson(deviceList)).apply()
     }
 
     override fun onResume() {
@@ -224,12 +257,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkConnectionAndSync() {
-        if (targetHost.isEmpty()) {
-            updateConnectionUi(false)
-            return
-        }
+        val host = activeDevice?.host ?: return
+        val request = Request.Builder().url("http://$host/api/ping").build()
 
-        val request = Request.Builder().url("http://$targetHost/api/ping").build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { updateConnectionUi(false) }
 
@@ -237,7 +267,7 @@ class MainActivity : AppCompatActivity() {
                 if (response.isSuccessful) {
                     val wasDisconnected = !isConnected
                     updateConnectionUi(true)
-                    if (wasDisconnected) fetchPlaylist()
+                    if (wasDisconnected || playlist.isEmpty()) fetchPlaylist()
                 } else {
                     updateConnectionUi(false)
                 }
@@ -249,142 +279,18 @@ class MainActivity : AppCompatActivity() {
         isConnected = connected
         runOnUiThread {
             if (connected) {
-                txtConnectionStatus.text = "Bağlı ($targetHost)"
+                txtConnectionStatus.text = "Bağlı"
                 txtConnectionStatus.setTextColor(0xFF2E7D32.toInt())
-                panelControls.visibility = View.VISIBLE
-                panelLiveActions.visibility = View.VISIBLE
             } else {
-                txtConnectionStatus.text = if (targetHost.isEmpty()) "QR Okutun" else "Bağlantı Bekleniyor... ($targetHost)"
-                txtConnectionStatus.setTextColor(0xFFE65100.toInt())
-                panelControls.visibility = View.GONE
-                panelLiveActions.visibility = View.GONE
+                txtConnectionStatus.text = "Bağlantı Yok"
+                txtConnectionStatus.setTextColor(0xFFD32F2F.toInt())
             }
-        }
-    }
-
-    private fun startLiveCamera() {
-        isCameraStreaming = true
-        cameraOverlay.visibility = View.VISIBLE
-
-        val request = Request.Builder().url("http://$targetHost/api/live/start").post("".toRequestBody(null)).build()
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) { response.close() }
-        })
-
-        // Seçilen çözünürlük
-        val qualityPos = spinnerStreamQuality.selectedItemPosition
-        val (camWidth, camHeight, qualityVal) = when (qualityPos) {
-            0 -> Triple(360, 640, 45)
-            2 -> Triple(720, 1280, 75)
-            else -> Triple(540, 960, 60)
-        }
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(Size(camWidth, camHeight))
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-
-            imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                if (isCameraStreaming && !isCameraFrameSending.get()) {
-                    isCameraFrameSending.set(true)
-                    val bitmap = imageProxy.toBitmap()
-                    val stream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, qualityVal, stream)
-                    val bytes = stream.toByteArray()
-
-                    val body = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
-                    val frameReq = Request.Builder().url("http://$targetHost/api/live/frame").post(body).build()
-                    httpClient.newCall(frameReq).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {
-                            isCameraFrameSending.set(false)
-                        }
-
-                        override fun onResponse(call: Call, response: Response) {
-                            response.close()
-                            isCameraFrameSending.set(false)
-                        }
-                    })
-                }
-                imageProxy.close()
-            }
-
-            try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
-            } catch (_: Exception) {}
-
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun stopLiveCamera() {
-        isCameraStreaming = false
-        cameraOverlay.visibility = View.GONE
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            cameraProviderFuture.get().unbindAll()
-        }, ContextCompat.getMainExecutor(this))
-
-        val request = Request.Builder().url("http://$targetHost/api/live/stop").post("".toRequestBody(null)).build()
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) { response.close() }
-        })
-    }
-
-    private fun startScreenShareService(resultCode: Int, data: Intent) {
-        isSharingScreen = true
-        btnLiveScreen.visibility = View.GONE
-        btnStopScreenShare.visibility = View.VISIBLE
-
-        val request = Request.Builder().url("http://$targetHost/api/live/start").post("".toRequestBody(null)).build()
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) { response.close() }
-        })
-
-        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            putExtra("result_code", resultCode)
-            putExtra("result_data", data)
-            putExtra("target_host", targetHost)
-            putExtra("quality_level", spinnerStreamQuality.selectedItemPosition)
-        }
-        ContextCompat.startForegroundService(this, serviceIntent)
-        moveTaskToBack(true)
-    }
-
-    private fun stopScreenShareService() {
-        isSharingScreen = false
-        btnLiveScreen.visibility = View.VISIBLE
-        btnStopScreenShare.visibility = View.GONE
-
-        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = "STOP"
-            putExtra("target_host", targetHost)
-        }
-        startService(serviceIntent)
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (isCameraStreaming) {
-            stopLiveCamera()
-        } else {
-            super.onBackPressed()
         }
     }
 
     private fun fetchPlaylist() {
-        if (targetHost.isEmpty()) return
-        val request = Request.Builder().url("http://$targetHost/api/playlist").build()
+        val host = activeDevice?.host ?: return
+        val request = Request.Builder().url("http://$host/api/playlist").build()
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { updateConnectionUi(false) }
@@ -394,13 +300,14 @@ class MainActivity : AppCompatActivity() {
                     val body = response.body?.string() ?: "[]"
                     val type = object : TypeToken<MutableList<MediaItemModel>>() {}.type
                     playlist = gson.fromJson(body, type)
-                    runOnUiThread { adapter.notifyDataSetChanged() }
+                    runOnUiThread { mediaAdapter.notifyDataSetChanged() }
                 }
             }
         })
     }
 
     private fun uploadMediaFile(uri: Uri) {
+        val host = activeDevice?.host ?: return
         val contentResolver = applicationContext.contentResolver
         val mimeType = contentResolver.getType(uri) ?: ""
         val isVideo = mimeType.startsWith("video")
@@ -436,7 +343,7 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         val uploadRequest = Request.Builder()
-            .url("http://$targetHost/api/upload?filename=$fileName")
+            .url("http://$host/api/upload?filename=$fileName")
             .post(requestBody)
             .build()
 
@@ -468,11 +375,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncPlaylistToMenuboard() {
+        val host = activeDevice?.host ?: return
         val jsonPayload = gson.toJson(playlist)
         val body = jsonPayload.toRequestBody("application/json".toMediaTypeOrNull())
 
         val request = Request.Builder()
-            .url("http://$targetHost/api/playlist")
+            .url("http://$host/api/playlist")
             .post(body)
             .build()
 
@@ -490,9 +398,45 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showEditDialog(item: MediaItemModel) {
+    private fun showEditTagDialog(device: DeviceItem) {
+        val input = EditText(this).apply {
+            hint = "Örn: 1, 2 veya Menuboard Kasa"
+            setText(device.nameTag)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Menuboard Nametag Belirle")
+            .setView(input)
+            .setPositiveButton("Kaydet") { _, _ ->
+                val newTag = input.text.toString().trim()
+                if (newTag.isNotEmpty()) {
+                    device.nameTag = newTag
+                    saveDevices()
+                    deviceAdapter.notifyDataSetChanged()
+                    if (activeDevice?.host == device.host) {
+                        txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
+                    }
+                }
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun toggleFindDevice(device: DeviceItem) {
+        device.isFinding = !device.isFinding
+        deviceAdapter.notifyDataSetChanged()
+
+        val url = "http://${device.host}/api/identify?show=${device.isFinding}&tag=${Uri.encode(device.nameTag)}"
+        val request = Request.Builder().url(url).post("".toRequestBody(null)).build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+    }
+
+    private fun showEditMediaDialog(item: MediaItemModel) {
         val edtDur = EditText(this).apply {
-            hint = "Süre (sn / Video için 0=tamamı)"
+            hint = "Süre (0=tamamı)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText(item.durationSec.toString())
         }
@@ -531,8 +475,72 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    inner class MediaAdapter : RecyclerView.Adapter<MediaAdapter.MediaViewHolder>() {
+    // --- RECYCLERVIEW ADAPTÖRLERİ ---
 
+    inner class DeviceAdapter : RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
+        inner class DeviceViewHolder(v: View) : RecyclerView.ViewHolder(v) {
+            val rbSelected: RadioButton = v.findViewById(R.id.rbSelected)
+            val txtDeviceTag: TextView = v.findViewById(R.id.txtDeviceTag)
+            val txtDeviceIp: TextView = v.findViewById(R.id.txtDeviceIp)
+            val btnEditTag: ImageButton = v.findViewById(R.id.btnEditTag)
+            val btnFindDevice: Button = v.findViewById(R.id.btnFindDevice)
+            val btnDeleteDevice: ImageButton = v.findViewById(R.id.btnDeleteDevice)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DeviceViewHolder {
+            val v = LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false)
+            return DeviceViewHolder(v)
+        }
+
+        override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
+            val dev = deviceList[position]
+            holder.txtDeviceTag.text = dev.nameTag
+            holder.txtDeviceIp.text = dev.host
+            holder.rbSelected.isChecked = (activeDevice?.host == dev.host)
+
+            if (dev.isFinding) {
+                holder.btnFindDevice.text = "Gizle"
+                holder.btnFindDevice.setBackgroundColor(0xFFD32F2F.toInt())
+            } else {
+                holder.btnFindDevice.text = "Bul"
+                holder.btnFindDevice.setBackgroundColor(0xFFF57C00.toInt())
+            }
+
+            holder.itemView.setOnClickListener {
+                selectDevice(dev)
+                switchTab(false) // Seçilen cihazın medya ekranına doğrudan geç
+            }
+
+            holder.btnEditTag.setOnClickListener { showEditTagDialog(dev) }
+            holder.btnFindDevice.setOnClickListener { toggleFindDevice(dev) }
+
+            holder.btnDeleteDevice.setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Cihazı Kaldır")
+                    .setMessage("${dev.nameTag} listeden kaldırılsın mı?")
+                    .setPositiveButton("Kaldır") { _, _ ->
+                        deviceList.removeAt(holder.adapterPosition)
+                        if (activeDevice?.host == dev.host) {
+                            activeDevice = deviceList.firstOrNull()
+                            if (activeDevice != null) selectDevice(activeDevice!!)
+                            else {
+                                txtActiveDeviceName.text = "Aktif: Seçili Cihaz Yok"
+                                playlist.clear()
+                                mediaAdapter.notifyDataSetChanged()
+                            }
+                        }
+                        saveDevices()
+                        notifyDataSetChanged()
+                    }
+                    .setNegativeButton("İptal", null)
+                    .show()
+            }
+        }
+
+        override fun getItemCount(): Int = deviceList.size
+    }
+
+    inner class MediaAdapter : RecyclerView.Adapter<MediaAdapter.MediaViewHolder>() {
         inner class MediaViewHolder(v: View) : RecyclerView.ViewHolder(v) {
             val imgThumb: ImageView = v.findViewById(R.id.imgThumb)
             val txtTypeBadge: TextView = v.findViewById(R.id.txtTypeBadge)
@@ -550,6 +558,8 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: MediaViewHolder, position: Int) {
             val item = playlist[position]
+            val host = activeDevice?.host ?: ""
+
             holder.txtFileName.text = item.fileName
             holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
             holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
@@ -566,19 +576,19 @@ class MainActivity : AppCompatActivity() {
             val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
             holder.txtAnimBadge.text = "Animasyon: $animName"
 
-            val thumbUrl = "http://$targetHost/api/thumbnail?filename=${item.fileName}"
+            val thumbUrl = "http://$host/api/thumbnail?filename=${item.fileName}"
             Glide.with(holder.itemView.context)
                 .load(thumbUrl)
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .centerCrop()
                 .into(holder.imgThumb)
 
-            holder.btnEdit.setOnClickListener { showEditDialog(item) }
+            holder.btnEdit.setOnClickListener { showEditMediaDialog(item) }
 
             holder.btnDelete.setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Medyayı Sil")
-                    .setMessage("${item.fileName} menuboard'dan silinsin mi?")
+                    .setMessage("${item.fileName} silinsin mi?")
                     .setPositiveButton("Sil") { _, _ ->
                         playlist.removeAt(holder.adapterPosition)
                         syncPlaylistToMenuboard()
