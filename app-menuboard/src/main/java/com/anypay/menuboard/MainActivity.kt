@@ -152,7 +152,6 @@ class MainActivity : AppCompatActivity() {
         httpServer?.start()
     }
 
-    // UDP Keşif Yayını: Her 3 saniyede bir yerel ağa kimlik ve IP fırlatır
     private fun startUdpBeacon() {
         Thread {
             val socket = DatagramSocket()
@@ -221,6 +220,7 @@ class MainActivity : AppCompatActivity() {
         exoPlayer?.clearMediaItems()
         playerView.visibility = View.GONE
         imageView.visibility = View.GONE
+        imgLiveStream.visibility = View.GONE
     }
 
     private fun startPlayback() {
@@ -254,13 +254,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun playItem(index: Int) {
         if (isScreenSharing) return
-        stopAllPlayback()
+        handler.removeCallbacksAndMessages(null)
         if (playlist.isEmpty()) return
 
         currentIndex = index
         val item = playlist[index]
         val file = File(filesDir, item.fileName)
-        if (!file.exists()) {
+        if (!file.exists() || file.length() == 0L) {
             scheduleNextMedia()
             return
         }
@@ -268,7 +268,9 @@ class MainActivity : AppCompatActivity() {
         applyTransitionAnimation(item.animation)
 
         if (item.type == "video") {
+            imageView.visibility = View.GONE
             playerView.visibility = View.VISIBLE
+            exoPlayer?.stop()
             exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             exoPlayer?.prepare()
             exoPlayer?.play()
@@ -277,7 +279,10 @@ class MainActivity : AppCompatActivity() {
                 handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
             }
         } else {
+            exoPlayer?.stop()
+            playerView.visibility = View.GONE
             imageView.visibility = View.VISIBLE
+            imageView.setImageURI(null)
             imageView.setImageURI(Uri.fromFile(file))
             val dur = if (item.durationSec > 0) item.durationSec else 10
             handler.postDelayed(mediaEndRunnable, dur * 1000L)
@@ -308,13 +313,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // HTTP Sunucu
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
 
-            // Ekran Paylaşımı Başlatma
             if (uri == "/api/screen/start" && method == Method.POST) {
                 isScreenSharing = true
                 runOnUiThread {
@@ -324,7 +327,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STARTED")
             }
 
-            // Ekran Paylaşımı Durdurma
             if (uri == "/api/screen/stop" && method == Method.POST) {
                 isScreenSharing = false
                 runOnUiThread {
@@ -334,7 +336,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STOPPED")
             }
 
-            // Ekran Karesi Alımı
             if (uri == "/api/screen/frame" && method == Method.POST) {
                 val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
                 if (contentLength > 0) {
@@ -360,7 +361,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
-            // Cihaz Bilgisi & Nametag Güncelleme
             if (uri == "/api/tag" && method == Method.POST) {
                 val newTag = session.parameters["tag"]?.firstOrNull() ?: ""
                 if (newTag.isNotEmpty()) {
@@ -371,7 +371,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
-            // Menuboard Bul (Identify)
             if (uri == "/api/identify" && method == Method.POST) {
                 val show = session.parameters["show"]?.firstOrNull() == "true"
                 val tag = session.parameters["tag"]?.firstOrNull() ?: deviceTag
