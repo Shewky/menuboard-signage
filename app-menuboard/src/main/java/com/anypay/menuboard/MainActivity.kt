@@ -32,9 +32,11 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
-import java.util.Collections
 import java.util.UUID
 
 data class MediaItemModel(
@@ -51,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaContainer: FrameLayout
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
+    private lateinit var imgLiveStream: ImageView
     private lateinit var imgCornerLogo: ImageView
     private lateinit var qrOverlay: View
     private lateinit var imgQrCode: ImageView
@@ -67,7 +70,10 @@ class MainActivity : AppCompatActivity() {
 
     private var playlist = mutableListOf<MediaItemModel>()
     private var currentIndex = 0
-    private var currentPairToken = ""
+    private var deviceId = ""
+    private var deviceTag = "Menuboard"
+    private var isScreenSharing = false
+    private var isBroadcasting = true
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
 
@@ -78,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         mediaContainer = findViewById(R.id.mediaContainer)
         playerView = findViewById(R.id.playerView)
         imageView = findViewById(R.id.imageView)
+        imgLiveStream = findViewById(R.id.imgLiveStream)
         imgCornerLogo = findViewById(R.id.imgCornerLogo)
         qrOverlay = findViewById(R.id.qrOverlay)
         imgQrCode = findViewById(R.id.imgQrCode)
@@ -99,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         startLocalServer()
+        startUdpBeacon()
     }
 
     private fun initPlayer() {
@@ -117,11 +125,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSavedState() {
         val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
-        currentPairToken = prefs.getString("pair_token", "") ?: ""
-        if (currentPairToken.isEmpty()) {
-            currentPairToken = UUID.randomUUID().toString().take(8)
-            prefs.edit().putString("pair_token", currentPairToken).apply()
+        deviceId = prefs.getString("device_id", "") ?: ""
+        if (deviceId.isEmpty()) {
+            deviceId = UUID.randomUUID().toString().take(8)
+            prefs.edit().putString("device_id", deviceId).apply()
         }
+        deviceTag = prefs.getString("device_tag", "Menuboard") ?: "Menuboard"
 
         val json = prefs.getString("playlist_json", null)
         if (!json.isNullOrEmpty()) {
@@ -143,22 +152,41 @@ class MainActivity : AppCompatActivity() {
         httpServer?.start()
     }
 
+    // UDP Keşif Yayını: Her 3 saniyede bir yerel ağa kimlik ve IP fırlatır
+    private fun startUdpBeacon() {
+        Thread {
+            val socket = DatagramSocket()
+            socket.broadcast = true
+            while (isBroadcasting) {
+                try {
+                    val ip = getActiveLocalIpAddress()
+                    val payload = "ANYPAY_DISCOVERY:$deviceId:$deviceTag:$ip:8080"
+                    val bytes = payload.toByteArray()
+                    val packet = DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), 8888)
+                    socket.send(packet)
+                } catch (_: Exception) {}
+                Thread.sleep(3000L)
+            }
+        }.start()
+    }
+
     private fun refreshIpAndQr() {
         val ip = getActiveLocalIpAddress()
         txtIpAddress.text = "IP: $ip:8080"
-        generateQr(ip, currentPairToken)
+        generateQr(ip, deviceId)
     }
 
     private fun getActiveLocalIpAddress(): String {
         try {
-            val en = NetworkInterface.getNetworkInterfaces()
-            if (en != null) {
-                for (intf in Collections.list(en)) {
-                    if (intf.isLoopback || !intf.isUp) continue
-                    for (addr in Collections.list(intf.inetAddresses)) {
-                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
-                            return addr.hostAddress ?: "127.0.0.1"
-                        }
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val intf = interfaces.nextElement()
+                if (intf.isLoopback || !intf.isUp) continue
+                val addresses = intf.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        return addr.hostAddress ?: "127.0.0.1"
                     }
                 }
             }
@@ -166,8 +194,8 @@ class MainActivity : AppCompatActivity() {
         return "127.0.0.1"
     }
 
-    private fun generateQr(ip: String, token: String) {
-        val payload = "{\"ip\":\"$ip\",\"port\":8080,\"token\":\"$token\"}"
+    private fun generateQr(ip: String, id: String) {
+        val payload = "{\"id\":\"$id\",\"tag\":\"$deviceTag\",\"ip\":\"$ip\",\"port\":8080}"
         try {
             val barcodeEncoder = BarcodeEncoder()
             val bitmap = barcodeEncoder.encodeBitmap(payload, BarcodeFormat.QR_CODE, 500, 500)
@@ -196,6 +224,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPlayback() {
+        if (isScreenSharing) return
         if (playlist.isEmpty()) {
             showQrOverlay()
             return
@@ -224,6 +253,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playItem(index: Int) {
+        if (isScreenSharing) return
         stopAllPlayback()
         if (playlist.isEmpty()) return
 
@@ -255,6 +285,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleNextMedia() {
+        if (isScreenSharing) return
         stopAllPlayback()
         if (playlist.isEmpty()) return
 
@@ -277,17 +308,73 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // HTTP Sunucu
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
 
-            // "Menuboard Bul" (Identify) API'si
-            if (uri == "/api/identify" && method == Method.POST) {
-                val params = session.parameters
-                val show = params["show"]?.firstOrNull() == "true"
-                val tag = params["tag"]?.firstOrNull() ?: "MENUBOARD"
+            // Ekran Paylaşımı Başlatma
+            if (uri == "/api/screen/start" && method == Method.POST) {
+                isScreenSharing = true
+                runOnUiThread {
+                    stopAllPlayback()
+                    imgLiveStream.visibility = View.VISIBLE
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STARTED")
+            }
 
+            // Ekran Paylaşımı Durdurma
+            if (uri == "/api/screen/stop" && method == Method.POST) {
+                isScreenSharing = false
+                runOnUiThread {
+                    imgLiveStream.visibility = View.GONE
+                    startPlayback()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STOPPED")
+            }
+
+            // Ekran Karesi Alımı
+            if (uri == "/api/screen/frame" && method == Method.POST) {
+                val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
+                if (contentLength > 0) {
+                    val buffer = ByteArray(contentLength)
+                    var totalRead = 0
+                    val input = session.inputStream
+                    while (totalRead < contentLength) {
+                        val readCount = input.read(buffer, totalRead, contentLength - totalRead)
+                        if (readCount <= 0) break
+                        totalRead += readCount
+                    }
+                    if (totalRead > 0) {
+                        val bitmap = BitmapFactory.decodeByteArray(buffer, 0, totalRead)
+                        if (bitmap != null) {
+                            runOnUiThread {
+                                if (isScreenSharing) {
+                                    imgLiveStream.setImageBitmap(bitmap)
+                                }
+                            }
+                        }
+                    }
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+            }
+
+            // Cihaz Bilgisi & Nametag Güncelleme
+            if (uri == "/api/tag" && method == Method.POST) {
+                val newTag = session.parameters["tag"]?.firstOrNull() ?: ""
+                if (newTag.isNotEmpty()) {
+                    deviceTag = newTag
+                    getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
+                        .edit().putString("device_tag", newTag).apply()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+            }
+
+            // Menuboard Bul (Identify)
+            if (uri == "/api/identify" && method == Method.POST) {
+                val show = session.parameters["show"]?.firstOrNull() == "true"
+                val tag = session.parameters["tag"]?.firstOrNull() ?: deviceTag
                 runOnUiThread {
                     if (show) {
                         txtFindMeTag.text = tag
@@ -300,7 +387,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/ping" && method == Method.GET) {
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "PONG")
+                val resObj = mapOf("id" to deviceId, "tag" to deviceTag)
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resObj))
             }
 
             if (uri == "/api/playlist" && method == Method.GET) {
@@ -377,6 +465,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isBroadcasting = false
         httpServer?.stop()
         exoPlayer?.release()
     }
