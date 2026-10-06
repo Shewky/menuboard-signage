@@ -25,14 +25,6 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- Canlı Kamera / Ekran Yansıtma Katmanı -->
-    <ImageView
-        android:id="@+id/imgLiveStream"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="fitCenter"
-        android:visibility="gone" />
-
     <!-- Sol Üst Ayar Butonu -->
     <ImageView
         android:id="@+id/btnSettings"
@@ -53,6 +45,39 @@
         android:layout_marginBottom="16dp"
         android:alpha="0.35"
         android:src="@drawable/logo_interfon" />
+
+    <!-- "Menuboard Bul" Tıklandığında Ekranda Beliren Nametag Rozeti -->
+    <LinearLayout
+        android:id="@+id/findMeOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="#E6D32F2F"
+        android:elevation="20dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingHorizontal="32dp"
+        android:paddingVertical="20dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="BU CİHAZ:"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/txtFindMeTag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="MENUBOARD 1"
+            android:textColor="#FFFF00"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <!-- QR Kod Eşleme & Ayar Paneli -->
     <LinearLayout
