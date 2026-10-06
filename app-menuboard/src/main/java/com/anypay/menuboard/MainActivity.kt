@@ -37,6 +37,7 @@ import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.util.Collections
 import java.util.UUID
 
 data class MediaItemModel(
@@ -74,8 +75,22 @@ class MainActivity : AppCompatActivity() {
     private var deviceTag = "Menuboard"
     private var isScreenSharing = false
     private var isBroadcasting = true
+    private var currentKnownIp = ""
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
+
+    // Her 5 saniyede bir IP değişikliğini denetleyen döngü
+    private val ipCheckRunnable = object : Runnable {
+        override fun run() {
+            val freshIp = getActiveLocalIpAddress()
+            if (freshIp != currentKnownIp && freshIp != "127.0.0.1") {
+                currentKnownIp = freshIp
+                txtIpAddress.text = "IP: $freshIp:8080"
+                generateQr(freshIp, deviceId)
+            }
+            handler.postDelayed(this, 5000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,6 +122,7 @@ class MainActivity : AppCompatActivity() {
 
         startLocalServer()
         startUdpBeacon()
+        handler.post(ipCheckRunnable)
     }
 
     private fun initPlayer() {
@@ -147,7 +163,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startLocalServer() {
-        refreshIpAndQr()
+        currentKnownIp = getActiveLocalIpAddress()
+        txtIpAddress.text = "IP: $currentKnownIp:8080"
+        generateQr(currentKnownIp, deviceId)
+
         httpServer = SignageServer(8080)
         httpServer?.start()
     }
@@ -167,12 +186,6 @@ class MainActivity : AppCompatActivity() {
                 Thread.sleep(3000L)
             }
         }.start()
-    }
-
-    private fun refreshIpAndQr() {
-        val ip = getActiveLocalIpAddress()
-        txtIpAddress.text = "IP: $ip:8080"
-        generateQr(ip, deviceId)
     }
 
     private fun getActiveLocalIpAddress(): String {
@@ -203,7 +216,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showQrOverlay() {
-        refreshIpAndQr()
         stopAllPlayback()
         imgCornerLogo.visibility = View.GONE
         qrOverlay.visibility = View.VISIBLE
@@ -318,24 +330,34 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
+            // Ekran Paylaşımı Başlat: QR dahil tüm katmanları gizle, canlı ekranı en öne getir
             if (uri == "/api/screen/start" && method == Method.POST) {
                 isScreenSharing = true
                 runOnUiThread {
                     stopAllPlayback()
+                    qrOverlay.visibility = View.GONE
                     imgLiveStream.visibility = View.VISIBLE
+                    imgLiveStream.bringToFront()
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STARTED")
             }
 
+            // Ekran Paylaşımı Durdur: Canlı katmanı kapat, normal düzene dön
             if (uri == "/api/screen/stop" && method == Method.POST) {
                 isScreenSharing = false
                 runOnUiThread {
                     imgLiveStream.visibility = View.GONE
-                    startPlayback()
+                    if (playlist.isNotEmpty()) {
+                        hideQrOverlay()
+                        startPlayback()
+                    } else {
+                        showQrOverlay()
+                    }
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STOPPED")
             }
 
+            // Gelen canlı ekran karesini çiz
             if (uri == "/api/screen/frame" && method == Method.POST) {
                 val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
                 if (contentLength > 0) {
@@ -352,6 +374,8 @@ class MainActivity : AppCompatActivity() {
                         if (bitmap != null) {
                             runOnUiThread {
                                 if (isScreenSharing) {
+                                    if (qrOverlay.visibility == View.VISIBLE) qrOverlay.visibility = View.GONE
+                                    imgLiveStream.visibility = View.VISIBLE
                                     imgLiveStream.setImageBitmap(bitmap)
                                 }
                             }
@@ -378,6 +402,7 @@ class MainActivity : AppCompatActivity() {
                     if (show) {
                         txtFindMeTag.text = tag
                         findMeOverlay.visibility = View.VISIBLE
+                        findMeOverlay.bringToFront()
                     } else {
                         findMeOverlay.visibility = View.GONE
                     }
@@ -465,6 +490,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         isBroadcasting = false
+        handler.removeCallbacks(ipCheckRunnable)
         httpServer?.stop()
         exoPlayer?.release()
     }
