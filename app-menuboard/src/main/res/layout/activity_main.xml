@@ -5,7 +5,7 @@
     android:background="#000000"
     android:keepScreenOn="true">
 
-    <!-- Medya Konteyneri -->
+    <!-- Medya Oynatıcı -->
     <FrameLayout
         android:id="@+id/mediaContainer"
         android:layout_width="match_parent"
@@ -25,6 +25,14 @@
             android:visibility="gone" />
     </FrameLayout>
 
+    <!-- Ekran Paylaşım Görüntüsü -->
+    <ImageView
+        android:id="@+id/imgLiveStream"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
     <!-- Sol Üst Ayar Butonu -->
     <ImageView
         android:id="@+id/btnSettings"
@@ -35,7 +43,7 @@
         android:padding="12dp"
         android:src="@android:drawable/ic_menu_preferences" />
 
-    <!-- Sağ Alttaki Küçük & Şeffaf Logo -->
+    <!-- Sağ Alttaki Küçük Logo -->
     <ImageView
         android:id="@+id/imgCornerLogo"
         android:layout_width="85dp"
@@ -46,7 +54,7 @@
         android:alpha="0.35"
         android:src="@drawable/logo_interfon" />
 
-    <!-- "Menuboard Bul" Tıklandığında Ekranda Beliren Nametag Rozeti -->
+    <!-- Nametag / Menuboard Bul Rozeti -->
     <LinearLayout
         android:id="@+id/findMeOverlay"
         android:layout_width="wrap_content"
@@ -73,13 +81,13 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="MENUBOARD 1"
+            android:text="MENUBOARD"
             android:textColor="#FFFF00"
             android:textSize="32sp"
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- QR Kod Eşleme & Ayar Paneli -->
+    <!-- QR Kod Eşleme Paneli -->
     <LinearLayout
         android:id="@+id/qrOverlay"
         android:layout_width="match_parent"
@@ -103,9 +111,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Kumandadan QR Kodu Okutun"
+            android:text="Kumandadan QR Kodu Okutun veya Ağı Tarayın"
             android:textColor="#CCCCCC"
-            android:textSize="16sp" />
+            android:textSize="15sp" />
 
         <ImageView
             android:id="@+id/imgQrCode"
