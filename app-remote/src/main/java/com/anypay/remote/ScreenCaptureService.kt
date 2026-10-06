@@ -46,7 +46,7 @@ class ScreenCaptureService : Service() {
             if (!isSending.get()) {
                 captureAndSend()
             }
-            handler.postDelayed(this, 70L) // ~14 FPS stabil akış
+            handler.postDelayed(this, 70L)
         }
     }
 
@@ -54,7 +54,6 @@ class ScreenCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // Android 14 çökmesini önlemek için onCreate anında hemen bildirimi gösteriyoruz
         startForegroundNotification()
     }
 
@@ -78,6 +77,14 @@ class ScreenCaptureService : Service() {
         if (resultData != null && resultCode == Activity.RESULT_OK) {
             val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpManager.getMediaProjection(resultCode, resultData)
+
+            // Android 14 Zorunluluğu: createVirtualDisplay öncesi Callback kaydı
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    stopCapture()
+                }
+            }, handler)
+
             setupVirtualDisplay()
             isRunning = true
             handler.post(captureRunnable)
@@ -114,7 +121,7 @@ class ScreenCaptureService : Service() {
             "ScreenStream",
             width, height, dpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface, null, null
+            imageReader?.surface, null, handler
         )
     }
 
@@ -167,6 +174,7 @@ class ScreenCaptureService : Service() {
         virtualDisplay?.release()
         imageReader?.close()
         mediaProjection?.stop()
+        mediaProjection = null
 
         if (targetHost.isNotEmpty()) {
             val req = Request.Builder().url("http://$targetHost/api/screen/stop").post("".toRequestBody(null)).build()
