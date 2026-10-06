@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- Üst Sekmeler (Tab Bar) -->
+    <!-- Üst Sekmeler -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="48dp"
@@ -27,7 +27,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="?selectableItemBackground"
-            android:text="🎬 Medya Yönetimi"
+            android:text="🎬 Medya &amp; Ekran"
             android:textColor="#888888"
             android:textStyle="bold" />
     </LinearLayout>
@@ -47,7 +47,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Aktif: Seçili Cihaz Yok"
+            android:text="Seçili Cihaz Yok"
             android:textColor="#000000"
             android:textSize="13sp"
             android:textStyle="bold" />
@@ -62,7 +62,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 1. SEKME: CİHAZLAR (MENUBOARDLAR) LİSTESİ -->
+    <!-- 1. SEKME: CİHAZLAR & OTOMATİK TARAMA -->
     <LinearLayout
         android:id="@+id/panelTabDevices"
         android:layout_width="match_parent"
@@ -72,20 +72,38 @@
         android:padding="12dp"
         android:visibility="visible">
 
-        <Button
-            android:id="@+id/btnScanNewDevice"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:backgroundTint="#0288D1"
-            android:text="+ Yeni Menuboard Tara (QR Kod)"
-            android:textColor="#FFFFFF" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnScanNetwork"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:backgroundTint="#00897B"
+                android:text="🔍 Ağı Tara (Oto-Bul)"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnScanQr"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:backgroundTint="#0288D1"
+                android:text="📷 QR Kod Tara"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
 
         <TextView
+            android:id="@+id/txtScanNotice"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Kayıtlı Menuboardlar (Yönetmek istediğinize dokunun):"
-            android:textSize="13sp"
+            android:layout_marginTop="8dp"
+            android:text="Ağdaki Cihazlar (Modem resetlense bile otomatik güncellenir):"
+            android:textSize="12sp"
             android:textStyle="bold" />
 
         <androidx.recyclerview.widget.RecyclerView
@@ -96,7 +114,7 @@
             android:layout_weight="1" />
     </LinearLayout>
 
-    <!-- 2. SEKME: MEDYA YÖNETİMİ -->
+    <!-- 2. SEKME: MEDYA YÖNETİMİ & CANLI EKRAN YANSITMA -->
     <LinearLayout
         android:id="@+id/panelTabMedia"
         android:layout_width="match_parent"
@@ -106,11 +124,38 @@
         android:padding="12dp"
         android:visibility="gone">
 
-        <!-- Yeni Medya Yükleme Paneli -->
+        <!-- Ekran Yansıtma Kontrol Paneli -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#E8EAF6"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Telefon Ekranını Yansıt:"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnToggleScreenShare"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#7B1FA2"
+                android:text="📱 Ekranı Paylaş"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Medya Ekleme Paneli -->
         <LinearLayout
             android:id="@+id/panelControls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:background="#F5F5F5"
             android:orientation="vertical"
             android:padding="8dp">
@@ -159,7 +204,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Seçili Cihazın Listesi (Sıralamak için basılı tutup sürükleyin):"
+            android:text="Oynatma Listesi:"
             android:textSize="12sp"
             android:textStyle="bold" />
 
@@ -171,7 +216,6 @@
             android:layout_weight="1" />
     </LinearLayout>
 
-    <!-- Sabit Alt Logo -->
     <ImageView
         android:id="@+id/imgFooterLogo"
         android:layout_width="120dp"
