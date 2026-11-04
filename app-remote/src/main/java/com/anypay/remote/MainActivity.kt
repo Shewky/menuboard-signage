@@ -2,12 +2,17 @@ package com.anypay.remote
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.MediaMetadataRetriever
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
@@ -18,6 +23,7 @@ import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -31,6 +37,7 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -54,6 +61,9 @@ data class MediaItemModel(
 )
 
 class MainActivity : AppCompatActivity() {
+
+    // KENDİ GITHUB KULLANICI ADINIZI VE REPO ADINIZI BURAYA YAZIN:
+    private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var tabDevices: Button
     private lateinit var tabMedia: Button
@@ -248,6 +258,100 @@ class MainActivity : AppCompatActivity() {
         }
 
         startUdpListener()
+
+        // Açılışta GitHub üzerinden otomatik güncelleme kontrolü
+        checkForUpdate()
+    }
+
+    private fun checkForUpdate() {
+        if (GITHUB_REPO.startsWith("KULLANICI_ADINIZ")) return
+        val url = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+        val request = Request.Builder().url(url).build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+
+            override fun onResponse(call: Call, response: Response) {
+                if (!response.isSuccessful) return
+                try {
+                    val json = JSONObject(response.body?.string() ?: "{}")
+                    val tagName = json.optString("tag_name", "v1.00").replace("v", "").replace(".", "")
+                    val remoteVersionCode = tagName.toIntOrNull() ?: 100
+
+                    val currentVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        packageManager.getPackageInfo(packageName, 0).versionCode
+                    }
+
+                    if (remoteVersionCode > currentVersionCode) {
+                        val assets = json.optJSONArray("assets") ?: return
+                        var downloadUrl = ""
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.getString("name").lowercase()
+                            if (name.contains("remote") && name.endsWith(".apk")) {
+                                downloadUrl = asset.getString("browser_download_url")
+                                break
+                            }
+                        }
+                        if (downloadUrl.isNotEmpty()) {
+                            runOnUiThread {
+                                showUpdateDialog(json.optString("name", "Yeni Sürüm"), downloadUrl)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        })
+    }
+
+    private fun showUpdateDialog(versionTitle: String, downloadUrl: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Güncelleme Bulundu")
+            .setMessage("Kumanda için yeni bir sürüm mevcut ($versionTitle).\nŞimdi indirip yüklemek ister misiniz?")
+            .setPositiveButton("Güncelle") { _, _ ->
+                downloadAndInstallApk(downloadUrl)
+            }
+            .setNegativeButton("Daha Sonra", null)
+            .show()
+    }
+
+    private fun downloadAndInstallApk(url: String) {
+        Toast.makeText(this, "Güncelleme indiriliyor...", Toast.LENGTH_SHORT).show()
+        val fileName = "remote_update_${System.currentTimeMillis()}.apk"
+        val destination = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
+        if (destination.exists()) destination.delete()
+
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle("Kumanda Güncellemesi")
+            .setDescription("Yeni sürüm indiriliyor...")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationUri(Uri.fromFile(destination))
+
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val downloadId = manager.enqueue(request)
+
+        val onComplete = object : BroadcastReceiver() {
+            override fun onReceive(ctxt: Context, intent: Intent) {
+                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) == downloadId) {
+                    unregisterReceiver(this)
+                    val apkUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.provider", destination)
+                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(installIntent)
+                }
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
     }
 
     private fun stopScreenShare() {
@@ -429,7 +533,6 @@ class MainActivity : AppCompatActivity() {
 
         Toast.makeText(this, "Yükleniyor, lütfen bekleyin...", Toast.LENGTH_SHORT).show()
 
-        // RAM Tasarruflu Streaming RequestBody (Video Yüklerken Çökmeyi Önler)
         val customRequestBody = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaTypeOrNull()
 
@@ -718,4 +821,3 @@ class MainActivity : AppCompatActivity() {
         override fun getItemCount(): Int = playlist.size
     }
 }
-UpdateChecker(this).checkForUpdate(isMenuboard = false)
