@@ -9,10 +9,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    
-    <!-- Ekran Paylaşım İzinleri -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -36,26 +35,21 @@
             tools:replace="android:screenOrientation"
             android:stateNotNeeded="true" />
 
-        <!-- Ekran Yakalama Servisi -->
         <service
             android:name=".ScreenCaptureService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
-        <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-<application ...>
-    <!-- FileProvider Tanımı -->
-    <provider
-        android:name="androidx.core.content.FileProvider"
-        android:authorities="${applicationId}.provider"
-        android:exported="false"
-        android:grantUriPermissions="true">
-        <meta-data
-            android:name="android.support.FILE_PROVIDER_PATHS"
-            android:resource="@xml/file_paths" />
-    </provider>
-</application>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 </manifest>
