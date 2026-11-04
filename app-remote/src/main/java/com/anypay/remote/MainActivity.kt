@@ -63,7 +63,7 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
-    // KENDİ GITHUB KULLANICI ADINIZI VE REPO ADINIZI BURAYA YAZIN:
+    // GitHub Actions derleme sırasında burayı otomatik olarak gerçek repo adınızla değiştirir:
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var tabDevices: Button
@@ -292,7 +292,11 @@ class MainActivity : AppCompatActivity() {
     private fun checkForUpdate() {
         if (GITHUB_REPO.startsWith("KULLANICI_ADINIZ")) return
         val url = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Anypay-Remote-App")
+            .header("Accept", "application/vnd.github+json")
+            .build()
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
@@ -301,8 +305,9 @@ class MainActivity : AppCompatActivity() {
                 if (!response.isSuccessful) return
                 try {
                     val json = JSONObject(response.body?.string() ?: "{}")
-                    val tagName = json.optString("tag_name", "v1.00").replace("v", "").replace(".", "")
-                    val remoteVersionCode = tagName.toIntOrNull() ?: 100
+                    val rawTag = json.optString("tag_name", "v1.00")
+                    val digitsOnly = rawTag.replace(Regex("[^0-9]"), "")
+                    val remoteVersionCode = digitsOnly.toIntOrNull() ?: 100
 
                     val currentVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt()
@@ -324,7 +329,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         if (downloadUrl.isNotEmpty()) {
                             runOnUiThread {
-                                showUpdateDialog(json.optString("name", "Yeni Sürüm"), downloadUrl)
+                                showUpdateDialog(rawTag, downloadUrl)
                             }
                         }
                     }
@@ -335,7 +340,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUpdateDialog(versionTitle: String, downloadUrl: String) {
         AlertDialog.Builder(this)
-            .setTitle("Güncelleme Bulundu")
+            .setTitle("Yeni Güncelleme Bulundu")
             .setMessage("Kumanda için yeni bir sürüm mevcut ($versionTitle).\nŞimdi indirip yüklemek ister misiniz?")
             .setPositiveButton("Güncelle") { _, _ ->
                 downloadAndInstallApk(downloadUrl)
@@ -701,8 +706,6 @@ class MainActivity : AppCompatActivity() {
         isUdpListening = false
     }
 
-    // --- RECYCLERVIEW ADAPTÖRLERİ ---
-
     inner class DeviceAdapter : RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
         inner class DeviceViewHolder(v: View) : RecyclerView.ViewHolder(v) {
             val viewStatusDot: View = v.findViewById(R.id.viewStatusDot)
@@ -725,9 +728,9 @@ class MainActivity : AppCompatActivity() {
             holder.txtDeviceIp.text = dev.host
 
             if (dev.isOnline) {
-                holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt()) // Yeşil
+                holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt())
             } else {
-                holder.viewStatusDot.setBackgroundColor(0xFFD32F2F.toInt()) // Kırmızı
+                holder.viewStatusDot.setBackgroundColor(0xFFD32F2F.toInt())
             }
 
             if (dev.isFinding) {
