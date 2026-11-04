@@ -63,6 +63,7 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
+    // KENDİ GITHUB KULLANICI ADINIZI VE REPO ADINIZI BURAYA YAZIN:
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var tabDevices: Button
@@ -90,7 +91,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaAdapter: MediaAdapter
     private var playlist = mutableListOf<MediaItemModel>()
 
-    // Footer Butonları
     private lateinit var imgFooterLogo: ImageView
     private lateinit var btnSupportCall: Button
 
@@ -101,7 +101,6 @@ class MainActivity : AppCompatActivity() {
     private var isSharingScreen = false
     private var isUdpListening = true
 
-    // Zenginleştirilmiş Efekt Listesi
     private val animOptions = arrayOf(
         "Solma (Fade)", 
         "Soldan Kay", 
@@ -272,13 +271,11 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
-        // İnterfon Logo Tıklaması -> Web Sitesine Git
         imgFooterLogo.setOnClickListener {
             val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.interfon.com.tr"))
             startActivity(browserIntent)
         }
 
-        // Destek Butonu -> 0324 329 20 01 Numarasını Ara
         btnSupportCall.setOnClickListener {
             val callIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:03243292001"))
             startActivity(callIntent)
@@ -419,7 +416,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean) {
-        var existing = deviceList.find { it.id == id }
+        val existing = deviceList.find { it.id == id }
         if (existing != null) {
             existing.host = host
             existing.isOnline = online
@@ -495,6 +492,7 @@ class MainActivity : AppCompatActivity() {
             override fun onFailure(call: Call, e: IOException) {
                 currentDevice.isOnline = false
                 updateConnectionUi(false)
+                runOnUiThread { deviceAdapter.notifyDataSetChanged() }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -543,7 +541,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // Canlı İlerleme Çubuğu Destekli Yükleme Fonksiyonu
     private fun uploadMediaFile(uri: Uri) {
         val host = activeDevice?.host ?: return
         val contentResolver = applicationContext.contentResolver
@@ -709,7 +706,6 @@ class MainActivity : AppCompatActivity() {
     inner class DeviceAdapter : RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
         inner class DeviceViewHolder(v: View) : RecyclerView.ViewHolder(v) {
             val viewStatusDot: View = v.findViewById(R.id.viewStatusDot)
-            val rbSelected: RadioButton = v.findViewById(R.id.rbSelected)
             val txtDeviceTag: TextView = v.findViewById(R.id.txtDeviceTag)
             val txtDeviceIp: TextView = v.findViewById(R.id.txtDeviceIp)
             val btnEditTag: ImageButton = v.findViewById(R.id.btnEditTag)
@@ -724,10 +720,10 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
             val dev = deviceList[position]
-            holder.txtDeviceTag.text = dev.nameTag
+            val activePrefix = if (activeDevice?.id == dev.id) "✓ " else ""
+            holder.txtDeviceTag.text = "$activePrefix${dev.nameTag}"
             holder.txtDeviceIp.text = dev.host
 
-            // Online ise Yeşil, Offline ise Kırmızı nokta
             if (dev.isOnline) {
                 holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt()) // Yeşil
             } else {
