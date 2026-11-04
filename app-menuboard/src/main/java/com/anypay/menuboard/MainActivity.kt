@@ -495,3 +495,4 @@ class MainActivity : AppCompatActivity() {
         exoPlayer?.release()
     }
 }
+UpdateChecker(this).checkForUpdate(isMenuboard = true)
