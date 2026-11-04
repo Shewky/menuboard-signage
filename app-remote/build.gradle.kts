@@ -11,8 +11,8 @@ android {
         applicationId = "com.anypay.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 101
-        versionName = "1.01"
+        versionCode = 102
+        versionName = "1.02"
     }
 
     buildTypes {
@@ -37,16 +37,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
-
-    // QR Tarayıcı
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-
-    // HTTP İletişimi
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    // JSON Ayrıştırma
     implementation("com.google.code.gson:gson:2.10.1")
-
-    // Görsel Yükleyici
     implementation("com.github.bumptech.glide:glide:4.16.0")
 }
