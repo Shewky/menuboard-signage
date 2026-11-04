@@ -1,32 +1,20 @@
 package com.anypay.menuboard
 
-import android.app.AlertDialog
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.view.View
-import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
-import android.view.animation.ScaleAnimation
-import android.view.animation.TranslateAnimation
+import android.view.animation.*
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -36,17 +24,11 @@ import com.google.gson.reflect.TypeToken
 import com.journeyapps.barcodescanner.BarcodeEncoder
 import com.google.zxing.BarcodeFormat
 import fi.iki.elonen.NanoHTTPD
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -65,9 +47,6 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
-    // KENDİ GITHUB KULLANICI ADINIZI VE REPO ADINIZI BURAYA YAZIN:
-    private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
-
     private lateinit var mediaContainer: FrameLayout
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
@@ -85,7 +64,6 @@ class MainActivity : AppCompatActivity() {
     private var httpServer: SignageServer? = null
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
-    private val updateHttpClient = OkHttpClient()
 
     private var playlist = mutableListOf<MediaItemModel>()
     private var currentIndex = 0
@@ -140,100 +118,6 @@ class MainActivity : AppCompatActivity() {
         startLocalServer()
         startUdpBeacon()
         handler.post(ipCheckRunnable)
-
-        // Açılışta GitHub üzerinden otomatik güncelleme kontrolü
-        checkForUpdate()
-    }
-
-    private fun checkForUpdate() {
-        if (GITHUB_REPO.startsWith("KULLANICI_ADINIZ")) return
-        val url = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-        val request = Request.Builder().url(url).build()
-
-        updateHttpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-
-            override fun onResponse(call: Call, response: okhttp3.Response) {
-                if (!response.isSuccessful) return
-                try {
-                    val json = JSONObject(response.body?.string() ?: "{}")
-                    val tagName = json.optString("tag_name", "v1.00").replace("v", "").replace(".", "")
-                    val remoteVersionCode = tagName.toIntOrNull() ?: 100
-
-                    val currentVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt()
-                    } else {
-                        @Suppress("DEPRECATION")
-                        packageManager.getPackageInfo(packageName, 0).versionCode
-                    }
-
-                    if (remoteVersionCode > currentVersionCode) {
-                        val assets = json.optJSONArray("assets") ?: return
-                        var downloadUrl = ""
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.getJSONObject(i)
-                            val name = asset.getString("name").lowercase()
-                            if (name.contains("menuboard") && name.endsWith(".apk")) {
-                                downloadUrl = asset.getString("browser_download_url")
-                                break
-                            }
-                        }
-                        if (downloadUrl.isNotEmpty()) {
-                            runOnUiThread {
-                                showUpdateDialog(json.optString("name", "Yeni Sürüm"), downloadUrl)
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        })
-    }
-
-    private fun showUpdateDialog(versionTitle: String, downloadUrl: String) {
-        AlertDialog.Builder(this)
-            .setTitle("Güncelleme Bulundu")
-            .setMessage("Yeni bir sürüm mevcut ($versionTitle).\nŞimdi indirip yüklemek ister misiniz?")
-            .setPositiveButton("Güncelle") { _, _ ->
-                downloadAndInstallApk(downloadUrl)
-            }
-            .setNegativeButton("Daha Sonra", null)
-            .show()
-    }
-
-    private fun downloadAndInstallApk(url: String) {
-        Toast.makeText(this, "Güncelleme indiriliyor...", Toast.LENGTH_SHORT).show()
-        val fileName = "menuboard_update_${System.currentTimeMillis()}.apk"
-        val destination = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
-        if (destination.exists()) destination.delete()
-
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("Menuboard Güncellemesi")
-            .setDescription("Yeni sürüm indiriliyor...")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationUri(Uri.fromFile(destination))
-
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = manager.enqueue(request)
-
-        val onComplete = object : BroadcastReceiver() {
-            override fun onReceive(ctxt: Context, intent: Intent) {
-                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) == downloadId) {
-                    unregisterReceiver(this)
-                    val apkUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.provider", destination)
-                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(apkUri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(installIntent)
-                }
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-        }
     }
 
     private fun initPlayer() {
@@ -355,20 +239,15 @@ class MainActivity : AppCompatActivity() {
         playItem(currentIndex % playlist.size)
     }
 
+    // Zenginleştirilmiş Geçiş Animasyonları
     private fun applyTransitionAnimation(animationType: String) {
         val anim: Animation? = when (animationType) {
-            "slide_left" -> TranslateAnimation(
-                Animation.RELATIVE_TO_PARENT, 1.0f, Animation.RELATIVE_TO_PARENT, 0.0f,
-                Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f
-            ).apply { duration = 500 }
-            "slide_right" -> TranslateAnimation(
-                Animation.RELATIVE_TO_PARENT, -1.0f, Animation.RELATIVE_TO_PARENT, 0.0f,
-                Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f
-            ).apply { duration = 500 }
-            "zoom" -> ScaleAnimation(
-                0.8f, 1.0f, 0.8f, 1.0f,
-                Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f
-            ).apply { duration = 400 }
+            "slide_left" -> TranslateAnimation(Animation.RELATIVE_TO_PARENT, 1.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f).apply { duration = 500 }
+            "slide_right" -> TranslateAnimation(Animation.RELATIVE_TO_PARENT, -1.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f).apply { duration = 500 }
+            "slide_up" -> TranslateAnimation(Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 1.0f, Animation.RELATIVE_TO_PARENT, 0.0f).apply { duration = 500 }
+            "slide_down" -> TranslateAnimation(Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, 0.0f, Animation.RELATIVE_TO_PARENT, -1.0f, Animation.RELATIVE_TO_PARENT, 0.0f).apply { duration = 500 }
+            "zoom_in" -> ScaleAnimation(0.5f, 1.0f, 0.5f, 1.0f, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f).apply { duration = 400 }
+            "zoom_out" -> ScaleAnimation(1.5f, 1.0f, 1.5f, 1.0f, Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f).apply { duration = 400 }
             "fade" -> AlphaAnimation(0.0f, 1.0f).apply { duration = 400 }
             else -> null
         }
