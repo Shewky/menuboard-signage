@@ -19,7 +19,7 @@ import java.io.IOException
 class UpdateChecker(private val context: Context) {
 
     // Kendi GitHub kullanıcı adınızı ve repo adınızı buraya girin
-    private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
+    private val GITHUB_REPO = "Shewky/menuboard-signage"
     private val httpClient = OkHttpClient()
 
     fun checkForUpdate(isMenuboard: Boolean) {
