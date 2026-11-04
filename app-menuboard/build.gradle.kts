@@ -11,8 +11,8 @@ android {
         applicationId = "com.anypay.menuboard"
         minSdk = 24
         targetSdk = 34
-        versionCode = 101
-        versionName = "1.01"
+        versionCode = 102
+        versionName = "1.02"
     }
 
     buildTypes {
@@ -37,22 +37,12 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
-
-    // Video Oynatıcı (Media3 / ExoPlayer)
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
-
-    // QR Kod Üretimi (ZXing)
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
-
-    // Hafif Yerel HTTP Sunucu
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-
-    // HTTP İstemcisi (Oto-Güncelleme Kontrolü İçin)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    // JSON Ayrıştırma ve Görsel İşleme
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.github.bumptech.glide:glide:4.16.0")
 }
