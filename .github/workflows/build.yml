@@ -1,9 +1,12 @@
-name: Build Menuboard & Remote APKs
+name: Build & Release Menuboard APKs
 
 on:
   push:
     branches: [ "main", "master" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -24,27 +27,43 @@ jobs:
       with:
         gradle-version: '8.2.1'
 
+    - name: Extract Version Name from build.gradle.kts
+      id: extract_version
+      run: |
+        VERSION=$(grep 'versionName =' app-menuboard/build.gradle.kts | sed 's/.*versionName = "\(.*\)".*/\1/' | tr -d '[:space:]')
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Bulunan Sürüm: v$VERSION"
+
     - name: Build Both APKs
       run: gradle assembleDebug --stacktrace
 
-    - name: Upload Menuboard APK
+    - name: Rename APKs with Version
+      run: |
+        cp app-menuboard/build/outputs/apk/debug/app-menuboard-debug.apk app-menuboard-v${{ steps.extract_version.outputs.VERSION }}.apk
+        cp app-remote/build/outputs/apk/debug/app-remote-debug.apk app-remote-v${{ steps.extract_version.outputs.VERSION }}.apk
+
+    - name: Upload Menuboard APK (Artifact)
       uses: actions/upload-artifact@v4
       with:
-        name: Menuboard-Debug-APK
-        path: app-menuboard/build/outputs/apk/debug/*.apk
+        name: Menuboard-APK-v${{ steps.extract_version.outputs.VERSION }}
+        path: app-menuboard-v${{ steps.extract_version.outputs.VERSION }}.apk
 
-    - name: Upload Remote APK
+    - name: Upload Remote APK (Artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: Remote-APK-v${{ steps.extract_version.outputs.VERSION }}
+        path: app-remote-v${{ steps.extract_version.outputs.VERSION }}.apk
 
-    - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/')
+    - name: Publish Automatic GitHub Release
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: v${{ steps.extract_version.outputs.VERSION }}
+        name: Sürüm v${{ steps.extract_version.outputs.VERSION }}
+        body: "Otomatik derlenen v${{ steps.extract_version.outputs.VERSION }} sürümü. Cihazlar açılışta bu sürümü otomatik algılar."
+        prerelease: false
+        overwrite: true
         files: |
-          app-menuboard/build/outputs/apk/debug/*.apk
-          app-remote/build/outputs/apk/debug/*.apk
+          app-menuboard-v${{ steps.extract_version.outputs.VERSION }}.apk
+          app-remote-v${{ steps.extract_version.outputs.VERSION }}.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: Remote-Debug-APK
-        path: app-remote/build/outputs/apk/debug/*.apk
