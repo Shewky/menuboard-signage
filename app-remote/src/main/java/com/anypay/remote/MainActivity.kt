@@ -718,3 +718,4 @@ class MainActivity : AppCompatActivity() {
         override fun getItemCount(): Int = playlist.size
     }
 }
+UpdateChecker(this).checkForUpdate(isMenuboard = false)
