@@ -62,7 +62,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 1. SEKME: CİHAZLAR & OTOMATİK TARAMA -->
+    <!-- 1. SEKME: CİHAZLAR -->
     <LinearLayout
         android:id="@+id/panelTabDevices"
         android:layout_width="match_parent"
@@ -83,7 +83,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:backgroundTint="#00897B"
-                android:text="🔍 Ağı Tara (Oto-Bul)"
+                android:text="🔍 Ağı Tara"
                 android:textColor="#FFFFFF" />
 
             <Button
@@ -93,16 +93,15 @@
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
                 android:backgroundTint="#0288D1"
-                android:text="📷 QR Kod Tara"
+                android:text="📷 QR Tara"
                 android:textColor="#FFFFFF" />
         </LinearLayout>
 
         <TextView
-            android:id="@+id/txtScanNotice"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Ağdaki Cihazlar (Modem resetlense bile otomatik güncellenir):"
+            android:text="Ağdaki Menuboardlar (Yeşil: Online, Kırmızı: Offline):"
             android:textSize="12sp"
             android:textStyle="bold" />
 
@@ -114,7 +113,7 @@
             android:layout_weight="1" />
     </LinearLayout>
 
-    <!-- 2. SEKME: MEDYA YÖNETİMİ & CANLI EKRAN YANSITMA -->
+    <!-- 2. SEKME: MEDYA & EKRAN YANSITMA -->
     <LinearLayout
         android:id="@+id/panelTabMedia"
         android:layout_width="match_parent"
@@ -124,7 +123,6 @@
         android:padding="12dp"
         android:visibility="gone">
 
-        <!-- Ekran Yansıtma Kontrol Paneli -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -180,7 +178,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
-                    android:hint="Bekleme (sn)"
+                    android:hint="Bekleme"
                     android:inputType="number"
                     android:text="0" />
 
@@ -197,7 +195,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="+ Bu Menuboarda Medya Yükle" />
+                android:text="+ Medya Yükle" />
+
+            <!-- Yüklenme Durum Çubuğu (Progress Bar) -->
+            <ProgressBar
+                android:id="@+id/uploadProgressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="6dp"
+                android:max="100"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView
@@ -216,12 +224,33 @@
             android:layout_weight="1" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/imgFooterLogo"
-        android:layout_width="120dp"
-        android:layout_height="40dp"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="6dp"
-        android:src="@drawable/logo_interfon" />
+    <!-- Sabit Alt Footer (İnterfon Logo & Destek Butonu) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FAFAFA"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:padding="6dp">
+
+        <ImageView
+            android:id="@+id/imgFooterLogo"
+            android:layout_width="110dp"
+            android:layout_height="38dp"
+            android:background="?selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:src="@drawable/logo_interfon" />
+
+        <Button
+            android:id="@+id/btnSupportCall"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="16dp"
+            android:backgroundTint="#00C853"
+            android:text="📞 Destek (Ara)"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
+    </LinearLayout>
 
 </LinearLayout>
