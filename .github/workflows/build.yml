@@ -22,6 +22,12 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Inject Real GitHub Repository Name into Code
+      run: |
+        sed -i "s|KULLANICI_ADINIZ/menuboard-signage|${{ github.repository }}|g" app-menuboard/src/main/java/com/anypay/menuboard/MainActivity.kt
+        sed -i "s|KULLANICI_ADINIZ/menuboard-signage|${{ github.repository }}|g" app-remote/src/main/java/com/anypay/remote/MainActivity.kt
+        echo "Gömülen Repo Adresi: ${{ github.repository }}"
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
