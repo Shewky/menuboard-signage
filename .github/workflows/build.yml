@@ -55,7 +55,7 @@ jobs:
       with:
         gradle-version: '8.2.1'
 
-    - name: Extract Version Name from build.gradle.kts
+- name: Extract Version Name from build.gradle.kts
       id: extract_version
       run: |
         VERSION=$(grep 'versionName =' app-menuboard/build.gradle.kts | sed 's/.*versionName = "\(.*\)".*/\1/' | tr -d '[:space:]')
