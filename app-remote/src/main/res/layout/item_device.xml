@@ -15,16 +15,17 @@
         android:orientation="horizontal"
         android:padding="10dp">
 
-        <RadioButton
-            android:id="@+id/rbSelected"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:clickable="false" />
+        <!-- Online (Yeşil) / Offline (Kırmızı) Durum Noktası -->
+        <View
+            android:id="@+id/viewStatusDot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_marginEnd="8dp"
+            android:background="@android:drawable/presence_busy" />
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -32,7 +33,6 @@
                 android:id="@+id/txtDeviceTag"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Menuboard 1"
                 android:textColor="#000000"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -42,12 +42,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="192.168.1.50:8080"
                 android:textColor="#666666"
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- Nametag Düzenle -->
         <ImageButton
             android:id="@+id/btnEditTag"
             android:layout_width="38dp"
@@ -55,19 +53,17 @@
             android:background="?selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_edit" />
 
-        <!-- Menuboard Bul Butonu -->
         <Button
             android:id="@+id/btnFindDevice"
             android:layout_width="wrap_content"
             android:layout_height="38dp"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="4dp"
             android:backgroundTint="#F57C00"
-            android:paddingHorizontal="12dp"
+            android:paddingHorizontal="10dp"
             android:text="Bul"
             android:textColor="#FFFFFF"
             android:textSize="12sp" />
 
-        <!-- Cihazı Sil -->
         <ImageButton
             android:id="@+id/btnDeleteDevice"
             android:layout_width="38dp"
