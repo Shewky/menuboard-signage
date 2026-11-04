@@ -47,7 +47,8 @@ data class DeviceItem(
     val id: String,
     var host: String,
     var nameTag: String,
-    var isFinding: Boolean = false
+    var isFinding: Boolean = false,
+    var isOnline: Boolean = false
 )
 
 data class MediaItemModel(
@@ -62,7 +63,6 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
-    // KENDİ GITHUB KULLANICI ADINIZI VE REPO ADINIZI BURAYA YAZIN:
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var tabDevices: Button
@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     private var activeDevice: DeviceItem? = null
 
     private lateinit var btnToggleScreenShare: Button
+    private lateinit var uploadProgressBar: ProgressBar
     private lateinit var edtDuration: EditText
     private lateinit var edtWaitAfter: EditText
     private lateinit var spinnerAnim: Spinner
@@ -89,6 +90,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaAdapter: MediaAdapter
     private var playlist = mutableListOf<MediaItemModel>()
 
+    // Footer Butonları
+    private lateinit var imgFooterLogo: ImageView
+    private lateinit var btnSupportCall: Button
+
     private val httpClient = OkHttpClient()
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
@@ -96,8 +101,18 @@ class MainActivity : AppCompatActivity() {
     private var isSharingScreen = false
     private var isUdpListening = true
 
-    private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yakınlaş (Zoom)", "Animasyonsuz")
-    private val animValues = arrayOf("fade", "slide_left", "slide_right", "zoom", "none")
+    // Zenginleştirilmiş Efekt Listesi
+    private val animOptions = arrayOf(
+        "Solma (Fade)", 
+        "Soldan Kay", 
+        "Sağdan Kay", 
+        "Yukarıdan Kay", 
+        "Aşağıdan Kay", 
+        "Yakınlaş (Zoom In)", 
+        "Uzaklaş (Zoom Out)", 
+        "Animasyonsuz"
+    )
+    private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
 
     private val heartbeatRunnable = object : Runnable {
         override fun run() {
@@ -116,7 +131,7 @@ class MainActivity : AppCompatActivity() {
                 val tag = json.optString("tag", "Menuboard ${deviceList.size + 1}")
                 val host = "$ip:$port"
 
-                updateOrAddDevice(id, host, tag)
+                updateOrAddDevice(id, host, tag, true)
                 switchTab(false)
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
@@ -174,11 +189,15 @@ class MainActivity : AppCompatActivity() {
         rvDevices = findViewById(R.id.rvDevices)
 
         btnToggleScreenShare = findViewById(R.id.btnToggleScreenShare)
+        uploadProgressBar = findViewById(R.id.uploadProgressBar)
         edtDuration = findViewById(R.id.edtDuration)
         edtWaitAfter = findViewById(R.id.edtWaitAfter)
         spinnerAnim = findViewById(R.id.spinnerAnim)
         btnPickMedia = findViewById(R.id.btnPickMedia)
         recyclerViewPlaylist = findViewById(R.id.recyclerViewPlaylist)
+
+        imgFooterLogo = findViewById(R.id.imgFooterLogo)
+        btnSupportCall = findViewById(R.id.btnSupportCall)
 
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
 
@@ -223,7 +242,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnScanNetwork.setOnClickListener {
-            Toast.makeText(this, "Ağ taranıyor...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Ağ taranıyor... Cihazlar sinyal gönderdikçe listelenecek.", Toast.LENGTH_SHORT).show()
         }
 
         btnToggleScreenShare.setOnClickListener {
@@ -253,13 +272,23 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
+        // İnterfon Logo Tıklaması -> Web Sitesine Git
+        imgFooterLogo.setOnClickListener {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.interfon.com.tr"))
+            startActivity(browserIntent)
+        }
+
+        // Destek Butonu -> 0324 329 20 01 Numarasını Ara
+        btnSupportCall.setOnClickListener {
+            val callIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:03243292001"))
+            startActivity(callIntent)
+        }
+
         if (deviceList.isNotEmpty()) {
             selectDevice(deviceList.first())
         }
 
         startUdpListener()
-
-        // Açılışta GitHub üzerinden otomatik güncelleme kontrolü
         checkForUpdate()
     }
 
@@ -380,7 +409,7 @@ class MainActivity : AppCompatActivity() {
                             val port = parts[4]
                             val host = "$ip:$port"
                             runOnUiThread {
-                                updateOrAddDevice(id, host, tag)
+                                updateOrAddDevice(id, host, tag, true)
                             }
                         }
                     }
@@ -389,18 +418,20 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun updateOrAddDevice(id: String, host: String, tag: String) {
-        val existing = deviceList.find { it.id == id }
+    private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean) {
+        var existing = deviceList.find { it.id == id }
         if (existing != null) {
             existing.host = host
+            existing.isOnline = online
         } else {
-            deviceList.add(DeviceItem(id, host, tag))
+            deviceList.add(DeviceItem(id, host, tag, isOnline = online))
         }
         saveDevices()
         deviceAdapter.notifyDataSetChanged()
 
         if (activeDevice?.id == id) {
             activeDevice?.host = host
+            activeDevice?.isOnline = online
             txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"
         }
     }
@@ -457,20 +488,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkConnectionAndSync() {
-        val host = activeDevice?.host ?: return
-        val request = Request.Builder().url("http://$host/api/ping").build()
+        val currentDevice = activeDevice ?: return
+        val request = Request.Builder().url("http://${currentDevice.host}/api/ping").build()
 
         httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { updateConnectionUi(false) }
+            override fun onFailure(call: Call, e: IOException) {
+                currentDevice.isOnline = false
+                updateConnectionUi(false)
+            }
 
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
+                    currentDevice.isOnline = true
                     val wasDisconnected = !isConnected
                     updateConnectionUi(true)
                     if (wasDisconnected || playlist.isEmpty()) fetchPlaylist()
                 } else {
+                    currentDevice.isOnline = false
                     updateConnectionUi(false)
                 }
+                runOnUiThread { deviceAdapter.notifyDataSetChanged() }
             }
         })
     }
@@ -493,7 +530,7 @@ class MainActivity : AppCompatActivity() {
         val request = Request.Builder().url("http://$host/api/playlist").build()
 
         httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { updateConnectionUi(false) }
+            override fun onFailure(call: Call, e: IOException) {}
 
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
@@ -506,6 +543,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // Canlı İlerleme Çubuğu Destekli Yükleme Fonksiyonu
     private fun uploadMediaFile(uri: Uri) {
         val host = activeDevice?.host ?: return
         val contentResolver = applicationContext.contentResolver
@@ -531,23 +569,29 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {}
         }
 
-        Toast.makeText(this, "Yükleniyor, lütfen bekleyin...", Toast.LENGTH_SHORT).show()
+        val totalLength = try {
+            contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (_: Exception) { -1L }
+
+        uploadProgressBar.visibility = View.VISIBLE
+        uploadProgressBar.progress = 0
 
         val customRequestBody = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaTypeOrNull()
-
-            override fun contentLength(): Long {
-                return try {
-                    contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-                } catch (_: Exception) { -1L }
-            }
+            override fun contentLength(): Long = totalLength
 
             override fun writeTo(sink: okio.BufferedSink) {
                 contentResolver.openInputStream(uri)?.use { inputStream ->
                     val buffer = ByteArray(8192)
                     var read: Int
+                    var uploaded: Long = 0
                     while (inputStream.read(buffer).also { read = it } != -1) {
                         sink.write(buffer, 0, read)
+                        if (totalLength > 0) {
+                            uploaded += read
+                            val progress = ((uploaded * 100) / totalLength).toInt()
+                            runOnUiThread { uploadProgressBar.progress = progress }
+                        }
                     }
                 }
             }
@@ -565,10 +609,14 @@ class MainActivity : AppCompatActivity() {
 
         httpClient.newCall(uploadRequest).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Yükleme Başarısız!", Toast.LENGTH_SHORT).show() }
+                runOnUiThread {
+                    uploadProgressBar.visibility = View.GONE
+                    Toast.makeText(this@MainActivity, "Yükleme Başarısız!", Toast.LENGTH_SHORT).show()
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
+                runOnUiThread { uploadProgressBar.visibility = View.GONE }
                 if (response.isSuccessful) {
                     val dur = edtDuration.text.toString().toIntOrNull() ?: 0
                     val wait = edtWaitAfter.text.toString().toIntOrNull() ?: 0
@@ -660,6 +708,7 @@ class MainActivity : AppCompatActivity() {
 
     inner class DeviceAdapter : RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
         inner class DeviceViewHolder(v: View) : RecyclerView.ViewHolder(v) {
+            val viewStatusDot: View = v.findViewById(R.id.viewStatusDot)
             val rbSelected: RadioButton = v.findViewById(R.id.rbSelected)
             val txtDeviceTag: TextView = v.findViewById(R.id.txtDeviceTag)
             val txtDeviceIp: TextView = v.findViewById(R.id.txtDeviceIp)
@@ -677,7 +726,13 @@ class MainActivity : AppCompatActivity() {
             val dev = deviceList[position]
             holder.txtDeviceTag.text = dev.nameTag
             holder.txtDeviceIp.text = dev.host
-            holder.rbSelected.isChecked = (activeDevice?.id == dev.id)
+
+            // Online ise Yeşil, Offline ise Kırmızı nokta
+            if (dev.isOnline) {
+                holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt()) // Yeşil
+            } else {
+                holder.viewStatusDot.setBackgroundColor(0xFFD32F2F.toInt()) // Kırmızı
+            }
 
             if (dev.isFinding) {
                 holder.btnFindDevice.text = "Gizle"
