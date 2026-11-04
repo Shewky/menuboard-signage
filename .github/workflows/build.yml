@@ -22,11 +22,33 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Create Deterministic Signing Keystore
+      run: |
+        # Sabit bir keystore dosyası yoksa oluştur, varsa hep aynısını kullan
+        if [ ! -f "anypay-release.jks" ]; then
+          # Sabit seed ve parametrelerle standart keystore üretimi
+          keytool -genkeypair -v \
+            -keystore anypay-release.jks \
+            -alias anypay_key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass anypay123456 \
+            -keypass anypay123456 \
+            -dname "CN=Interfon, OU=IT, O=Interfon, L=Mersin, S=Mersin, C=TR"
+          
+          # Üretilen sabit anahtarı bir sonraki derlemelerde de aynı kalması için repoya kaydet
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add anypay-release.jks
+          git commit -m "chore: add persistent signing keystore [skip ci]" || true
+          git push || true
+        fi
+
     - name: Inject Real GitHub Repository Name into Code
       run: |
         sed -i "s|KULLANICI_ADINIZ/menuboard-signage|${{ github.repository }}|g" app-menuboard/src/main/java/com/anypay/menuboard/MainActivity.kt
         sed -i "s|KULLANICI_ADINIZ/menuboard-signage|${{ github.repository }}|g" app-remote/src/main/java/com/anypay/remote/MainActivity.kt
-        echo "Gömülen Repo Adresi: ${{ github.repository }}"
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
@@ -65,7 +87,7 @@ jobs:
       with:
         tag_name: v${{ steps.extract_version.outputs.VERSION }}
         name: Sürüm v${{ steps.extract_version.outputs.VERSION }}
-        body: "Otomatik derlenen v${{ steps.extract_version.outputs.VERSION }} sürümü. Cihazlar açılışta bu sürümü otomatik algılar."
+        body: "Otomatik derlenen v${{ steps.extract_version.outputs.VERSION }} sürümü (Sabit İmzalı)."
         prerelease: false
         overwrite: true
         files: |
