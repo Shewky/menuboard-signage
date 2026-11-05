@@ -6,13 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RectF
+import android.graphics.*
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -20,6 +14,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.view.KeyEvent
 import android.view.View
 import android.view.animation.*
 import android.widget.Button
@@ -73,46 +69,156 @@ data class InstalledAppInfo(
     val packageName: String
 )
 
-// Canlı Hareketli Arka Plan / Tema Objeleri Çizici (Balık, Döner, Nargile)
+// Gerçekçi Çok Katmanlı Animasyon Motoru (Balık, Ahtapot, Yengeç, Döner, Nargile, Kahve, Altın, Kar)
 class AnimatedOverlayView(context: Context) : View(context) {
     private var mode: String = "none"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var tick = 0f
 
-    private data class Particle(var x: Float, var y: Float, var speed: Float, var size: Float, var phase: Float, var color: Int)
-    private val particles = mutableListOf<Particle>()
+    private data class Entity(
+        var x: Float,
+        var y: Float,
+        var vx: Float,
+        var vy: Float,
+        var size: Float,
+        var phase: Float,
+        var kind: Int, // 0: Clownfish, 1: BlueTang, 2: Angelfish, 3: Octopus, 4: Crab, 5: Bubble/Smoke/Ember
+        var alpha: Int,
+        var color: Int
+    )
+
+    private val entities = mutableListOf<Entity>()
 
     fun setAnimationMode(newMode: String) {
         mode = newMode
-        particles.clear()
+        entities.clear()
         if (mode == "none") {
             visibility = GONE
             return
         }
         visibility = VISIBLE
-        val count = when (mode) {
-            "fish" -> 12
-            "doner" -> 25
-            "hookah" -> 30
-            else -> 0
-        }
-        val colors = listOf(
-            Color.argb(140, 255, 152, 0),
-            Color.argb(140, 3, 169, 244),
-            Color.argb(140, 255, 193, 7),
-            Color.argb(140, 0, 230, 118)
-        )
-        for (i in 0 until count) {
-            particles.add(
-                Particle(
-                    x = Random.nextFloat() * 1080f,
-                    y = Random.nextFloat() * 1920f,
-                    speed = 2f + Random.nextFloat() * 4f,
-                    size = 18f + Random.nextFloat() * 28f,
-                    phase = Random.nextFloat() * 6.28f,
-                    color = colors[i % colors.size]
-                )
-            )
+
+        when (mode) {
+            "fish" -> {
+                // Çeşitli Balıklar (0,1,2)
+                for (i in 0 until 10) {
+                    val dir = if (i % 2 == 0) 1f else -1f
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = 180f + Random.nextFloat() * 1450f,
+                            vx = (1.6f + Random.nextFloat() * 2.4f) * dir,
+                            vy = 0f,
+                            size = 24f + Random.nextFloat() * 22f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = i % 3,
+                            alpha = 185,
+                            color = 0
+                        )
+                    )
+                }
+                // 2 Adet Ahtapot (kind = 3)
+                for (i in 0 until 2) {
+                    entities.add(
+                        Entity(
+                            x = 200f + i * 650f,
+                            y = 500f + i * 700f,
+                            vx = 0.7f * (if (i == 0) 1f else -1f),
+                            vy = 0.4f,
+                            size = 42f,
+                            phase = i * 2.1f,
+                            kind = 3,
+                            alpha = 175,
+                            color = Color.argb(175, 186, 104, 200)
+                        )
+                    )
+                }
+                // 2 Adet Zeminde Yürüyen Yengeç (kind = 4)
+                for (i in 0 until 2) {
+                    entities.add(
+                        Entity(
+                            x = 300f + i * 450f,
+                            y = 1830f,
+                            vx = if (i == 0) 1.4f else -1.4f,
+                            vy = 0f,
+                            size = 32f,
+                            phase = i * 1.5f,
+                            kind = 4,
+                            alpha = 200,
+                            color = Color.argb(200, 229, 57, 53)
+                        )
+                    )
+                }
+                // Su Kabarcıkları (kind = 5)
+                for (i in 0 until 22) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = 0f,
+                            vy = -(1.8f + Random.nextFloat() * 2.5f),
+                            size = 4f + Random.nextFloat() * 10f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = 5,
+                            alpha = 110,
+                            color = Color.WHITE
+                        )
+                    )
+                }
+            }
+            "doner" -> {
+                // Gerçekçi Çok Katmanlı Buhar (kind = 0) ve Kor Kıvılcımlar (kind = 1)
+                for (i in 0 until 28) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 1.2f,
+                            vy = -(1.5f + Random.nextFloat() * 2.8f),
+                            size = 45f + Random.nextFloat() * 75f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = if (i < 16) 0 else 1,
+                            alpha = if (i < 16) 45 else 190,
+                            color = if (i < 16) Color.rgb(255, 235, 220) else Color.rgb(255, 110, 0)
+                        )
+                    )
+                }
+            }
+            "hookah", "coffee" -> {
+                // Gerçekçi Kıvrımlı Nargile / Kahve Duman Bulutları
+                for (i in 0 until 26) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 1.0f,
+                            vy = -(1.1f + Random.nextFloat() * 1.8f),
+                            size = 55f + Random.nextFloat() * 90f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = i % 2,
+                            alpha = 38,
+                            color = if (mode == "hookah") Color.rgb(210, 235, 255) else Color.rgb(245, 225, 205)
+                        )
+                    )
+                }
+            }
+            "gold", "snow" -> {
+                for (i in 0 until 35) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 0.8f,
+                            vy = if (mode == "snow") (1.5f + Random.nextFloat() * 2.5f) else -(0.8f + Random.nextFloat() * 1.5f),
+                            size = 6f + Random.nextFloat() * 18f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = 0,
+                            alpha = 140,
+                            color = if (mode == "gold") Color.rgb(255, 215, 0) else Color.WHITE
+                        )
+                    )
+                }
+            }
         }
         invalidate()
     }
@@ -123,100 +229,267 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
         val w = width.toFloat().coerceAtLeast(1080f)
         val h = height.toFloat().coerceAtLeast(1920f)
-        tick += 0.05f
+        tick += 0.045f
 
         when (mode) {
-            "fish" -> drawSwimmingFish(canvas, w, h)
-            "doner" -> drawRotatingDoner(canvas, w, h)
-            "hookah" -> drawHookahSmoke(canvas, w, h)
+            "fish" -> drawMarineEcosystem(canvas, w, h)
+            "doner" -> drawRealisticDonerAndFire(canvas, w, h)
+            "hookah", "coffee" -> drawRealisticVolumetricSmoke(canvas, w, h)
+            "gold", "snow" -> drawBokehOrSnow(canvas, w, h)
         }
 
-        postInvalidateDelayed(20L)
+        postInvalidateDelayed(22L)
     }
 
-    private fun drawSwimmingFish(canvas: Canvas, w: Float, h: Float) {
-        for (p in particles) {
-            p.x += p.speed
-            val waveY = p.y + sin((tick + p.phase).toDouble()).toFloat() * 25f
-            if (p.x > w + 100f) {
-                p.x = -100f
-                p.y = Random.nextFloat() * h
-            }
-
-            paint.color = p.color
-            paint.style = Paint.Style.FILL
-            // Balık gövdesi
-            val oval = RectF(p.x - p.size, waveY - p.size * 0.5f, p.x + p.size, waveY + p.size * 0.5f)
-            canvas.drawOval(oval, paint)
-
-            // Balık kuyruğu
-            val tailWag = sin((tick * 3f + p.phase).toDouble()).toFloat() * 10f
-            val tailPath = Path().apply {
-                moveTo(p.x - p.size * 0.8f, waveY)
-                lineTo(p.x - p.size * 1.6f, waveY - p.size * 0.6f + tailWag)
-                lineTo(p.x - p.size * 1.6f, waveY + p.size * 0.6f + tailWag)
-                close()
-            }
-            canvas.drawPath(tailPath, paint)
-
-            // Göz ve Su Kabarcığı
-            paint.color = Color.argb(180, 255, 255, 255)
-            canvas.drawCircle(p.x + p.size * 0.5f, waveY - p.size * 0.1f, p.size * 0.12f, paint)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 2f
-            canvas.drawCircle(p.x + p.size * 1.3f, waveY - (tick * 15f) % 80f, 6f, paint)
-        }
-    }
-
-    private fun drawRotatingDoner(canvas: Canvas, w: Float, h: Float) {
-        // Sağ alt ve sol üst köşede dönen döner silüeti ve yükselen sıcak duman/kıvılcım
-        val cx = w - 130f
-        val cy = h - 220f
-
-        paint.style = Paint.Style.FILL
-        paint.color = Color.argb(110, 180, 180, 180)
-        canvas.drawRect(cx - 4f, cy - 110f, cx + 4f, cy + 110f, paint)
-
-        for (i in -3..3) {
-            val sliceY = cy + i * 22f
-            val baseWidth = 65f - kotlin.math.abs(i) * 6f
-            val rotScale = 0.85f + 0.15f * sin((tick * 2f + i).toDouble()).toFloat()
-            paint.color = if (i % 2 == 0) Color.argb(120, 165, 65, 25) else Color.argb(120, 205, 95, 40)
-            canvas.drawOval(RectF(cx - baseWidth * rotScale, sliceY - 14f, cx + baseWidth * rotScale, sliceY + 14f), paint)
-        }
-
-        // Yükselen sıcak buhar ve baharat/ateş kıvılcımları
-        for (p in particles) {
-            p.y -= p.speed
-            val swayX = p.x + sin((tick + p.phase).toDouble()).toFloat() * 20f
-            if (p.y < -50f) {
-                p.y = h + 50f
-                p.x = Random.nextFloat() * w
-            }
-            paint.color = Color.argb(75, 255, 110, 64)
-            canvas.drawCircle(swayX, p.y, p.size * 0.45f, paint)
-        }
-    }
-
-    private fun drawHookahSmoke(canvas: Canvas, w: Float, h: Float) {
-        // Nargile dumanı halkaları ve yükselen yumuşak bulutlar
+    private fun drawMarineEcosystem(canvas: Canvas, w: Float, h: Float) {
+        // Alt Kısımda Sallanan Deniz Yosunları
         paint.style = Paint.Style.STROKE
-        for (p in particles) {
-            p.y -= p.speed * 0.7f
-            val driftX = p.x + cos((tick * 0.8f + p.phase).toDouble()).toFloat() * 35f
-            if (p.y < -100f) {
-                p.y = h + 80f
-                p.x = Random.nextFloat() * w
+        paint.strokeWidth = 7f
+        paint.color = Color.argb(95, 46, 125, 50)
+        for (k in 1..8) {
+            val baseX = (w / 9f) * k
+            val path = Path().apply {
+                moveTo(baseX, h)
+                val sway1 = sin((tick * 1.5f + k).toDouble()).toFloat() * 25f
+                val sway2 = cos((tick * 1.5f + k).toDouble()).toFloat() * 35f
+                quadTo(baseX + sway1, h - 90f, baseX + sway2, h - 180f)
             }
-            val expand = p.size + ((h - p.y) / h) * 45f
-            paint.strokeWidth = 6f
-            paint.color = Color.argb(55, 200, 230, 255)
-            canvas.drawCircle(driftX, p.y, expand, paint)
+            canvas.drawPath(path, paint)
+        }
 
-            paint.style = Paint.Style.FILL
-            paint.color = Color.argb(28, 220, 240, 255)
-            canvas.drawCircle(driftX + 12f, p.y + 8f, expand * 0.7f, paint)
-            paint.style = Paint.Style.STROKE
+        for (e in entities) {
+            when (e.kind) {
+                0, 1, 2 -> { // 3 Farklı Tür Balık
+                    e.x += e.vx
+                    val dir = if (e.vx >= 0) 1f else -1f
+                    val waveY = e.y + sin((tick * 2f + e.phase).toDouble()).toFloat() * 18f
+                    if (dir > 0 && e.x > w + 120f) e.x = -100f
+                    if (dir < 0 && e.x < -120f) e.x = w + 100f
+
+                    paint.style = Paint.Style.FILL
+                    paint.color = when (e.kind) {
+                        0 -> Color.argb(180, 255, 112, 67) // Palyaço Balığı (Turuncu)
+                        1 -> Color.argb(180, 41, 182, 246) // Mavi Tang
+                        else -> Color.argb(180, 255, 213, 79) // Sarı Melek Balığı
+                    }
+
+                    // Gövde
+                    val bodyH = if (e.kind == 2) e.size * 0.85f else e.size * 0.52f
+                    canvas.drawOval(RectF(e.x - e.size, waveY - bodyH, e.x + e.size, waveY + bodyH), paint)
+
+                    // Palyaço Balığı Beyaz Çizgileri
+                    if (e.kind == 0) {
+                        paint.color = Color.argb(175, 255, 255, 255)
+                        canvas.drawRect(e.x - e.size * 0.2f, waveY - bodyH * 0.9f, e.x + e.size * 0.1f, waveY + bodyH * 0.9f, paint)
+                        paint.color = Color.argb(180, 255, 112, 67)
+                    }
+
+                    // Sallanan Kuyruk Yüzgeci
+                    val wag = sin((tick * 4f + e.phase).toDouble()).toFloat() * 12f
+                    val tail = Path().apply {
+                        moveTo(e.x - dir * e.size * 0.85f, waveY)
+                        lineTo(e.x - dir * e.size * 1.65f, waveY - e.size * 0.65f + wag)
+                        lineTo(e.x - dir * e.size * 1.4f, waveY)
+                        lineTo(e.x - dir * e.size * 1.65f, waveY + e.size * 0.65f + wag)
+                        close()
+                    }
+                    canvas.drawPath(tail, paint)
+
+                    // Göz
+                    paint.color = Color.WHITE
+                    canvas.drawCircle(e.x + dir * e.size * 0.55f, waveY - bodyH * 0.25f, e.size * 0.15f, paint)
+                    paint.color = Color.BLACK
+                    canvas.drawCircle(e.x + dir * e.size * 0.60f, waveY - bodyH * 0.25f, e.size * 0.07f, paint)
+                }
+                3 -> { // Ahtapot (8 Dalgalanan Kol + Baş)
+                    e.x += e.vx
+                    val bobY = e.y + sin((tick * 1.4f + e.phase).toDouble()).toFloat() * 35f
+                    if (e.x > w - 80f || e.x < 80f) e.vx = -e.vx
+
+                    paint.style = Paint.Style.FILL
+                    paint.color = e.color
+                    // Ahtapot Başı
+                    canvas.drawOval(RectF(e.x - e.size, bobY - e.size * 1.1f, e.x + e.size, bobY + e.size * 0.3f), paint)
+
+                    // 8 Dalgalanan Kol
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 6f
+                    paint.strokeCap = Paint.Cap.ROUND
+                    for (t in -3..4) {
+                        val startX = e.x + t * (e.size * 0.22f)
+                        val sway = sin((tick * 2.5f + t * 0.7f + e.phase).toDouble()).toFloat() * 22f
+                        val tentacle = Path().apply {
+                            moveTo(startX, bobY + e.size * 0.2f)
+                            quadTo(startX + sway, bobY + e.size * 1.1f, startX - sway * 0.6f, bobY + e.size * 1.9f)
+                        }
+                        canvas.drawPath(tentacle, paint)
+                    }
+
+                    // Ahtapot Gözleri
+                    paint.style = Paint.Style.FILL
+                    paint.color = Color.WHITE
+                    canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 7f, paint)
+                    canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 7f, paint)
+                    paint.color = Color.BLACK
+                    canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 3.5f, paint)
+                    canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 3.5f, paint)
+                }
+                4 -> { // Zeminde Yan Yürüyen Kıskaçlı Yengeç
+                    e.x += e.vx
+                    if (e.x > w - 90f || e.x < 90f) e.vx = -e.vx
+                    val stepY = (h - 65f) + kotlin.math.abs(sin((tick * 5f + e.phase).toDouble()).toFloat()) * 8f
+
+                    paint.style = Paint.Style.FILL
+                    paint.color = e.color
+                    // Yengeç Kabuğu
+                    canvas.drawOval(RectF(e.x - e.size, stepY - e.size * 0.55f, e.x + e.size, stepY + e.size * 0.55f), paint)
+
+                    // Bacaklar ve Yukarı Kalkan Kıskaçlar
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 4.5f
+                    for (leg in -1..1) {
+                        val legOffset = sin((tick * 6f + leg).toDouble()).toFloat() * 6f
+                        canvas.drawLine(e.x - e.size * 0.8f, stepY + leg * 6f, e.x - e.size * 1.45f, stepY + 18f + legOffset, paint)
+                        canvas.drawLine(e.x + e.size * 0.8f, stepY + leg * 6f, e.x + e.size * 1.45f, stepY + 18f - legOffset, paint)
+                    }
+                    // Kıskaçlar
+                    paint.style = Paint.Style.FILL
+                    canvas.drawCircle(e.x - e.size * 1.25f, stepY - e.size * 0.85f, 11f, paint)
+                    canvas.drawCircle(e.x + e.size * 1.25f, stepY - e.size * 0.85f, 11f, paint)
+
+                    // Saplı Gözler
+                    paint.color = Color.WHITE
+                    canvas.drawCircle(e.x - 10f, stepY - e.size * 0.7f, 5.5f, paint)
+                    canvas.drawCircle(e.x + 10f, stepY - e.size * 0.7f, 5.5f, paint)
+                }
+                5 -> { // Su Kabarcıkları
+                    e.y += e.vy
+                    val bx = e.x + sin((tick * 2f + e.phase).toDouble()).toFloat() * 14f
+                    if (e.y < -30f) {
+                        e.y = h + 20f
+                        e.x = Random.nextFloat() * w
+                    }
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 2f
+                    paint.color = Color.argb(115, 200, 245, 255)
+                    canvas.drawCircle(bx, e.y, e.size, paint)
+                }
+            }
+        }
+    }
+
+    private fun drawRealisticDonerAndFire(canvas: Canvas, w: Float, h: Float) {
+        // Alt Kısımda Sıcak Kor Ateş Parıltısı
+        val fireGrad = RadialGradient(
+            w - 150f, h - 80f, 360f,
+            intArrayOf(Color.argb(120, 255, 87, 34), Color.argb(50, 211, 47, 47), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.55f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        paint.shader = fireGrad
+        paint.style = Paint.Style.FILL
+        canvas.drawCircle(w - 150f, h - 80f, 360f, paint)
+        paint.shader = null
+
+        // Sağ Alt Köşede Gerçekçi 3D Dönen Döner Koni Yapısı
+        val cx = w - 145f
+        val cy = h - 250f
+        paint.color = Color.argb(180, 190, 195, 200)
+        canvas.drawRect(cx - 5f, cy - 150f, cx + 5f, cy + 150f, paint)
+
+        for (layer in -5..5) {
+            val yPos = cy + layer * 20f
+            // Ters koni: Üst daha geniş, alt daha dar
+            val coneRadius = (88f - (layer + 5) * 3.8f)
+            val shimmer = sin((tick * 2.5f + layer * 0.8f).toDouble()).toFloat() * 6f
+            val rColor = if ((layer + (tick * 2).toInt()) % 2 == 0) {
+                Color.argb(175, 150, 55, 20)
+            } else {
+                Color.argb(175, 195, 82, 32)
+            }
+            paint.color = rColor
+            canvas.drawOval(RectF(cx - coneRadius + shimmer, yPos - 13f, cx + coneRadius + shimmer, yPos + 13f), paint)
+
+            // Kızarmış Doku Çizgileri
+            paint.color = Color.argb(130, 95, 30, 10)
+            val charX = cx + sin((tick * 1.8f + layer).toDouble()).toFloat() * (coneRadius * 0.6f)
+            canvas.drawOval(RectF(charX - 18f, yPos - 4f, charX + 18f, yPos + 4f), paint)
+        }
+
+        // Gerçekçi Yumuşak Buhar Bulutları ve Kor Ateş Kıvılcımları
+        for (e in entities) {
+            e.y += e.vy
+            val driftX = e.x + sin((tick * 1.2f + e.phase).toDouble()).toFloat() * 28f
+            if (e.y < -120f) {
+                e.y = h + 60f
+                e.x = Random.nextFloat() * w
+            }
+
+            if (e.kind == 0) {
+                // RadialGradient ile gerçekçi yumuşak kenarlı buhar bulutu
+                val radius = e.size * (1f + ((h - e.y) / h) * 0.6f)
+                val steamGrad = RadialGradient(
+                    driftX, e.y, radius,
+                    intArrayOf(Color.argb(42, 255, 245, 238), Color.argb(18, 255, 235, 220), Color.TRANSPARENT),
+                    floatArrayOf(0f, 0.6f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                paint.shader = steamGrad
+                canvas.drawCircle(driftX, e.y, radius, paint)
+                paint.shader = null
+            } else {
+                // Yükselen Kor Ateş Kıvılcımları
+                val flicker = (120 + sin((tick * 8f + e.phase).toDouble()) * 85).toInt().coerceIn(40, 220)
+                paint.color = Color.argb(flicker, 255, 145, 0)
+                canvas.drawCircle(driftX, e.y, 4.5f, paint)
+            }
+        }
+    }
+
+    private fun drawRealisticVolumetricSmoke(canvas: Canvas, w: Float, h: Float) {
+        paint.style = Paint.Style.FILL
+        for (e in entities) {
+            e.y += e.vy
+            val waveX = e.x + cos((tick * 0.9f + e.phase).toDouble()).toFloat() * 48f
+            if (e.y < -160f) {
+                e.y = h + 120f
+                e.x = Random.nextFloat() * w
+            }
+            val progress = ((h - e.y) / h).coerceIn(0f, 1f)
+            val rad = e.size * (0.8f + progress * 1.1f)
+            val peakAlpha = ((1f - progress * 0.65f) * 52f).toInt().coerceIn(8, 60)
+
+            val r = Color.red(e.color)
+            val g = Color.green(e.color)
+            val b = Color.blue(e.color)
+
+            val smokeShader = RadialGradient(
+                waveX, e.y, rad,
+                intArrayOf(Color.argb(peakAlpha, r, g, b), Color.argb(peakAlpha / 2, r, g, b), Color.TRANSPARENT),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            paint.shader = smokeShader
+            canvas.drawCircle(waveX, e.y, rad, paint)
+            paint.shader = null
+        }
+    }
+
+    private fun drawBokehOrSnow(canvas: Canvas, w: Float, h: Float) {
+        paint.style = Paint.Style.FILL
+        for (e in entities) {
+            e.y += e.vy
+            val sx = e.x + sin((tick + e.phase).toDouble()).toFloat() * 20f
+            if (mode == "snow" && e.y > h + 30f) {
+                e.y = -20f
+                e.x = Random.nextFloat() * w
+            } else if (mode == "gold" && e.y < -30f) {
+                e.y = h + 20f
+                e.x = Random.nextFloat() * w
+            }
+            val pulseAlpha = (80 + sin((tick * 3f + e.phase).toDouble()) * 65).toInt().coerceIn(30, 180)
+            paint.color = if (mode == "gold") Color.argb(pulseAlpha, 255, 215, 0) else Color.argb(pulseAlpha, 255, 255, 255)
+            canvas.drawCircle(sx, e.y, e.size, paint)
         }
     }
 }
@@ -287,7 +560,6 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
-        // Hareketli Arka Plan Objeleri Katmanını MediaContainer içine ekle
         animatedOverlayView = AnimatedOverlayView(this)
         mediaContainer.addView(
             animatedOverlayView,
@@ -296,13 +568,22 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            txtStatus.text = "Sürüm: v$vName | QR Kodu Okutun veya Ağı Tarayın"
+            val accStatus = if (MenuboardControlService.instance != null) "Mouse Aktif" else "Mouse İçin Erişilebilirlik Açın"
+            txtStatus.text = "v$vName ($accStatus) | QR Okutun veya Ağı Tarayın"
         } catch (_: Exception) {}
 
         initPlayer()
         loadSavedState()
 
         btnSettings.setOnClickListener { showQrOverlay() }
+        btnSettings.setOnLongClickListener {
+            // Uzun basıldığında Erişilebilirlik (Mouse) Ayarlarını açar
+            try {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (_: Exception) {}
+            true
+        }
+
         btnCloseQr.setOnClickListener {
             if (playlist.isNotEmpty()) {
                 hideQrOverlay()
@@ -467,8 +748,10 @@ class MainActivity : AppCompatActivity() {
         txtIpAddress.text = "IP: $currentKnownIp:8080"
         generateQr(currentKnownIp, deviceId)
 
-        httpServer = SignageServer(8080)
-        httpServer?.start()
+        if (httpServer == null) {
+            httpServer = SignageServer(8080)
+            httpServer?.start()
+        }
     }
 
     private fun startUdpBeacon() {
@@ -625,7 +908,62 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Canlı Hareketli Arka Plan Objesi Seçimi (fish, doner, hookah, none)
+            // Sanal Touchpad (Mouse) & Klavye Kontrol Uç Noktası
+            if (uri == "/api/input" && method == Method.POST) {
+                val type = session.parameters["type"]?.firstOrNull() ?: ""
+                val svc = MenuboardControlService.instance
+
+                when (type) {
+                    "move" -> {
+                        val dx = session.parameters["dx"]?.firstOrNull()?.toFloatOrNull() ?: 0f
+                        val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
+                        svc?.moveCursorBy(dx, dy)
+                    }
+                    "click" -> {
+                        svc?.clickAtCursor()
+                    }
+                    "scroll" -> {
+                        val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
+                        svc?.scrollAtCursor(dy)
+                    }
+                    "nav" -> {
+                        val act = session.parameters["act"]?.firstOrNull() ?: ""
+                        if (act == "MENUBOARD") {
+                            // Menuboard'u tekrar en öne getir
+                            val bringIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                            }
+                            startActivity(bringIntent)
+                        } else if (act == "ACCESSIBILITY_SETTINGS") {
+                            val accIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(accIntent)
+                        } else {
+                            svc?.performNavAction(act)
+                        }
+                    }
+                    "text" -> {
+                        val text = session.parameters["val"]?.firstOrNull() ?: ""
+                        svc?.inputKeyboardText(text, isBackspace = false)
+                    }
+                    "key" -> {
+                        val code = session.parameters["code"]?.firstOrNull() ?: ""
+                        if (code == "BACKSPACE") {
+                            svc?.inputKeyboardText("", isBackspace = true)
+                        } else if (code == "ENTER") {
+                            Thread {
+                                try {
+                                    android.app.Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+                                } catch (_: Exception) {}
+                            }.start()
+                        }
+                    }
+                }
+                val hasAcc = svc != null
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", if (hasAcc) "OK" else "NEED_ACCESSIBILITY")
+            }
+
             if (uri == "/api/sefim/bgobject" && method == Method.POST) {
                 val mode = session.parameters["mode"]?.firstOrNull() ?: "none"
                 activeBgObject = mode
@@ -638,7 +976,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
-            // Şefim Ürünleri + DB Bilgileri + Görsel Önbelleği Çift Yönlü Yedekleme (Two-Way Sync)
             if (uri == "/api/sefim/backup" && method == Method.GET) {
                 val backupFile = File(filesDir, "sefim_backup.json")
                 val content = if (backupFile.exists()) backupFile.readText() else ""
@@ -655,7 +992,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SAVED")
             }
 
-            // Uzaktan APK Yükleme ve Kurulum Tetikleme
             if (uri == "/api/app/install" && method == Method.POST) {
                 val files = HashMap<String, String>()
                 session.parseBody(files)
@@ -677,7 +1013,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "NO_FILE")
             }
 
-            // Menuboard'da Kurulu Uygulamaların Listesini Getir
             if (uri == "/api/apps" && method == Method.GET) {
                 val pm = packageManager
                 val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -696,17 +1031,24 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(appList))
             }
 
-            // Seçilen Uygulamayı Menuboard Üzerinde Başlat
+            // Menuboard Arka Plandayken Bile Uygulama Başlatma (Accessibility Service + Context Fallback)
             if (uri == "/api/apps/launch" && method == Method.POST) {
                 val pkg = session.parameters["pkg"]?.firstOrNull() ?: ""
                 if (pkg.isNotEmpty()) {
-                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        runOnUiThread {
-                            startActivity(launchIntent)
+                    val launchedViaService = MenuboardControlService.instance?.launchAppFromService(pkg) ?: false
+                    if (!launchedViaService) {
+                        val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            runOnUiThread {
+                                try {
+                                    startActivity(launchIntent)
+                                } catch (_: Exception) {}
+                            }
+                            return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
                         }
-                        return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
+                    } else {
+                        return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED_BG")
                     }
                 }
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "NOT_FOUND")
@@ -790,7 +1132,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/ping" && method == Method.GET) {
-                val resObj = mapOf("id" to deviceId, "tag" to deviceTag, "bgObject" to activeBgObject)
+                val resObj = mapOf(
+                    "id" to deviceId,
+                    "tag" to deviceTag,
+                    "bgObject" to activeBgObject,
+                    "mouseReady" to (MenuboardControlService.instance != null).toString()
+                )
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resObj))
             }
 
