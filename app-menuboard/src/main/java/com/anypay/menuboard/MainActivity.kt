@@ -8,6 +8,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -50,6 +55,9 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.UUID
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
 data class MediaItemModel(
     val id: String = UUID.randomUUID().toString(),
@@ -59,6 +67,159 @@ data class MediaItemModel(
     val waitAfterSec: Int = 0,
     val animation: String = "fade"
 )
+
+data class InstalledAppInfo(
+    val appName: String,
+    val packageName: String
+)
+
+// Canlı Hareketli Arka Plan / Tema Objeleri Çizici (Balık, Döner, Nargile)
+class AnimatedOverlayView(context: Context) : View(context) {
+    private var mode: String = "none"
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var tick = 0f
+
+    private data class Particle(var x: Float, var y: Float, var speed: Float, var size: Float, var phase: Float, var color: Int)
+    private val particles = mutableListOf<Particle>()
+
+    fun setAnimationMode(newMode: String) {
+        mode = newMode
+        particles.clear()
+        if (mode == "none") {
+            visibility = GONE
+            return
+        }
+        visibility = VISIBLE
+        val count = when (mode) {
+            "fish" -> 12
+            "doner" -> 25
+            "hookah" -> 30
+            else -> 0
+        }
+        val colors = listOf(
+            Color.argb(140, 255, 152, 0),
+            Color.argb(140, 3, 169, 244),
+            Color.argb(140, 255, 193, 7),
+            Color.argb(140, 0, 230, 118)
+        )
+        for (i in 0 until count) {
+            particles.add(
+                Particle(
+                    x = Random.nextFloat() * 1080f,
+                    y = Random.nextFloat() * 1920f,
+                    speed = 2f + Random.nextFloat() * 4f,
+                    size = 18f + Random.nextFloat() * 28f,
+                    phase = Random.nextFloat() * 6.28f,
+                    color = colors[i % colors.size]
+                )
+            )
+        }
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (mode == "none") return
+
+        val w = width.toFloat().coerceAtLeast(1080f)
+        val h = height.toFloat().coerceAtLeast(1920f)
+        tick += 0.05f
+
+        when (mode) {
+            "fish" -> drawSwimmingFish(canvas, w, h)
+            "doner" -> drawRotatingDoner(canvas, w, h)
+            "hookah" -> drawHookahSmoke(canvas, w, h)
+        }
+
+        postInvalidateDelayed(20L)
+    }
+
+    private fun drawSwimmingFish(canvas: Canvas, w: Float, h: Float) {
+        for (p in particles) {
+            p.x += p.speed
+            val waveY = p.y + sin((tick + p.phase).toDouble()).toFloat() * 25f
+            if (p.x > w + 100f) {
+                p.x = -100f
+                p.y = Random.nextFloat() * h
+            }
+
+            paint.color = p.color
+            paint.style = Paint.Style.FILL
+            // Balık gövdesi
+            val oval = RectF(p.x - p.size, waveY - p.size * 0.5f, p.x + p.size, waveY + p.size * 0.5f)
+            canvas.drawOval(oval, paint)
+
+            // Balık kuyruğu
+            val tailWag = sin((tick * 3f + p.phase).toDouble()).toFloat() * 10f
+            val tailPath = Path().apply {
+                moveTo(p.x - p.size * 0.8f, waveY)
+                lineTo(p.x - p.size * 1.6f, waveY - p.size * 0.6f + tailWag)
+                lineTo(p.x - p.size * 1.6f, waveY + p.size * 0.6f + tailWag)
+                close()
+            }
+            canvas.drawPath(tailPath, paint)
+
+            // Göz ve Su Kabarcığı
+            paint.color = Color.argb(180, 255, 255, 255)
+            canvas.drawCircle(p.x + p.size * 0.5f, waveY - p.size * 0.1f, p.size * 0.12f, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 2f
+            canvas.drawCircle(p.x + p.size * 1.3f, waveY - (tick * 15f) % 80f, 6f, paint)
+        }
+    }
+
+    private fun drawRotatingDoner(canvas: Canvas, w: Float, h: Float) {
+        // Sağ alt ve sol üst köşede dönen döner silüeti ve yükselen sıcak duman/kıvılcım
+        val cx = w - 130f
+        val cy = h - 220f
+
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(110, 180, 180, 180)
+        canvas.drawRect(cx - 4f, cy - 110f, cx + 4f, cy + 110f, paint)
+
+        for (i in -3..3) {
+            val sliceY = cy + i * 22f
+            val baseWidth = 65f - kotlin.math.abs(i) * 6f
+            val rotScale = 0.85f + 0.15f * sin((tick * 2f + i).toDouble()).toFloat()
+            paint.color = if (i % 2 == 0) Color.argb(120, 165, 65, 25) else Color.argb(120, 205, 95, 40)
+            canvas.drawOval(RectF(cx - baseWidth * rotScale, sliceY - 14f, cx + baseWidth * rotScale, sliceY + 14f), paint)
+        }
+
+        // Yükselen sıcak buhar ve baharat/ateş kıvılcımları
+        for (p in particles) {
+            p.y -= p.speed
+            val swayX = p.x + sin((tick + p.phase).toDouble()).toFloat() * 20f
+            if (p.y < -50f) {
+                p.y = h + 50f
+                p.x = Random.nextFloat() * w
+            }
+            paint.color = Color.argb(75, 255, 110, 64)
+            canvas.drawCircle(swayX, p.y, p.size * 0.45f, paint)
+        }
+    }
+
+    private fun drawHookahSmoke(canvas: Canvas, w: Float, h: Float) {
+        // Nargile dumanı halkaları ve yükselen yumuşak bulutlar
+        paint.style = Paint.Style.STROKE
+        for (p in particles) {
+            p.y -= p.speed * 0.7f
+            val driftX = p.x + cos((tick * 0.8f + p.phase).toDouble()).toFloat() * 35f
+            if (p.y < -100f) {
+                p.y = h + 80f
+                p.x = Random.nextFloat() * w
+            }
+            val expand = p.size + ((h - p.y) / h) * 45f
+            paint.strokeWidth = 6f
+            paint.color = Color.argb(55, 200, 230, 255)
+            canvas.drawCircle(driftX, p.y, expand, paint)
+
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(28, 220, 240, 255)
+            canvas.drawCircle(driftX + 12f, p.y + 8f, expand * 0.7f, paint)
+            paint.style = Paint.Style.STROKE
+        }
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -77,6 +238,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCloseQr: Button
     private lateinit var findMeOverlay: View
     private lateinit var txtFindMeTag: TextView
+    private lateinit var animatedOverlayView: AnimatedOverlayView
 
     private var exoPlayer: ExoPlayer? = null
     private var httpServer: SignageServer? = null
@@ -91,6 +253,7 @@ class MainActivity : AppCompatActivity() {
     private var isScreenSharing = false
     private var isBroadcasting = true
     private var currentKnownIp = ""
+    private var activeBgObject = "none"
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
 
@@ -123,6 +286,13 @@ class MainActivity : AppCompatActivity() {
         btnCloseQr = findViewById(R.id.btnCloseQr)
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
+
+        // Hareketli Arka Plan Objeleri Katmanını MediaContainer içine ekle
+        animatedOverlayView = AnimatedOverlayView(this)
+        mediaContainer.addView(
+            animatedOverlayView,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
@@ -226,12 +396,7 @@ class MainActivity : AppCompatActivity() {
             override fun onReceive(ctxt: Context, intent: Intent) {
                 if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) == downloadId) {
                     unregisterReceiver(this)
-                    val apkUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.provider", destination)
-                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(apkUri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(installIntent)
+                    installLocalApkFile(destination)
                 }
             }
         }
@@ -240,6 +405,21 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+    }
+
+    private fun installLocalApkFile(apkFile: File) {
+        try {
+            val apkUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.provider", apkFile)
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(installIntent)
+        } catch (e: Exception) {
+            runOnUiThread {
+                Toast.makeText(this, "APK Kurulum Hatası: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -265,6 +445,8 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putString("device_id", deviceId).apply()
         }
         deviceTag = prefs.getString("device_tag", "Menuboard") ?: "Menuboard"
+        activeBgObject = prefs.getString("bg_object", "none") ?: "none"
+        animatedOverlayView.setAnimationMode(activeBgObject)
 
         val json = prefs.getString("playlist_json", null)
         if (!json.isNullOrEmpty()) {
@@ -345,7 +527,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopAllPlayback() {
-        handler.removeCallbacksAndMessages(null)
+        handler.removeCallbacks(mediaEndRunnable)
         exoPlayer?.stop()
         exoPlayer?.clearMediaItems()
         playerView.visibility = View.GONE
@@ -378,7 +560,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun playItem(index: Int) {
         if (isScreenSharing) return
-        handler.removeCallbacksAndMessages(null)
+        handler.removeCallbacks(mediaEndRunnable)
         if (playlist.isEmpty()) return
 
         currentIndex = index
@@ -411,6 +593,7 @@ class MainActivity : AppCompatActivity() {
             val dur = if (item.durationSec > 0) item.durationSec else 10
             handler.postDelayed(mediaEndRunnable, dur * 1000L)
         }
+        animatedOverlayView.bringToFront()
     }
 
     private fun scheduleNextMedia() {
@@ -441,6 +624,93 @@ class MainActivity : AppCompatActivity() {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
+
+            // Canlı Hareketli Arka Plan Objesi Seçimi (fish, doner, hookah, none)
+            if (uri == "/api/sefim/bgobject" && method == Method.POST) {
+                val mode = session.parameters["mode"]?.firstOrNull() ?: "none"
+                activeBgObject = mode
+                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
+                    .edit().putString("bg_object", mode).apply()
+                runOnUiThread {
+                    animatedOverlayView.setAnimationMode(mode)
+                    animatedOverlayView.bringToFront()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+            }
+
+            // Şefim Ürünleri + DB Bilgileri + Görsel Önbelleği Çift Yönlü Yedekleme (Two-Way Sync)
+            if (uri == "/api/sefim/backup" && method == Method.GET) {
+                val backupFile = File(filesDir, "sefim_backup.json")
+                val content = if (backupFile.exists()) backupFile.readText() else ""
+                return newFixedLengthResponse(Response.Status.OK, "application/json", content)
+            }
+
+            if (uri == "/api/sefim/backup" && method == Method.POST) {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val postData = files["postData"] ?: ""
+                if (postData.isNotEmpty()) {
+                    File(filesDir, "sefim_backup.json").writeText(postData)
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "SAVED")
+            }
+
+            // Uzaktan APK Yükleme ve Kurulum Tetikleme
+            if (uri == "/api/app/install" && method == Method.POST) {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val tempFilePath = files["file"]
+                if (tempFilePath != null) {
+                    val tempFile = File(tempFilePath)
+                    val targetApk = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "remote_pushed_${System.currentTimeMillis()}.apk")
+                    FileInputStream(tempFile).use { input ->
+                        FileOutputStream(targetApk).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Kumandadan APK alındı, kurulum başlatılıyor...", Toast.LENGTH_LONG).show()
+                        installLocalApkFile(targetApk)
+                    }
+                    return newFixedLengthResponse(Response.Status.OK, "text/plain", "INSTALL_STARTED")
+                }
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "NO_FILE")
+            }
+
+            // Menuboard'da Kurulu Uygulamaların Listesini Getir
+            if (uri == "/api/apps" && method == Method.GET) {
+                val pm = packageManager
+                val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                }
+                val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+                val appList = mutableListOf<InstalledAppInfo>()
+                for (ri in resolveInfos) {
+                    val pkg = ri.activityInfo.packageName
+                    val label = ri.loadLabel(pm).toString()
+                    if (appList.none { it.packageName == pkg }) {
+                        appList.add(InstalledAppInfo(label, pkg))
+                    }
+                }
+                appList.sortBy { it.appName.lowercase() }
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(appList))
+            }
+
+            // Seçilen Uygulamayı Menuboard Üzerinde Başlat
+            if (uri == "/api/apps/launch" && method == Method.POST) {
+                val pkg = session.parameters["pkg"]?.firstOrNull() ?: ""
+                if (pkg.isNotEmpty()) {
+                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runOnUiThread {
+                            startActivity(launchIntent)
+                        }
+                        return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
+                    }
+                }
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "NOT_FOUND")
+            }
 
             if (uri == "/api/screen/start" && method == Method.POST) {
                 isScreenSharing = true
@@ -520,7 +790,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/ping" && method == Method.GET) {
-                val resObj = mapOf("id" to deviceId, "tag" to deviceTag)
+                val resObj = mapOf("id" to deviceId, "tag" to deviceTag, "bgObject" to activeBgObject)
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resObj))
             }
 
