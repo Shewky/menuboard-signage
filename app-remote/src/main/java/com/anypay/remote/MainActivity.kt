@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.util.Base64
 import android.view.Gravity
@@ -123,13 +124,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var tabDevices: Button
     private lateinit var tabMedia: Button
-    private lateinit var tabSefim: Button
+    private var tabSefim: Button? = null
     private lateinit var panelTabDevices: View
     private lateinit var panelTabMedia: View
-    private lateinit var panelTabSefim: View
+    private var panelTabSefim: LinearLayout? = null
 
     private lateinit var txtActiveDeviceName: TextView
-    private lateinit var txtRemoteVersion: TextView
+    private var txtRemoteVersion: TextView? = null
     private lateinit var txtConnectionStatus: TextView
 
     private lateinit var btnScanNetwork: Button
@@ -140,7 +141,7 @@ class MainActivity : AppCompatActivity() {
     private var activeDevice: DeviceItem? = null
 
     private lateinit var btnToggleScreenShare: Button
-    private lateinit var uploadProgressBar: ProgressBar
+    private var uploadProgressBar: ProgressBar? = null
     private lateinit var edtDuration: EditText
     private lateinit var edtWaitAfter: EditText
     private lateinit var spinnerAnim: Spinner
@@ -149,9 +150,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaAdapter: MediaAdapter
     private var playlist = mutableListOf<MediaItemModel>()
 
-    private lateinit var btnDbConfig: Button
-    private lateinit var btnFetchSefim: Button
-    private lateinit var btnLoadDemoProducts: Button
+    // Şefim Menu Dinamik Bileşenleri (XML'de olmasa bile kodla otomatik oluşturulur)
     private lateinit var edtRestaurantName: EditText
     private lateinit var edtMenuPageDuration: EditText
     private lateinit var edtHeaderNote: EditText
@@ -164,17 +163,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var spinnerSefimBgObject: Spinner
     private lateinit var cbSefimBold: CheckBox
     private lateinit var rvSefimProducts: RecyclerView
-    private lateinit var btnPublishSefimMenu: Button
     private lateinit var sefimAdapter: SefimProductAdapter
     private var sefimProducts = mutableListOf<SefimProductItem>()
 
-    // Ürün İsmine Göre Görsel + Reçete + Alerjen Önbelleği
     private var productMetaCache = mutableMapOf<String, ProductMetaCache>()
     private var pendingPhotoProductName: String? = null
     private var targetApkDevice: DeviceItem? = null
-
-    private lateinit var imgFooterLogo: ImageView
-    private lateinit var btnSupportCall: Button
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -199,7 +193,6 @@ class MainActivity : AppCompatActivity() {
     )
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
 
-    // 10 Göz Alıcı Modern Tema Şablonu
     private val themeNames = arrayOf(
         "🖤 Koyu Lüks (Gold & Siyah)",
         "🤍 Modern Beyaz (Ferah)",
@@ -218,8 +211,8 @@ class MainActivity : AppCompatActivity() {
 
     private val bgObjectNames = arrayOf(
         "Yok (Sade Arka Plan)",
-        "🐟 Deniz Akvaryumu (Balıklar, Ahtapot & Yengeç)",
-        "🥙 Gerçekçi Dönen Döner & Kor Ateş Buharı",
+        "🐟 Deniz Akvaryumu (Balık, Ahtapot, Yengeç)",
+        "🥙 Gerçekçi Döner & Kor Ateş Buharı",
         "💨 Gerçekçi Nargile & Yoğun Duman",
         "☕ Sıcak Kahve Buharı (Cafe)",
         "✨ Altın Işıltı (Luxury Bokeh)",
@@ -329,57 +322,33 @@ class MainActivity : AppCompatActivity() {
 
         tabDevices = findViewById(R.id.tabDevices)
         tabMedia = findViewById(R.id.tabMedia)
-        tabSefim = findViewById(R.id.tabSefim)
         panelTabDevices = findViewById(R.id.panelTabDevices)
         panelTabMedia = findViewById(R.id.panelTabMedia)
-        panelTabSefim = findViewById(R.id.panelTabSefim)
 
         txtActiveDeviceName = findViewById(R.id.txtActiveDeviceName)
-        txtRemoteVersion = findViewById(R.id.txtRemoteVersion)
         txtConnectionStatus = findViewById(R.id.txtConnectionStatus)
-
-        try {
-            val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            txtRemoteVersion.text = "v$vName"
-        } catch (_: Exception) {}
 
         btnScanNetwork = findViewById(R.id.btnScanNetwork)
         btnScanQr = findViewById(R.id.btnScanQr)
         rvDevices = findViewById(R.id.rvDevices)
 
         btnToggleScreenShare = findViewById(R.id.btnToggleScreenShare)
-        uploadProgressBar = findViewById(R.id.uploadProgressBar)
         edtDuration = findViewById(R.id.edtDuration)
         edtWaitAfter = findViewById(R.id.edtWaitAfter)
         spinnerAnim = findViewById(R.id.spinnerAnim)
         btnPickMedia = findViewById(R.id.btnPickMedia)
         recyclerViewPlaylist = findViewById(R.id.recyclerViewPlaylist)
 
-        btnDbConfig = findViewById(R.id.btnDbConfig)
-        btnFetchSefim = findViewById(R.id.btnFetchSefim)
-        btnLoadDemoProducts = findViewById(R.id.btnLoadDemoProducts)
-        edtRestaurantName = findViewById(R.id.edtRestaurantName)
-        edtMenuPageDuration = findViewById(R.id.edtMenuPageDuration)
-        edtHeaderNote = findViewById(R.id.edtHeaderNote)
-        edtFooterNote = findViewById(R.id.edtFooterNote)
-        cbShowChoice1 = findViewById(R.id.cbShowChoice1)
-        cbShowChoice2 = findViewById(R.id.cbShowChoice2)
-        cbShowOptions = findViewById(R.id.cbShowOptions)
-        spinnerSefimTheme = findViewById(R.id.spinnerSefimTheme)
-        spinnerSefimFontSize = findViewById(R.id.spinnerSefimFontSize)
-        spinnerSefimBgObject = findViewById(R.id.spinnerSefimBgObject)
-        cbSefimBold = findViewById(R.id.cbSefimBold)
-        rvSefimProducts = findViewById(R.id.rvSefimProducts)
-        btnPublishSefimMenu = findViewById(R.id.btnPublishSefimMenu)
+        val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
+        if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        imgFooterLogo = findViewById(R.id.imgFooterLogo)
-        btnSupportCall = findViewById(R.id.btnSupportCall)
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.15" }
+        supportActionBar?.title = "Menuboard Kumanda (v$vName)"
+
+        // XML'de hangi sürüm olursa olsun Şefim Menu sekmesini ve tüm yeni kontrolleri kodla inşa et!
+        setupDynamicSefimTabAndControls()
 
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
-        spinnerSefimTheme.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, themeNames)
-        spinnerSefimFontSize.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fontSizes)
-        spinnerSefimBgObject.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, bgObjectNames)
-        spinnerSefimFontSize.setSelection(1)
 
         loadSavedDevices()
         loadLocalSefimState()
@@ -391,47 +360,6 @@ class MainActivity : AppCompatActivity() {
         mediaAdapter = MediaAdapter()
         recyclerViewPlaylist.layoutManager = LinearLayoutManager(this)
         recyclerViewPlaylist.adapter = mediaAdapter
-
-        sefimAdapter = SefimProductAdapter()
-        rvSefimProducts.layoutManager = LinearLayoutManager(this)
-        rvSefimProducts.adapter = sefimAdapter
-
-        val styleListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                applySefimPreviewBackground()
-                sefimAdapter.notifyDataSetChanged()
-                saveLocalSefimState()
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-        spinnerSefimTheme.onItemSelectedListener = styleListener
-        spinnerSefimFontSize.onItemSelectedListener = styleListener
-        cbSefimBold.setOnCheckedChangeListener { _, _ ->
-            sefimAdapter.notifyDataSetChanged()
-            saveLocalSefimState()
-        }
-
-        val filterChangeListener = CompoundButton.OnCheckedChangeListener { _, _ ->
-            sefimAdapter.notifyDataSetChanged()
-            saveLocalSefimState()
-        }
-        cbShowChoice1.setOnCheckedChangeListener(filterChangeListener)
-        cbShowChoice2.setOnCheckedChangeListener(filterChangeListener)
-        cbShowOptions.setOnCheckedChangeListener(filterChangeListener)
-
-        spinnerSefimBgObject.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                saveLocalSefimState()
-                val mode = bgObjectValues[position]
-                val host = activeDevice?.host ?: return
-                val req = Request.Builder().url("http://$host/api/sefim/bgobject?mode=$mode").post("".toRequestBody(null)).build()
-                httpClient.newCall(req).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) {}
-                    override fun onResponse(call: Call, response: Response) { response.close() }
-                })
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
 
         val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
             override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
@@ -451,7 +379,7 @@ class MainActivity : AppCompatActivity() {
 
         tabDevices.setOnClickListener { switchTab(0) }
         tabMedia.setOnClickListener { switchTab(1) }
-        tabSefim.setOnClickListener { switchTab(2) }
+        tabSefim?.setOnClickListener { switchTab(2) }
 
         btnScanQr.setOnClickListener {
             val options = ScanOptions().apply {
@@ -493,19 +421,16 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
-        btnDbConfig.setOnClickListener { showDbConfigDialog() }
-        btnFetchSefim.setOnClickListener { fetchSefimProductsFromDb() }
-        btnLoadDemoProducts.setOnClickListener { showDemoMenuSelectorDialog() }
-        btnPublishSefimMenu.setOnClickListener { publishSefimMenuToMenuboard() }
-
-        imgFooterLogo.setOnClickListener {
-            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.interfon.com.tr"))
-            startActivity(browserIntent)
+        val imgFooter = findViewById<ImageView?>(R.id.imgFooterLogo)
+        imgFooter?.setOnClickListener {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.interfon.com.tr")))
         }
 
-        btnSupportCall.setOnClickListener {
-            val callIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:03243292001"))
-            startActivity(callIntent)
+        val resIdSupport = resources.getIdentifier("btnSupportCall", "id", packageName)
+        if (resIdSupport != 0) {
+            findViewById<View>(resIdSupport)?.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:03243292001")))
+            }
         }
 
         if (deviceList.isNotEmpty()) {
@@ -516,6 +441,242 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
+    // XML Dosyası Eski Kalsa Bile Tüm Yeni Şefim Menu Arayüzünü Kodla Sıfırdan Kurar
+    private fun setupDynamicSefimTabAndControls() {
+        val topTabsBar = tabDevices.parent as? LinearLayout
+        val existingTabSefimId = resources.getIdentifier("tabSefim", "id", packageName)
+        tabSefim = if (existingTabSefimId != 0) {
+            findViewById(existingTabSefimId)
+        } else {
+            Button(this).apply {
+                text = "🍽️ Şefim Menu"
+                setTextColor(0xFF888888.toInt())
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setBackgroundResource(android.R.drawable.list_selector_background)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+                topTabsBar?.addView(this)
+            }
+        }
+
+        val mainRoot = panelTabDevices.parent as? LinearLayout
+        val existingPanelSefimId = resources.getIdentifier("panelTabSefim", "id", packageName)
+        val oldPanel = if (existingPanelSefimId != 0) findViewById<LinearLayout>(existingPanelSefimId) else null
+        oldPanel?.removeAllViews()
+
+        val container = oldPanel ?: LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            // Footer'ın hemen üstüne ekle
+            val insertIdx = ((mainRoot?.childCount ?: 1) - 1).coerceAtLeast(2)
+            mainRoot?.addView(this, insertIdx)
+        }
+        container.setPadding(16, 12, 16, 12)
+        panelTabSefim = container
+
+        // 1. Üst Butonlar: DB Ayar, DB'den Çek, Test Menüleri
+        val topBtnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val btnDb = Button(this).apply {
+            text = "⚙️ DB Ayar"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#455A64"))
+            layoutParams = LinearLayout.LayoutParams(0, 92, 1f).apply { rightMargin = 8 }
+            setOnClickListener { showDbConfigDialog() }
+        }
+        val btnFetch = Button(this).apply {
+            text = "🔄 DB'den Çek"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0288D1"))
+            layoutParams = LinearLayout.LayoutParams(0, 92, 1.1f).apply { rightMargin = 8 }
+            setOnClickListener { fetchSefimProductsFromDb() }
+        }
+        val btnDemo = Button(this).apply {
+            text = "🧪 Test Menüleri"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#7B1FA2"))
+            layoutParams = LinearLayout.LayoutParams(0, 92, 1.2f)
+            setOnClickListener { showDemoMenuSelectorDialog() }
+        }
+        topBtnRow.addView(btnDb)
+        topBtnRow.addView(btnFetch)
+        topBtnRow.addView(btnDemo)
+        container.addView(topBtnRow)
+
+        // 2. Restoran Adı, Sayfa Süresi, Üst Bilgi ve Alt Bilgi Kutucukları
+        val headerBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#ECEFF1"))
+            setPadding(10, 8, 10, 8)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 }
+        }
+        val rowRest = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        edtRestaurantName = EditText(this).apply {
+            hint = "Restoran Adı (Örn: BALIKÇI ŞÜKRÜ)"
+            setText("BALIKÇI ŞÜKRÜ")
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setSingleLine(true)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        edtMenuPageDuration = EditText(this).apply {
+            hint = "Süre(sn)"
+            setText("12")
+            textSize = 11f
+            inputType = InputType.TYPE_CLASS_NUMBER
+            gravity = Gravity.CENTER
+            setSingleLine(true)
+            layoutParams = LinearLayout.LayoutParams(150, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 8 }
+        }
+        rowRest.addView(edtRestaurantName)
+        rowRest.addView(edtMenuPageDuration)
+        headerBox.addView(rowRest)
+
+        val rowNotes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        edtHeaderNote = EditText(this).apply {
+            hint = "Üst Bilgi (Slogan / Açıklama)"
+            textSize = 11f
+            setSingleLine(true)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        edtFooterNote = EditText(this).apply {
+            hint = "Alt Bilgi (KDV / Afiyet Olsun)"
+            setText("Afiyet Olsun • KDV Dahildir")
+            textSize = 11f
+            setSingleLine(true)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 8 }
+        }
+        rowNotes.addView(edtHeaderNote)
+        rowNotes.addView(edtFooterNote)
+        headerBox.addView(rowNotes)
+        container.addView(headerBox)
+
+        // 3. Seçenek 1, Seçenek 2, Opsiyon Ayrı Göster/Gizle Kutucukları
+        val filterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#E0F2F1"))
+            setPadding(10, 4, 10, 4)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 6 }
+        }
+        cbShowChoice1 = CheckBox(this).apply { text = "Seçenek 1"; isChecked = true; textSize = 11f }
+        cbShowChoice2 = CheckBox(this).apply { text = "Seçenek 2"; isChecked = true; textSize = 11f }
+        cbShowOptions = CheckBox(this).apply { text = "Opsiyon"; isChecked = true; textSize = 11f }
+        val filterWatcher = CompoundButton.OnCheckedChangeListener { _, _ ->
+            sefimAdapter.notifyDataSetChanged()
+            saveLocalSefimState()
+        }
+        cbShowChoice1.setOnCheckedChangeListener(filterWatcher)
+        cbShowChoice2.setOnCheckedChangeListener(filterWatcher)
+        cbShowOptions.setOnCheckedChangeListener(filterWatcher)
+        filterRow.addView(cbShowChoice1)
+        filterRow.addView(cbShowChoice2)
+        filterRow.addView(cbShowOptions)
+        container.addView(filterRow)
+
+        // 4. Tema, Font Boyutu ve Kalınlık
+        val themeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#F5F5F5"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 6 }
+        }
+        spinnerSefimTheme = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, themeNames)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f)
+        }
+        spinnerSefimFontSize = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, fontSizes)
+            setSelection(1)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        cbSefimBold = CheckBox(this).apply {
+            text = "Kalın"
+            isChecked = true
+            textSize = 11f
+        }
+        themeRow.addView(spinnerSefimTheme)
+        themeRow.addView(spinnerSefimFontSize)
+        themeRow.addView(cbSefimBold)
+        container.addView(themeRow)
+
+        // 5. Hareketli Animasyon Objesi Seçici
+        val animRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#FFF3E0"))
+            setPadding(12, 4, 12, 4)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 6 }
+        }
+        animRow.addView(TextView(this).apply {
+            text = "✨ Animasyon:"
+            setTextColor(Color.parseColor("#E65100"))
+            typeface = Typeface.DEFAULT_BOLD
+            textSize = 12f
+        })
+        spinnerSefimBgObject = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, bgObjectNames)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 10 }
+        }
+        animRow.addView(spinnerSefimBgObject)
+        container.addView(animRow)
+
+        // 6. Ürün Listesi (RecyclerView)
+        rvSefimProducts = RecyclerView(this).apply {
+            setBackgroundColor(Color.parseColor("#141414"))
+            setPadding(8, 8, 8, 8)
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = 6 }
+        }
+        sefimAdapter = SefimProductAdapter()
+        rvSefimProducts.adapter = sefimAdapter
+        container.addView(rvSefimProducts)
+
+        // 7. Yayınla Butonu
+        val btnPub = Button(this).apply {
+            text = "📺 Menüyü & Animasyonu Menuboard'da Yayınla"
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            textSize = 12f
+            setBackgroundColor(Color.parseColor("#E65100"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 105).apply { topMargin = 8 }
+            setOnClickListener { publishSefimMenuToMenuboard() }
+        }
+        container.addView(btnPub)
+
+        val styleListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                applySefimPreviewBackground()
+                sefimAdapter.notifyDataSetChanged()
+                saveLocalSefimState()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        spinnerSefimTheme.onItemSelectedListener = styleListener
+        spinnerSefimFontSize.onItemSelectedListener = styleListener
+        cbSefimBold.setOnCheckedChangeListener { _, _ ->
+            sefimAdapter.notifyDataSetChanged()
+            saveLocalSefimState()
+        }
+
+        spinnerSefimBgObject.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                saveLocalSefimState()
+                val mode = bgObjectValues[position]
+                val host = activeDevice?.host ?: return
+                val req = Request.Builder().url("http://$host/api/sefim/bgobject?mode=$mode").post("".toRequestBody(null)).build()
+                httpClient.newCall(req).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {}
+                    override fun onResponse(call: Call, response: Response) { response.close() }
+                })
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
     // --- OTOMATİK VE MANUEL ALERJEN ALGILAMA MOTORU ---
 
     private fun computeAllergenWarning(item: SefimProductItem): String {
@@ -524,7 +685,7 @@ class MainActivity : AppCompatActivity() {
 
         val rules = listOf(
             "Gluten" to listOf("un", "buğday", "ekmek", "lavaş", "pide", "makarna", "bulgur", "irmik", "galeta", "hamur", "kadayıf", "baklava", "yufka", "bisküvi", "gluten"),
-            "Süt Ürünü" to listOf("süt", "peynir", "kaşar", "tereyağ", "krema", "yoğurt", "kaymak", "dondurma", "mozzarella", "labne", "mascarpone", "laktoz"),
+            "Süt Ürünü" to listOf("süt", "peynir", "kaşar", "tereyağ", "krema", "yoğurt", "kaymak", "dondurma", "mozzarella", "labne", "laktoz"),
             "Yumurta" to listOf("yumurta", "mayonez", "mereng"),
             "Kuruyemiş" to listOf("fıstık", "fındık", "ceviz", "badem", "kaju", "antep"),
             "Susam" to listOf("susam", "tahin", "helva"),
@@ -538,29 +699,21 @@ class MainActivity : AppCompatActivity() {
                 detected.add(allergenName)
             }
         }
-
         if (item.manualAllergen.isNotBlank()) {
             detected.add(item.manualAllergen.trim())
         }
-
         return detected.distinct().joinToString(", ")
     }
 
     private fun buildFilteredChoicesString(item: SefimProductItem): String {
         val parts = mutableListOf<String>()
-        if (cbShowChoice1.isChecked && item.choice1Text.isNotEmpty()) {
-            parts.add("Seçenek 1: ${item.choice1Text}")
-        }
-        if (cbShowChoice2.isChecked && item.choice2Text.isNotEmpty()) {
-            parts.add("Seçenek 2: ${item.choice2Text}")
-        }
-        if (cbShowOptions.isChecked && item.optionsText.isNotEmpty()) {
-            parts.add("Opsiyon: ${item.optionsText}")
-        }
+        if (cbShowChoice1.isChecked && item.choice1Text.isNotEmpty()) parts.add("Seçenek 1: ${item.choice1Text}")
+        if (cbShowChoice2.isChecked && item.choice2Text.isNotEmpty()) parts.add("Seçenek 2: ${item.choice2Text}")
+        if (cbShowOptions.isChecked && item.optionsText.isNotEmpty()) parts.add("Opsiyon: ${item.optionsText}")
         return parts.joinToString(" | ")
     }
 
-    // --- 4 SEKTÖREL TEST MENÜSÜ SEÇİCİ (BALIK, DÖNER, CAFE, TATLICI) ---
+    // --- 4 SEKTÖREL TEST MENÜSÜ SEÇİCİ ---
 
     private fun showDemoMenuSelectorDialog() {
         val categories = arrayOf(
@@ -569,12 +722,9 @@ class MainActivity : AppCompatActivity() {
             "☕ Örnek Cafe & Bistro Menüsü",
             "🍰 Örnek Tatlıcı & Pastane Menüsü"
         )
-
         AlertDialog.Builder(this)
             .setTitle("🧪 Test Menüsü Seçin")
-            .setItems(categories) { _, which ->
-                loadDemoCategory(which)
-            }
+            .setItems(categories) { _, which -> loadDemoCategory(which) }
             .setNegativeButton("İptal", null)
             .show()
     }
@@ -584,8 +734,8 @@ class MainActivity : AppCompatActivity() {
             0 -> {
                 edtRestaurantName.setText("BALIKÇI ŞÜKRÜ")
                 edtHeaderNote.setText("Günlük Taze Deniz Ürünleri & Izgara")
-                spinnerSefimTheme.setSelection(4) // Okyanus Derinliği
-                spinnerSefimBgObject.setSelection(1) // Deniz Akvaryumu
+                spinnerSefimTheme.setSelection(4)
+                spinnerSefimBgObject.setSelection(1)
                 listOf(
                     SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Roka Salatası", "Köz Soğan", "Mısır Ekmeği", "Taze deniz levreği, zeytinyağı, limon"),
                     SefimProductItem("2", "Deniz Çuprası (450gr)", "410 ₺", "Mevsim Salata", "Limon Sos", "Fırın Patates", "Çupra balığı, defne yaprağı"),
@@ -600,8 +750,8 @@ class MainActivity : AppCompatActivity() {
             1 -> {
                 edtRestaurantName.setText("USTA DÖNER & KEBAP")
                 edtHeaderNote.setText("%100 Yaprak Et Döner & Odun Ateşi")
-                spinnerSefimTheme.setSelection(2) // Restoran Ateşi
-                spinnerSefimBgObject.setSelection(2) // Gerçekçi Döner & Ateş
+                spinnerSefimTheme.setSelection(2)
+                spinnerSefimBgObject.setSelection(2)
                 listOf(
                     SefimProductItem("1", "İskender Kebap (Yaprak)", "390 ₺", "Ekstra Tereyağ", "Tava Yoğurdu", "Köz Biber & Domates", "Yaprak döner, tırnak pide, tereyağ, yoğurt, domates sos"),
                     SefimProductItem("2", "Et Döner Dürüm (150gr)", "270 ₺", "Çift Lavaş", "Patates Kızartması", "Soğanlı / Soğansız", "Yaprak et döner, lavaş ekmeği, turşu"),
@@ -614,8 +764,8 @@ class MainActivity : AppCompatActivity() {
             2 -> {
                 edtRestaurantName.setText("ROAST & BREW CAFE")
                 edtHeaderNote.setText("3. Nesil Kahve & Artizan Lezzetler")
-                spinnerSefimTheme.setSelection(5) // Zümrüt Bahçesi
-                spinnerSefimBgObject.setSelection(4) // Kahve Buharı
+                spinnerSefimTheme.setSelection(5)
+                spinnerSefimBgObject.setSelection(4)
                 listOf(
                     SefimProductItem("1", "Caramel Macchiato", "135 ₺", "Yulaf Sütü", "Ekstra Espresso", "Sıcak / Buzlu", "Espresso, taze süt, karamel sos"),
                     SefimProductItem("2", "Avokado Poşe Yumurta Tost", "240 ₺", "Ekşi Maya Ekmek", "Akdeniz Yeşillik", "Çeçil Peynirli", "Ekşi maya ekmek, yumurta, avokado, peynir"),
@@ -627,8 +777,8 @@ class MainActivity : AppCompatActivity() {
             else -> {
                 edtRestaurantName.setText("SARAY PASTANESİ")
                 edtHeaderNote.setText("Günlük Taze Pasta, Baklava & Sütlü Tatlılar")
-                spinnerSefimTheme.setSelection(7) // Paris Pastanesi
-                spinnerSefimBgObject.setSelection(5) // Altın Işıltı
+                spinnerSefimTheme.setSelection(7)
+                spinnerSefimBgObject.setSelection(5)
                 listOf(
                     SefimProductItem("1", "San Sebastian Cheesecake", "210 ₺", "Belçika Çikolatalı", "Taze Çilekli", "Ekstra Sos", "Krema, labne peynir, yumurta, un"),
                     SefimProductItem("2", "Fıstıklı Soğuk Baklava", "250 ₺", "Gaziantep Boz Fıstık", "Süt Şerbetli", "4 Dilim", "Baklava yufkası, un, süt, tereyağ, antep fıstık"),
@@ -649,14 +799,10 @@ class MainActivity : AppCompatActivity() {
             }
             sefimProducts.add(prod)
         }
-
         saveLocalSefimState()
         pushSefimBackupToMenuboard()
         sefimAdapter.notifyDataSetChanged()
-        Toast.makeText(this, "${items.size} örnek ürün, reçete ve alerjenleriyle yüklendi!", Toast.LENGTH_LONG).show()
     }
-
-    // --- Ürün İçeriği (Reçete) ve Manuel Alerjen Düzenleme Penceresi ---
 
     private fun showEditRecipeAndAllergenDialog(item: SefimProductItem) {
         val edtRecipe = EditText(this).apply {
@@ -679,10 +825,7 @@ class MainActivity : AppCompatActivity() {
         val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val temp = item.copy(
-                    recipeContent = edtRecipe.text.toString(),
-                    manualAllergen = edtManualAllergen.text.toString()
-                )
+                val temp = item.copy(recipeContent = edtRecipe.text.toString(), manualAllergen = edtManualAllergen.text.toString())
                 val warn = computeAllergenWarning(temp)
                 txtPreview.text = if (warn.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $warn" else "✓ Alerjen tespit edilmedi (Uyarı yazılmaz)"
             }
@@ -696,10 +839,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(50, 30, 50, 10)
             addView(TextView(this@MainActivity).apply { text = "Ürün İçeriği / Reçete Malzemeleri:" })
             addView(edtRecipe)
-            addView(TextView(this@MainActivity).apply {
-                text = "Ek Manuel Alerjen Uyarısı (İsteğe Bağlı):"
-                setPadding(0, 14, 0, 0)
-            })
+            addView(TextView(this@MainActivity).apply { text = "Ek Manuel Alerjen Uyarısı:"; setPadding(0, 14, 0, 0) })
             addView(edtManualAllergen)
             addView(txtPreview)
         }
@@ -710,11 +850,9 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Kaydet") { _, _ ->
                 item.recipeContent = edtRecipe.text.toString().trim()
                 item.manualAllergen = edtManualAllergen.text.toString().trim()
-
                 val meta = productMetaCache.getOrPut(item.productName) { ProductMetaCache() }
                 meta.recipeContent = item.recipeContent
                 meta.manualAllergen = item.manualAllergen
-
                 saveLocalSefimState()
                 pushSefimBackupToMenuboard()
                 sefimAdapter.notifyDataSetChanged()
@@ -723,7 +861,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // --- ⚙️ AYAR BUTONU MENÜSÜ: MOUSE & KLAVYE KONTROLÜ, UZAKTAN APK VE UYGULAMA BAŞLATMA ---
+    // --- ⚙️ AYAR BUTONU MENÜSÜ: MOUSE & KLAVYE, UZAKTAN APK VE UYGULAMA BAŞLATMA ---
 
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val options = arrayOf(
@@ -753,28 +891,18 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // Sanal Touchpad (Mouse) ve Uzaktan Klavye Kontrol Penceresi
     private fun showVirtualTouchpadAndKeyboardDialog(device: DeviceItem) {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(30, 24, 30, 16)
         }
 
-        val infoTxt = TextView(this).apply {
-            text = "Parmağınızı gri alanda gezdirerek Mouse'u hareket ettirin, tıklamak için dokunun."
-            textSize = 11f
-            setTextColor(Color.DKGRAY)
-            setPadding(0, 0, 0, 12)
-        }
-        root.addView(infoTxt)
-
-        // Touchpad Dokunmatik Alanı
         val touchpad = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 460)
             setBackgroundColor(Color.parseColor("#263238"))
         }
         val padHint = TextView(this).apply {
-            text = "🖱️ TOUCHPAD ALANI\n(Kaydır: İmleç | Dokun: Sol Tık)"
+            text = "🖱️ SANAL TOUCHPAD\n(Parmağınızı Gezdirin: İmleç | Dokunun: Sol Tık)"
             setTextColor(Color.parseColor("#80CBC4"))
             gravity = Gravity.CENTER
             textSize = 13f
@@ -819,42 +947,32 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(touchpad)
 
-        // Navigasyon ve Kaydırma Butonları
         val navRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 12, 0, 8)
         }
-        val btnBack = Button(this).apply {
-            text = "◀ Geri"
-            textSize = 11f
+        navRow.addView(Button(this).apply {
+            text = "◀ Geri"; textSize = 11f
             layoutParams = LinearLayout.LayoutParams(0, 95, 1f)
             setOnClickListener { sendRemoteInput(device, "type=nav&act=BACK") }
-        }
-        val btnHome = Button(this).apply {
-            text = "⏺ Ana Ekran"
-            textSize = 11f
+        })
+        navRow.addView(Button(this).apply {
+            text = "⏺ Ana Ekran"; textSize = 11f
             layoutParams = LinearLayout.LayoutParams(0, 95, 1.1f)
             setOnClickListener { sendRemoteInput(device, "type=nav&act=HOME") }
-        }
-        val btnScrollUp = Button(this).apply {
-            text = "▲ Kaydır"
-            textSize = 11f
+        })
+        navRow.addView(Button(this).apply {
+            text = "▲ Kaydır"; textSize = 11f
             layoutParams = LinearLayout.LayoutParams(0, 95, 1f)
             setOnClickListener { sendRemoteInput(device, "type=scroll&dy=-350") }
-        }
-        val btnScrollDown = Button(this).apply {
-            text = "▼ Kaydır"
-            textSize = 11f
+        })
+        navRow.addView(Button(this).apply {
+            text = "▼ Kaydır"; textSize = 11f
             layoutParams = LinearLayout.LayoutParams(0, 95, 1f)
             setOnClickListener { sendRemoteInput(device, "type=scroll&dy=350") }
-        }
-        navRow.addView(btnBack)
-        navRow.addView(btnHome)
-        navRow.addView(btnScrollUp)
-        navRow.addView(btnScrollDown)
+        })
         root.addView(navRow)
 
-        // Klavye Gönderim Satırı
         val kbRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -874,7 +992,6 @@ class MainActivity : AppCompatActivity() {
                     sendRemoteInput(device, "type=text&val=${Uri.encode(txt)}")
                     edtRemoteKb.setText("")
                 } else {
-                    // Klavyeyi Aç
                     edtRemoteKb.requestFocus()
                     val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                     imm.showSoftInput(edtRemoteKb, InputMethodManager.SHOW_IMPLICIT)
@@ -891,16 +1008,6 @@ class MainActivity : AppCompatActivity() {
         kbRow.addView(btnBackspace)
         root.addView(kbRow)
 
-        val btnOpenAcc = Button(this).apply {
-            text = "⚠️ Mouse Çalışmıyorsa Menuboard'da İzin Ekranını Aç"
-            textSize = 10f
-            setOnClickListener {
-                sendRemoteInput(device, "type=nav&act=ACCESSIBILITY_SETTINGS")
-                Toast.makeText(this@MainActivity, "Menuboard ekranında Erişilebilirlik ayarları açıldı. 'Anypay Uzaktan Mouse' servisini aktif edin.", Toast.LENGTH_LONG).show()
-            }
-        }
-        root.addView(btnOpenAcc)
-
         AlertDialog.Builder(this)
             .setTitle("🖱️ ${device.nameTag} - Mouse & Klavye")
             .setView(root)
@@ -915,9 +1022,7 @@ class MainActivity : AppCompatActivity() {
             .build()
         httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) {
-                response.close()
-            }
+            override fun onResponse(call: Call, response: Response) { response.close() }
         })
     }
 
@@ -928,8 +1033,8 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) { -1L }
 
         Toast.makeText(this, "APK ${device.nameTag} cihazına gönderiliyor...", Toast.LENGTH_LONG).show()
-        uploadProgressBar.visibility = View.VISIBLE
-        uploadProgressBar.progress = 0
+        uploadProgressBar?.visibility = View.VISIBLE
+        uploadProgressBar?.progress = 0
 
         val customBody = object : RequestBody() {
             override fun contentType() = "application/vnd.android.package-archive".toMediaTypeOrNull()
@@ -945,7 +1050,7 @@ class MainActivity : AppCompatActivity() {
                         if (totalLength > 0) {
                             uploaded += read
                             val p = ((uploaded * 100) / totalLength).toInt()
-                            runOnUiThread { uploadProgressBar.progress = p }
+                            runOnUiThread { uploadProgressBar?.progress = p }
                         }
                     }
                 }
@@ -965,7 +1070,7 @@ class MainActivity : AppCompatActivity() {
         httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    uploadProgressBar.visibility = View.GONE
+                    uploadProgressBar?.visibility = View.GONE
                     Toast.makeText(this@MainActivity, "APK gönderimi başarısız!", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -973,7 +1078,7 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 response.close()
                 runOnUiThread {
-                    uploadProgressBar.visibility = View.GONE
+                    uploadProgressBar?.visibility = View.GONE
                     Toast.makeText(this@MainActivity, "APK gönderildi ve Menuboard'da kurulum başlatıldı!", Toast.LENGTH_LONG).show()
                 }
             }
@@ -985,9 +1090,7 @@ class MainActivity : AppCompatActivity() {
         val req = Request.Builder().url("http://${device.host}/api/apps").build()
         httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_LONG).show()
-                }
+                runOnUiThread { Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_LONG).show() }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -1004,9 +1107,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         AlertDialog.Builder(this@MainActivity)
                             .setTitle("${device.nameTag} - Uygulama Başlat")
-                            .setItems(labels) { _, idx ->
-                                launchRemoteApp(device, apps[idx])
-                            }
+                            .setItems(labels) { _, idx -> launchRemoteApp(device, apps[idx]) }
                             .setNegativeButton("İptal", null)
                             .show()
                     }
@@ -1027,9 +1128,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onResponse(call: Call, response: Response) {
                 response.close()
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "${app.appName} Menuboard'da başlatıldı!", Toast.LENGTH_SHORT).show()
-                }
+                runOnUiThread { Toast.makeText(this@MainActivity, "${app.appName} Menuboard'da başlatıldı!", Toast.LENGTH_SHORT).show() }
             }
         })
     }
@@ -1162,7 +1261,7 @@ class MainActivity : AppCompatActivity() {
         }
         val edtPass = EditText(this).apply {
             hint = "Şifre"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setText(prefs.getString("db_pass", ""))
         }
 
@@ -1260,9 +1359,7 @@ class MainActivity : AppCompatActivity() {
                     while (rs1.next()) {
                         val pId = getColString(rs1, meta1, listOf("ProductId", "Product_Id", "UrunId", "Id"))
                         val cName = getColString(rs1, meta1, listOf("Name", "ChoiceName", "ProductName", "Header", "Description"))
-                        if (pId.isNotEmpty() && cName.isNotEmpty()) {
-                            choice1Map.getOrPut(pId) { mutableListOf() }.add(cName)
-                        }
+                        if (pId.isNotEmpty() && cName.isNotEmpty()) choice1Map.getOrPut(pId) { mutableListOf() }.add(cName)
                     }
                     rs1.close()
                 } catch (_: Exception) {}
@@ -1274,9 +1371,7 @@ class MainActivity : AppCompatActivity() {
                     while (rs2.next()) {
                         val pId = getColString(rs2, meta2, listOf("ProductId", "Choice1Id", "Product_Id", "Id"))
                         val cName = getColString(rs2, meta2, listOf("Name", "ChoiceName", "ProductName", "Header", "Description"))
-                        if (pId.isNotEmpty() && cName.isNotEmpty()) {
-                            choice2Map.getOrPut(pId) { mutableListOf() }.add(cName)
-                        }
+                        if (pId.isNotEmpty() && cName.isNotEmpty()) choice2Map.getOrPut(pId) { mutableListOf() }.add(cName)
                     }
                     rs2.close()
                 } catch (_: Exception) {}
@@ -1288,9 +1383,7 @@ class MainActivity : AppCompatActivity() {
                     while (rsOpt.next()) {
                         val pId = getColString(rsOpt, metaOpt, listOf("ProductId", "Product_Id", "Id"))
                         val oName = getColString(rsOpt, metaOpt, listOf("Name", "OptionName", "Header", "Description"))
-                        if (pId.isNotEmpty() && oName.isNotEmpty()) {
-                            optionsMap.getOrPut(pId) { mutableListOf() }.add(oName)
-                        }
+                        if (pId.isNotEmpty() && oName.isNotEmpty()) optionsMap.getOrPut(pId) { mutableListOf() }.add(oName)
                     }
                     rsOpt.close()
                 } catch (_: Exception) {}
@@ -1299,7 +1392,6 @@ class MainActivity : AppCompatActivity() {
                 val rs = stmt.executeQuery("SELECT * FROM Product")
                 val meta = rs.metaData
                 val fetchedList = mutableListOf<SefimProductItem>()
-
                 val previousSelectionMap = sefimProducts.associate { it.productName to it.isSelected }
 
                 while (rs.next()) {
@@ -1379,19 +1471,18 @@ class MainActivity : AppCompatActivity() {
         return ""
     }
 
-    // 10 Modern Tema İçin Renk Paleti (Arka Plan, Ana Yazı, Vurgu/Fiyat)
     private fun getSelectedThemeColors(): Triple<Int, Int, Int> {
         return when (spinnerSefimTheme.selectedItemPosition) {
-            1 -> Triple(Color.parseColor("#FAFAFA"), Color.parseColor("#212121"), Color.parseColor("#D32F2F")) // Modern Beyaz
-            2 -> Triple(Color.parseColor("#1B0505"), Color.parseColor("#FFF8E1"), Color.parseColor("#FF5252")) // Restoran Ateşi
-            3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF")) // Neon Cyberpunk
-            4 -> Triple(Color.parseColor("#041E3A"), Color.parseColor("#E1F5FE"), Color.parseColor("#29B6F6")) // Okyanus Derinliği
-            5 -> Triple(Color.parseColor("#0D2618"), Color.parseColor("#E8F5E9"), Color.parseColor("#69F0AE")) // Zümrüt Bahçesi
-            6 -> Triple(Color.parseColor("#2B0912"), Color.parseColor("#FFF3E0"), Color.parseColor("#FFC107")) // Osmanlı Kehribar
-            7 -> Triple(Color.parseColor("#FFF0F5"), Color.parseColor("#4A1525"), Color.parseColor("#D81B60")) // Paris Pastanesi
-            8 -> Triple(Color.parseColor("#26140C"), Color.parseColor("#FFF8F0"), Color.parseColor("#FF8A65")) // İtalyan Trattoria
-            9 -> Triple(Color.parseColor("#1E272C"), Color.parseColor("#ECEFF1"), Color.parseColor("#80CBC4")) // Minimalist Slate
-            else -> Triple(Color.parseColor("#121212"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700")) // Koyu Lüks Gold
+            1 -> Triple(Color.parseColor("#FAFAFA"), Color.parseColor("#212121"), Color.parseColor("#D32F2F"))
+            2 -> Triple(Color.parseColor("#1B0505"), Color.parseColor("#FFF8E1"), Color.parseColor("#FF5252"))
+            3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF"))
+            4 -> Triple(Color.parseColor("#041E3A"), Color.parseColor("#E1F5FE"), Color.parseColor("#29B6F6"))
+            5 -> Triple(Color.parseColor("#0D2618"), Color.parseColor("#E8F5E9"), Color.parseColor("#69F0AE"))
+            6 -> Triple(Color.parseColor("#2B0912"), Color.parseColor("#FFF3E0"), Color.parseColor("#FFC107"))
+            7 -> Triple(Color.parseColor("#FFF0F5"), Color.parseColor("#4A1525"), Color.parseColor("#D81B60"))
+            8 -> Triple(Color.parseColor("#26140C"), Color.parseColor("#FFF8F0"), Color.parseColor("#FF8A65"))
+            9 -> Triple(Color.parseColor("#1E272C"), Color.parseColor("#ECEFF1"), Color.parseColor("#80CBC4"))
+            else -> Triple(Color.parseColor("#121212"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700"))
         }
     }
 
@@ -1399,8 +1490,6 @@ class MainActivity : AppCompatActivity() {
         val (bgColor, _, _) = getSelectedThemeColors()
         rvSefimProducts.setBackgroundColor(bgColor)
     }
-
-    // --- ÇOK SAYFALI, REÇETELİ VE ALERJEN UYARILI MENÜ ÇİZİMİ ---
 
     private fun publishSefimMenuToMenuboard() {
         val host = activeDevice?.host
@@ -1467,9 +1556,7 @@ class MainActivity : AppCompatActivity() {
                 currentPageItems.add(item)
                 testY += rowHeight
             }
-            if (currentPageItems.isNotEmpty()) {
-                pages.add(currentPageItems)
-            }
+            if (currentPageItems.isNotEmpty()) pages.add(currentPageItems)
 
             playlist.removeAll { it.fileName.startsWith("sefim_menu_") }
 
@@ -1659,12 +1746,8 @@ class MainActivity : AppCompatActivity() {
             val req = Request.Builder().url("http://${dev.host}/api/ping").build()
             pingClient.newCall(req).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (now - dev.lastSeenMs > 10000L) {
-                        dev.isOnline = false
-                    }
-                    if (activeDevice?.id == dev.id) {
-                        updateConnectionUi(dev.isOnline)
-                    }
+                    if (now - dev.lastSeenMs > 10000L) dev.isOnline = false
+                    if (activeDevice?.id == dev.id) updateConnectionUi(dev.isOnline)
                     runOnUiThread { deviceAdapter.notifyDataSetChanged() }
                 }
 
@@ -1727,9 +1810,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                         if (downloadUrl.isNotEmpty()) {
-                            runOnUiThread {
-                                showUpdateDialog(rawTag, downloadUrl)
-                            }
+                            runOnUiThread { showUpdateDialog(rawTag, downloadUrl) }
                         }
                     }
                 } catch (_: Exception) {}
@@ -1741,9 +1822,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Yeni Güncelleme Bulundu")
             .setMessage("Kumanda için yeni bir sürüm mevcut ($versionTitle).\nŞimdi indirip yüklemek ister misiniz?")
-            .setPositiveButton("Güncelle") { _, _ ->
-                downloadAndInstallApk(downloadUrl)
-            }
+            .setPositiveButton("Güncelle") { _, _ -> downloadAndInstallApk(downloadUrl) }
             .setNegativeButton("Daha Sonra", null)
             .show()
     }
@@ -1809,9 +1888,7 @@ class MainActivity : AppCompatActivity() {
                             val ip = parts[3]
                             val port = parts[4]
                             val host = "$ip:$port"
-                            runOnUiThread {
-                                updateOrAddDevice(id, host, tag, true)
-                            }
+                            runOnUiThread { updateOrAddDevice(id, host, tag, true) }
                         }
                     }
                 }
@@ -1843,11 +1920,11 @@ class MainActivity : AppCompatActivity() {
     private fun switchTab(tabIndex: Int) {
         panelTabDevices.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
         panelTabMedia.visibility = if (tabIndex == 1) View.VISIBLE else View.GONE
-        panelTabSefim.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
+        panelTabSefim?.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
 
         tabDevices.setTextColor(if (tabIndex == 0) 0xFF00E676.toInt() else 0xFF888888.toInt())
         tabMedia.setTextColor(if (tabIndex == 1) 0xFF00E676.toInt() else 0xFF888888.toInt())
-        tabSefim.setTextColor(if (tabIndex == 2) 0xFF00E676.toInt() else 0xFF888888.toInt())
+        tabSefim?.setTextColor(if (tabIndex == 2) 0xFF00E676.toInt() else 0xFF888888.toInt())
     }
 
     private fun selectDevice(device: DeviceItem) {
@@ -1930,9 +2007,7 @@ class MainActivity : AppCompatActivity() {
         var fileName = "media_${System.currentTimeMillis()}"
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (cursor.moveToFirst() && nameIndex >= 0) {
-                fileName = cursor.getString(nameIndex)
-            }
+            if (cursor.moveToFirst() && nameIndex >= 0) fileName = cursor.getString(nameIndex)
         }
 
         var fileDurationSec = 0
@@ -1949,8 +2024,8 @@ class MainActivity : AppCompatActivity() {
             contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         } catch (_: Exception) { -1L }
 
-        uploadProgressBar.visibility = View.VISIBLE
-        uploadProgressBar.progress = 0
+        uploadProgressBar?.visibility = View.VISIBLE
+        uploadProgressBar?.progress = 0
 
         val customRequestBody = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaTypeOrNull()
@@ -1966,7 +2041,7 @@ class MainActivity : AppCompatActivity() {
                         if (totalLength > 0) {
                             uploaded += read
                             val progress = ((uploaded * 100) / totalLength).toInt()
-                            runOnUiThread { uploadProgressBar.progress = progress }
+                            runOnUiThread { uploadProgressBar?.progress = progress }
                         }
                     }
                 }
@@ -1986,13 +2061,13 @@ class MainActivity : AppCompatActivity() {
         httpClient.newCall(uploadRequest).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    uploadProgressBar.visibility = View.GONE
+                    uploadProgressBar?.visibility = View.GONE
                     Toast.makeText(this@MainActivity, "Yükleme Başarısız!", Toast.LENGTH_SHORT).show()
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                runOnUiThread { uploadProgressBar.visibility = View.GONE }
+                runOnUiThread { uploadProgressBar?.visibility = View.GONE }
                 if (response.isSuccessful) {
                     val dur = edtDuration.text.toString().toIntOrNull() ?: 0
                     val wait = edtWaitAfter.text.toString().toIntOrNull() ?: 0
@@ -2080,23 +2155,84 @@ class MainActivity : AppCompatActivity() {
         isUdpListening = false
     }
 
-    // --- RECYCLERVIEW ADAPTÖRLERİ ---
+    // --- RECYCLERVIEW ADAPTÖRLERİ (TAMAMEN KODLA OLUŞTURULUR, XML BAĞIMLILIĞI YOKTUR) ---
 
     inner class SefimProductAdapter : RecyclerView.Adapter<SefimProductAdapter.SefimViewHolder>() {
-        inner class SefimViewHolder(v: View) : RecyclerView.ViewHolder(v) {
-            val cbInclude: CheckBox = v.findViewById(R.id.cbProductInclude)
-            val imgPhoto: ImageView = v.findViewById(R.id.imgProductPhoto)
-            val btnPickPhoto: ImageButton = v.findViewById(R.id.btnPickProductPhoto)
-            val txtName: TextView = v.findViewById(R.id.txtProductName)
-            val txtChoices: TextView = v.findViewById(R.id.txtProductChoices)
-            val txtAllergen: TextView = v.findViewById(R.id.txtProductAllergen)
-            val txtPrice: TextView = v.findViewById(R.id.txtProductPrice)
-            val btnEditRecipe: Button = v.findViewById(R.id.btnEditRecipe)
-        }
+        inner class SefimViewHolder(
+            v: View,
+            val cbInclude: CheckBox,
+            val imgPhoto: ImageView,
+            val btnPickPhoto: ImageButton,
+            val txtName: TextView,
+            val txtChoices: TextView,
+            val txtAllergen: TextView,
+            val txtPrice: TextView,
+            val btnEditRecipe: Button
+        ) : RecyclerView.ViewHolder(v)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SefimViewHolder {
-            val v = LayoutInflater.from(parent.context).inflate(R.layout.item_sefim_product, parent, false)
-            return SefimViewHolder(v)
+            val row = LinearLayout(parent.context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(12, 10, 12, 10)
+                layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = 6
+                }
+            }
+            val cb = CheckBox(parent.context)
+            val photoFrame = FrameLayout(parent.context).apply {
+                layoutParams = LinearLayout.LayoutParams(120, 120).apply { leftMargin = 6 }
+                setBackgroundColor(Color.parseColor("#33888888"))
+            }
+            val img = ImageView(parent.context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            }
+            val btnCam = ImageButton(parent.context).apply {
+                setImageResource(android.R.drawable.ic_menu_camera)
+                setBackgroundResource(android.R.drawable.list_selector_background)
+                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            }
+            photoFrame.addView(img)
+            photoFrame.addView(btnCam)
+
+            val midCol = LinearLayout(parent.context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 16; rightMargin = 10 }
+            }
+            val tName = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
+            val tChoices = TextView(parent.context).apply { textSize = 11f }
+            val tAllergen = TextView(parent.context).apply {
+                textSize = 11f
+                setTextColor(Color.parseColor("#FF5252"))
+                typeface = Typeface.DEFAULT_BOLD
+                visibility = View.GONE
+            }
+            midCol.addView(tName)
+            midCol.addView(tChoices)
+            midCol.addView(tAllergen)
+
+            val rightCol = LinearLayout(parent.context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            val tPrice = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
+            val bRecipe = Button(parent.context).apply {
+                text = "📝 İçerik"
+                textSize = 9f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#37474F"))
+                layoutParams = LinearLayout.LayoutParams(155, 72).apply { topMargin = 6 }
+            }
+            rightCol.addView(tPrice)
+            rightCol.addView(bRecipe)
+
+            row.addView(cb)
+            row.addView(photoFrame)
+            row.addView(midCol)
+            row.addView(rightCol)
+
+            return SefimViewHolder(row, cb, img, btnCam, tName, tChoices, tAllergen, tPrice, bRecipe)
         }
 
         override fun onBindViewHolder(holder: SefimViewHolder, position: Int) {
@@ -2187,7 +2323,6 @@ class MainActivity : AppCompatActivity() {
                 holder.txtChoices.visibility = View.GONE
             }
 
-            // Otomatik + Manuel Alerjen Gösterimi
             val allergenWarning = computeAllergenWarning(item)
             if (allergenWarning.isNotEmpty()) {
                 holder.txtAllergen.visibility = View.VISIBLE
@@ -2196,9 +2331,7 @@ class MainActivity : AppCompatActivity() {
                 holder.txtAllergen.visibility = View.GONE
             }
 
-            holder.btnEditRecipe.setOnClickListener {
-                showEditRecipeAndAllergenDialog(item)
-            }
+            holder.btnEditRecipe.setOnClickListener { showEditRecipeAndAllergenDialog(item) }
         }
 
         override fun getItemCount(): Int = sefimProducts.size
@@ -2211,8 +2344,38 @@ class MainActivity : AppCompatActivity() {
             val txtDeviceIp: TextView = v.findViewById(R.id.txtDeviceIp)
             val btnEditTag: ImageButton = v.findViewById(R.id.btnEditTag)
             val btnFindDevice: Button = v.findViewById(R.id.btnFindDevice)
-            val btnDeviceSettings: Button = v.findViewById(R.id.btnDeviceSettings)
             val btnDeleteDevice: ImageButton = v.findViewById(R.id.btnDeleteDevice)
+            var btnDynamicSettings: Button? = null
+
+            init {
+                // item_device.xml eski olsa bile BUL butonunun yanına mavi ⚙️ Ayar butonunu kodla otomatik ekle!
+                val rowLayout = btnFindDevice.parent as? LinearLayout
+                val existingId = resources.getIdentifier("btnDeviceSettings", "id", packageName)
+                val existingBtn = if (existingId != 0) v.findViewById<View>(existingId) else null
+
+                if (existingBtn is Button) {
+                    btnDynamicSettings = existingBtn
+                } else if (existingBtn != null) {
+                    existingBtn.setOnClickListener {
+                        val pos = adapterPosition
+                        if (pos != RecyclerView.NO_POSITION) showDeviceAdvancedMenu(deviceList[pos])
+                    }
+                } else if (rowLayout != null) {
+                    val newSettingsBtn = Button(v.context).apply {
+                        text = "⚙️ Ayar"
+                        textSize = 11f
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(Color.parseColor("#1976D2"))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 92).apply {
+                            leftMargin = 8
+                            rightMargin = 4
+                        }
+                    }
+                    val findIdx = rowLayout.indexOfChild(btnFindDevice)
+                    rowLayout.addView(newSettingsBtn, (findIdx + 1).coerceAtMost(rowLayout.childCount))
+                    btnDynamicSettings = newSettingsBtn
+                }
+            }
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DeviceViewHolder {
@@ -2247,7 +2410,7 @@ class MainActivity : AppCompatActivity() {
 
             holder.btnEditTag.setOnClickListener { showEditTagDialog(dev) }
             holder.btnFindDevice.setOnClickListener { toggleFindDevice(dev) }
-            holder.btnDeviceSettings.setOnClickListener { showDeviceAdvancedMenu(dev) }
+            holder.btnDynamicSettings?.setOnClickListener { showDeviceAdvancedMenu(dev) }
 
             holder.btnDeleteDevice.setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
@@ -2321,12 +2484,12 @@ class MainActivity : AppCompatActivity() {
             holder.btnEdit.setOnClickListener {
                 val edtDur = EditText(this@MainActivity).apply {
                     hint = "Süre (0=tamamı)"
-                    inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                    inputType = InputType.TYPE_CLASS_NUMBER
                     setText(item.durationSec.toString())
                 }
                 val edtWait = EditText(this@MainActivity).apply {
                     hint = "Ara Bekleme (sn)"
-                    inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                    inputType = InputType.TYPE_CLASS_NUMBER
                     setText(item.waitAfterSec.toString())
                 }
                 val spAnim = Spinner(this@MainActivity).apply {
