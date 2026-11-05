@@ -7,7 +7,7 @@ android {
     namespace = "com.anypay.remote"
     compileSdk = 34
 
-    defaultConfig {
+defaultConfig {
         applicationId = "com.anypay.remote"
         minSdk = 24
         targetSdk = 34
