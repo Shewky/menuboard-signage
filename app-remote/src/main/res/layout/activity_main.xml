@@ -70,7 +70,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="10dp"
-            android:text="v1.07"
+            android:text="v1.09"
             android:textColor="#1976D2"
             android:textSize="11sp"
             android:textStyle="bold" />
@@ -255,7 +255,6 @@
         android:padding="10dp"
         android:visibility="gone">
 
-        <!-- DB Bağlantı ve Ürün Çekme Üst Butonları -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -283,7 +282,6 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Görsel Tema, Yazı Boyutu ve Kalınlık Özelleştirme -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -315,7 +313,6 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Canlı Şablon Önizleme & Ürün Listesi -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvSefimProducts"
             android:layout_width="match_parent"
@@ -325,7 +322,6 @@
             android:background="#1A1A1A"
             android:padding="6dp" />
 
-        <!-- Menuboard'a Gönder / Yayınla Butonu -->
         <Button
             android:id="@+id/btnPublishSefimMenu"
             android:layout_width="match_parent"
@@ -337,14 +333,14 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Sabit Alt Footer (İnterfon Logo & Destek Butonu) -->
+    <!-- Sabit Alt Footer -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#FAFAFA"
         android:gravity="center"
         android:orientation="horizontal"
-        android:padding="6dp">
+        print.padding="6dp">
 
         <ImageView
             android:id="@+id/imgFooterLogo"
