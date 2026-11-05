@@ -1,7 +1,5 @@
 package com.anypay.menuboard
 
-import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.GestureDescription
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.app.Instrumentation
@@ -20,13 +18,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.WindowManager
-import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import android.view.animation.*
 import android.widget.Button
 import android.widget.FrameLayout
@@ -79,197 +73,6 @@ data class InstalledAppInfo(
     val packageName: String
 )
 
-// Sistem Genelinde (Menuboard Arka Plandayken Bile) Çalışan Global Mouse, Klavye ve Öne Getirme Servisi
-class MenuboardControlService : AccessibilityService() {
-
-    companion object {
-        var instance: MenuboardControlService? = null
-    }
-
-    private var windowManager: WindowManager? = null
-    private var cursorView: GlobalCursorView? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
-
-    var cursorX = 540f
-    var cursorY = 960f
-    private var screenW = 1080
-    private var screenH = 1920
-    private val hideCursorRunnable = Runnable { cursorView?.visibility = View.GONE }
-
-    inner class GlobalCursorView(ctx: Context) : View(ctx) {
-        private val paintFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FF1744")
-            style = Paint.Style.FILL
-        }
-        private val paintStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = 3.5f
-        }
-        private val cursorPath = Path()
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            cursorPath.reset()
-            cursorPath.moveTo(cursorX, cursorY)
-            cursorPath.lineTo(cursorX, cursorY + 38f)
-            cursorPath.lineTo(cursorX + 11f, cursorY + 29f)
-            cursorPath.lineTo(cursorX + 19f, cursorY + 44f)
-            cursorPath.lineTo(cursorX + 26f, cursorY + 40f)
-            cursorPath.lineTo(cursorX + 17f, cursorY + 25f)
-            cursorPath.lineTo(cursorX + 30f, cursorY + 25f)
-            cursorPath.close()
-
-            canvas.drawPath(cursorPath, paintFill)
-            canvas.drawPath(cursorPath, paintStroke)
-        }
-    }
-
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-        instance = this
-        val dm = resources.displayMetrics
-        screenW = dm.widthPixels
-        screenH = dm.heightPixels
-        cursorX = screenW / 2f
-        cursorY = screenH / 2f
-        attachGlobalCursorOverlay()
-    }
-
-    private fun attachGlobalCursorOverlay() {
-        try {
-            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-            cursorView = GlobalCursorView(this)
-            val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY
-            }
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                layoutType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT
-            )
-            params.gravity = Gravity.TOP or Gravity.START
-            windowManager?.addView(cursorView, params)
-            cursorView?.visibility = View.GONE
-        } catch (_: Exception) {}
-    }
-
-    fun moveCursorBy(dx: Float, dy: Float) {
-        mainHandler.post {
-            if (cursorView == null) attachGlobalCursorOverlay()
-            val dm = resources.displayMetrics
-            screenW = dm.widthPixels
-            screenH = dm.heightPixels
-            cursorX = (cursorX + dx).coerceIn(5f, screenW - 15f)
-            cursorY = (cursorY + dy).coerceIn(5f, screenH - 15f)
-            cursorView?.visibility = View.VISIBLE
-            cursorView?.invalidate()
-            mainHandler.removeCallbacks(hideCursorRunnable)
-            mainHandler.postDelayed(hideCursorRunnable, 8000L)
-        }
-    }
-
-    fun clickAtCursor() {
-        mainHandler.post {
-            cursorView?.visibility = View.VISIBLE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val path = Path().apply { moveTo(cursorX, cursorY) }
-                val stroke = GestureDescription.StrokeDescription(path, 0, 55)
-                val gesture = GestureDescription.Builder().addStroke(stroke).build()
-                dispatchGesture(gesture, null, null)
-            }
-        }
-    }
-
-    fun scrollAtCursor(scrollDy: Float) {
-        mainHandler.post {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val endY = (cursorY + scrollDy).coerceIn(60f, screenH - 60f)
-                val path = Path().apply {
-                    moveTo(cursorX, cursorY)
-                    lineTo(cursorX, endY)
-                }
-                val stroke = GestureDescription.StrokeDescription(path, 0, 220)
-                val gesture = GestureDescription.Builder().addStroke(stroke).build()
-                dispatchGesture(gesture, null, null)
-            }
-        }
-    }
-
-    fun performGlobalNav(act: String) {
-        mainHandler.post {
-            when (act) {
-                "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
-                "HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
-                "RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
-            }
-        }
-    }
-
-    fun bringPackageToFront(pkg: String) {
-        mainHandler.post {
-            // Önce Home tuşu gönderip 120ms sonra hedef paketi başlatmak Android 10-15 arka plan kilidini %100 aşar
-            performGlobalAction(GLOBAL_ACTION_HOME)
-            mainHandler.postDelayed({
-                try {
-                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                        startActivity(launchIntent)
-                    }
-                } catch (_: Exception) {}
-            }, 140L)
-        }
-    }
-
-    fun inputKeyboardText(text: String, isBackspace: Boolean = false) {
-        mainHandler.post {
-            val root = rootInActiveWindow ?: return@post
-            val focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findEditableNode(root)
-            if (focusNode != null) {
-                val currentText = focusNode.text?.toString() ?: ""
-                val newText = if (isBackspace) {
-                    if (currentText.isNotEmpty()) currentText.dropLast(1) else ""
-                } else {
-                    currentText + text
-                }
-                val args = Bundle()
-                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-                focusNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            }
-        }
-    }
-
-    private fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
-        if (node.isEditable) return node
-        for (i in 0 until node.childCount) {
-            val found = findEditableNode(node.getChild(i))
-            if (found != null) return found
-        }
-        return null
-    }
-
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
-
-    override fun onDestroy() {
-        instance = null
-        try {
-            if (cursorView != null) windowManager?.removeView(cursorView)
-        } catch (_: Exception) {}
-        super.onDestroy()
-    }
-}
-
-// Çok Daha Gerçekçi Fizik Tabanlı Animasyon Katmanı (Kahve Çekirdekleri, Yüzgeçli Balıklar, Döner, Nargile Halkaları)
 class AnimatedOverlayView(context: Context) : View(context) {
     private var mode: String = "none"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -315,7 +118,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 }
             }
             "coffee" -> {
-                // kind 0: 3D Dönen Kahve Çekirdekleri (18 adet)
                 for (i in 0 until 18) {
                     entities.add(
                         Entity(
@@ -332,7 +134,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         )
                     )
                 }
-                // kind 1: İpeksi Kahve Buharı Dalgaları (16 adet)
                 for (i in 0 until 16) {
                     entities.add(
                         Entity(
@@ -351,7 +152,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 }
             }
             "doner" -> {
-                // kind 0: Sıcak Buhar, kind 1: Kor Ateş Kıvılcımı, kind 2: Döner Sos/Yağ Damlası
                 for (i in 0 until 32) {
                     val k = when {
                         i < 14 -> 0
@@ -375,7 +175,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 }
             }
             "hookah" -> {
-                // kind 0: Yoğun Bulut, kind 1: Yükselen Duman Halkaları (Smoke Rings)
                 for (i in 0 until 26) {
                     entities.add(
                         Entity(
@@ -454,7 +253,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
         }
     }
 
-    // ☕ Gerçekçi 3D Dönen Kahve Çekirdekleri (Orta S-Kıvrımı ve Parlama İle) & Kıvrımlı Buhar
     private fun drawCoffeeBeansAndSteam(canvas: Canvas, w: Float, h: Float) {
         for (e in entities) {
             e.y += e.vy
@@ -465,7 +263,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
             }
 
             if (e.kind == 1) {
-                // İpeksi Kahve Buharı
                 val progress = ((h - e.y) / h).coerceIn(0f, 1f)
                 val rad = e.size * (0.85f + progress * 0.9f)
                 val alpha = ((1f - progress * 0.6f) * 44f).toInt().coerceIn(8, 48)
@@ -480,7 +277,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 canvas.drawCircle(swayX, e.y, rad, paint)
                 paint.shader = null
             } else {
-                // 3D Kahve Çekirdeği Çizimi
                 e.angle = (e.angle + e.spinSpeed) % 360f
                 canvas.save()
                 canvas.translate(swayX, e.y)
@@ -489,16 +285,13 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 val bw = e.size * 1.35f
                 val bh = e.size * 0.92f
 
-                // Çekirdek Gövdesi (Gölge + Ana Kahve Tonu)
                 paint.style = Paint.Style.FILL
                 paint.color = e.color
                 canvas.drawOval(RectF(-bw, -bh, bw, bh), paint)
 
-                // Üst Parlama (Kavrulmuş Parlaklık)
                 paint.color = Color.argb(70, 161, 136, 127)
                 canvas.drawOval(RectF(-bw * 0.7f, -bh * 0.75f, bw * 0.5f, -bh * 0.15f), paint)
 
-                // Karakteristik Orta S-Yarığı (Crease Line)
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 3.5f
                 paint.color = Color.argb(220, 27, 15, 12)
@@ -507,14 +300,12 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     cubicTo(-bw * 0.3f, -bh * 0.45f, bw * 0.3f, bh * 0.45f, bw * 0.85f, 0f)
                 }
                 canvas.drawPath(crease, paint)
-
                 canvas.restore()
             }
         }
     }
 
     private fun drawMarineEcosystem(canvas: Canvas, w: Float, h: Float) {
-        // Deniz Tabanı Mercan ve Sallanan Yosunlar
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 8f
         paint.strokeCap = Paint.Cap.ROUND
@@ -532,7 +323,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
         for (e in entities) {
             when (e.kind) {
-                0, 1, 2 -> { // Sırt Yüzgeçli ve Kıvrımlı Gerçekçi Balıklar
+                0, 1, 2 -> {
                     e.x += e.vx
                     val dir = if (e.vx >= 0) 1f else -1f
                     val waveY = e.y + sin((tick * 2.2f + e.phase).toDouble()).toFloat() * 20f
@@ -540,15 +331,14 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     if (dir < 0 && e.x < -130f) e.x = w + 110f
 
                     val primaryColor = when (e.kind) {
-                        0 -> Color.argb(200, 255, 109, 0) // Palyaço Balığı
-                        1 -> Color.argb(200, 2, 136, 209) // Mavi Cerrah Balığı
-                        else -> Color.argb(200, 255, 196, 0) // Sarı Kelebek Balığı
+                        0 -> Color.argb(200, 255, 109, 0)
+                        1 -> Color.argb(200, 2, 136, 209)
+                        else -> Color.argb(200, 255, 196, 0)
                     }
 
                     val bodyH = if (e.kind == 2) e.size * 0.88f else e.size * 0.54f
                     val wag = sin((tick * 4.8f + e.phase).toDouble()).toFloat() * 13f
 
-                    // Çatallı Kuyruk Yüzgeci
                     paint.style = Paint.Style.FILL
                     paint.color = primaryColor
                     val tail = Path().apply {
@@ -560,7 +350,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     }
                     canvas.drawPath(tail, paint)
 
-                    // Üst Sırt Yüzgeci (Dorsal Fin)
                     val dorsal = Path().apply {
                         moveTo(e.x + dir * e.size * 0.1f, waveY - bodyH * 0.85f)
                         quadTo(e.x - dir * e.size * 0.35f, waveY - bodyH * 1.55f, e.x - dir * e.size * 0.65f, waveY - bodyH * 0.75f)
@@ -568,10 +357,8 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     }
                     canvas.drawPath(dorsal, paint)
 
-                    // Ana Gövde
                     canvas.drawOval(RectF(e.x - e.size, waveY - bodyH, e.x + e.size, waveY + bodyH), paint)
 
-                    // Tür Desenleri
                     if (e.kind == 0) {
                         paint.color = Color.argb(195, 255, 255, 255)
                         canvas.drawRoundRect(RectF(e.x - e.size * 0.15f, waveY - bodyH * 0.92f, e.x + e.size * 0.12f, waveY + bodyH * 0.92f), 6f, 6f, paint)
@@ -580,13 +367,12 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         canvas.drawPath(tail, paint)
                     }
 
-                    // Canlı Göz
                     paint.color = Color.WHITE
                     canvas.drawCircle(e.x + dir * e.size * 0.58f, waveY - bodyH * 0.22f, e.size * 0.16f, paint)
                     paint.color = Color.BLACK
                     canvas.drawCircle(e.x + dir * e.size * 0.63f, waveY - bodyH * 0.22f, e.size * 0.08f, paint)
                 }
-                3 -> { // Vantuzlu Ahtapot
+                3 -> {
                     e.x += e.vx
                     val bobY = e.y + sin((tick * 1.5f + e.phase).toDouble()).toFloat() * 38f
                     if (e.x > w - 85f || e.x < 85f) e.vx = -e.vx
@@ -614,7 +400,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 3.8f, paint)
                     canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 3.8f, paint)
                 }
-                4 -> { // Kıskaçlı Yengeç
+                4 -> {
                     e.x += e.vx
                     if (e.x > w - 90f || e.x < 90f) e.vx = -e.vx
                     val stepY = (h - 62f) + kotlin.math.abs(sin((tick * 5.5f + e.phase).toDouble()).toFloat()) * 8f
@@ -637,7 +423,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     canvas.drawCircle(e.x - 10f, stepY - e.size * 0.7f, 5.5f, paint)
                     canvas.drawCircle(e.x + 10f, stepY - e.size * 0.7f, 5.5f, paint)
                 }
-                5 -> { // Parlak Su Kabarcıkları
+                5 -> {
                     e.y += e.vy
                     val bx = e.x + sin((tick * 2f + e.phase).toDouble()).toFloat() * 14f
                     if (e.y < -30f) {
@@ -710,7 +496,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     paint.color = Color.argb(flicker, 255, 152, 0)
                     canvas.drawCircle(driftX, e.y, e.size, paint)
                 }
-                2 -> { // Dönerden Süzülen Parlak Sos/Yağ Damlası
+                2 -> {
                     paint.color = Color.argb(210, 255, 193, 7)
                     canvas.drawOval(RectF(e.x - 3.5f, e.y - 7f, e.x + 3.5f, e.y + 7f), paint)
                 }
@@ -729,7 +515,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
             val progress = ((h - e.y) / h).coerceIn(0f, 1f)
 
             if (e.kind == 1) {
-                // Yükseldikçe Genişleyen Gerçekçi Nargile Duman Halkası (Smoke Ring)
                 val ringRad = e.size * (0.9f + progress * 1.4f)
                 val ringAlpha = ((1f - progress * 0.7f) * 85f).toInt().coerceIn(12, 90)
                 paint.style = Paint.Style.STROKE
@@ -872,15 +657,12 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
-    // Arka Plandayken Menuboard'u %100 Garantili Olarak En Öne Getirir
     private fun bringMenuboardToFront() {
-        // 1. Global Erişilebilirlik Servisi Açıksa Doğrudan Oradan Öne Çek
         val svc = MenuboardControlService.instance
         if (svc != null) {
             svc.bringPackageToFront(packageName)
         }
 
-        // 2. Ek olarak PendingIntent + Activity Reorder tetikle
         runOnUiThread {
             try {
                 val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
@@ -1214,7 +996,6 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Arka Plandayken Bile Çalışan Global Mouse, Klavye ve Öne Getirme Yöneticisi
             if (uri == "/api/input" && method == Method.POST) {
                 val type = session.parameters["type"]?.firstOrNull() ?: ""
                 val svc = MenuboardControlService.instance
