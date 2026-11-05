@@ -7,12 +7,12 @@ android {
     namespace = "com.anypay.menuboard"
     compileSdk = 34
 
-defaultConfig {
+    defaultConfig {
         applicationId = "com.anypay.menuboard"
         minSdk = 24
         targetSdk = 34
-        versionCode = 105
-        versionName = "1.05"
+        versionCode = 106
+        versionName = "1.06"
     }
 
     signingConfigs {
