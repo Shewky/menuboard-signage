@@ -1,5 +1,7 @@
 package com.anypay.menuboard
 
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.app.Instrumentation
@@ -18,9 +20,13 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.view.animation.*
 import android.widget.Button
 import android.widget.FrameLayout
@@ -73,6 +79,197 @@ data class InstalledAppInfo(
     val packageName: String
 )
 
+// Sistem Genelinde (Menuboard Arka Plandayken Bile) Çalışan Global Mouse, Klavye ve Öne Getirme Servisi
+class MenuboardControlService : AccessibilityService() {
+
+    companion object {
+        var instance: MenuboardControlService? = null
+    }
+
+    private var windowManager: WindowManager? = null
+    private var cursorView: GlobalCursorView? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    var cursorX = 540f
+    var cursorY = 960f
+    private var screenW = 1080
+    private var screenH = 1920
+    private val hideCursorRunnable = Runnable { cursorView?.visibility = View.GONE }
+
+    inner class GlobalCursorView(ctx: Context) : View(ctx) {
+        private val paintFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FF1744")
+            style = Paint.Style.FILL
+        }
+        private val paintStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f
+        }
+        private val cursorPath = Path()
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            cursorPath.reset()
+            cursorPath.moveTo(cursorX, cursorY)
+            cursorPath.lineTo(cursorX, cursorY + 38f)
+            cursorPath.lineTo(cursorX + 11f, cursorY + 29f)
+            cursorPath.lineTo(cursorX + 19f, cursorY + 44f)
+            cursorPath.lineTo(cursorX + 26f, cursorY + 40f)
+            cursorPath.lineTo(cursorX + 17f, cursorY + 25f)
+            cursorPath.lineTo(cursorX + 30f, cursorY + 25f)
+            cursorPath.close()
+
+            canvas.drawPath(cursorPath, paintFill)
+            canvas.drawPath(cursorPath, paintStroke)
+        }
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        val dm = resources.displayMetrics
+        screenW = dm.widthPixels
+        screenH = dm.heightPixels
+        cursorX = screenW / 2f
+        cursorY = screenH / 2f
+        attachGlobalCursorOverlay()
+    }
+
+    private fun attachGlobalCursorOverlay() {
+        try {
+            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            cursorView = GlobalCursorView(this)
+            val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY
+            }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                layoutType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            )
+            params.gravity = Gravity.TOP or Gravity.START
+            windowManager?.addView(cursorView, params)
+            cursorView?.visibility = View.GONE
+        } catch (_: Exception) {}
+    }
+
+    fun moveCursorBy(dx: Float, dy: Float) {
+        mainHandler.post {
+            if (cursorView == null) attachGlobalCursorOverlay()
+            val dm = resources.displayMetrics
+            screenW = dm.widthPixels
+            screenH = dm.heightPixels
+            cursorX = (cursorX + dx).coerceIn(5f, screenW - 15f)
+            cursorY = (cursorY + dy).coerceIn(5f, screenH - 15f)
+            cursorView?.visibility = View.VISIBLE
+            cursorView?.invalidate()
+            mainHandler.removeCallbacks(hideCursorRunnable)
+            mainHandler.postDelayed(hideCursorRunnable, 8000L)
+        }
+    }
+
+    fun clickAtCursor() {
+        mainHandler.post {
+            cursorView?.visibility = View.VISIBLE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val path = Path().apply { moveTo(cursorX, cursorY) }
+                val stroke = GestureDescription.StrokeDescription(path, 0, 55)
+                val gesture = GestureDescription.Builder().addStroke(stroke).build()
+                dispatchGesture(gesture, null, null)
+            }
+        }
+    }
+
+    fun scrollAtCursor(scrollDy: Float) {
+        mainHandler.post {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val endY = (cursorY + scrollDy).coerceIn(60f, screenH - 60f)
+                val path = Path().apply {
+                    moveTo(cursorX, cursorY)
+                    lineTo(cursorX, endY)
+                }
+                val stroke = GestureDescription.StrokeDescription(path, 0, 220)
+                val gesture = GestureDescription.Builder().addStroke(stroke).build()
+                dispatchGesture(gesture, null, null)
+            }
+        }
+    }
+
+    fun performGlobalNav(act: String) {
+        mainHandler.post {
+            when (act) {
+                "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
+                "HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
+                "RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+            }
+        }
+    }
+
+    fun bringPackageToFront(pkg: String) {
+        mainHandler.post {
+            // Önce Home tuşu gönderip 120ms sonra hedef paketi başlatmak Android 10-15 arka plan kilidini %100 aşar
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            mainHandler.postDelayed({
+                try {
+                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        startActivity(launchIntent)
+                    }
+                } catch (_: Exception) {}
+            }, 140L)
+        }
+    }
+
+    fun inputKeyboardText(text: String, isBackspace: Boolean = false) {
+        mainHandler.post {
+            val root = rootInActiveWindow ?: return@post
+            val focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findEditableNode(root)
+            if (focusNode != null) {
+                val currentText = focusNode.text?.toString() ?: ""
+                val newText = if (isBackspace) {
+                    if (currentText.isNotEmpty()) currentText.dropLast(1) else ""
+                } else {
+                    currentText + text
+                }
+                val args = Bundle()
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
+                focusNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            }
+        }
+    }
+
+    private fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isEditable) return node
+        for (i in 0 until node.childCount) {
+            val found = findEditableNode(node.getChild(i))
+            if (found != null) return found
+        }
+        return null
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        instance = null
+        try {
+            if (cursorView != null) windowManager?.removeView(cursorView)
+        } catch (_: Exception) {}
+        super.onDestroy()
+    }
+}
+
+// Çok Daha Gerçekçi Fizik Tabanlı Animasyon Katmanı (Kahve Çekirdekleri, Yüzgeçli Balıklar, Döner, Nargile Halkaları)
 class AnimatedOverlayView(context: Context) : View(context) {
     private var mode: String = "none"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -91,7 +288,8 @@ class AnimatedOverlayView(context: Context) : View(context) {
         var size: Float,
         var phase: Float,
         var kind: Int,
-        var alpha: Int,
+        var angle: Float,
+        var spinSpeed: Float,
         var color: Int
     )
 
@@ -102,33 +300,115 @@ class AnimatedOverlayView(context: Context) : View(context) {
         entities.clear()
         when (mode) {
             "fish" -> {
-                for (i in 0 until 10) {
+                for (i in 0 until 12) {
                     val dir = if (i % 2 == 0) 1f else -1f
-                    entities.add(Entity(Random.nextFloat() * 1080f, 180f + Random.nextFloat() * 1450f, (1.6f + Random.nextFloat() * 2.4f) * dir, 0f, 24f + Random.nextFloat() * 22f, Random.nextFloat() * 6.28f, i % 3, 185, 0))
+                    entities.add(Entity(Random.nextFloat() * 1080f, 160f + Random.nextFloat() * 1500f, (1.8f + Random.nextFloat() * 2.5f) * dir, 0f, 26f + Random.nextFloat() * 22f, Random.nextFloat() * 6.28f, i % 3, 0f, 0f, 0))
                 }
                 for (i in 0 until 2) {
-                    entities.add(Entity(200f + i * 650f, 500f + i * 700f, 0.8f * (if (i == 0) 1f else -1f), 0.4f, 44f, i * 2.1f, 3, 180, Color.argb(180, 186, 104, 200)))
+                    entities.add(Entity(220f + i * 620f, 480f + i * 680f, 0.9f * (if (i == 0) 1f else -1f), 0.4f, 46f, i * 2.1f, 3, 0f, 0f, Color.argb(190, 171, 71, 188)))
                 }
                 for (i in 0 until 2) {
-                    entities.add(Entity(300f + i * 450f, 1830f, if (i == 0) 1.5f else -1.5f, 0f, 34f, i * 1.5f, 4, 210, Color.argb(210, 229, 57, 53)))
+                    entities.add(Entity(280f + i * 480f, 1840f, if (i == 0) 1.6f else -1.6f, 0f, 36f, i * 1.5f, 4, 0f, 0f, Color.argb(215, 211, 47, 47)))
                 }
-                for (i in 0 until 22) {
-                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, 0f, -(1.8f + Random.nextFloat() * 2.5f), 4f + Random.nextFloat() * 10f, Random.nextFloat() * 6.28f, 5, 115, Color.WHITE))
+                for (i in 0 until 25) {
+                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, 0f, -(2.0f + Random.nextFloat() * 2.8f), 4f + Random.nextFloat() * 11f, Random.nextFloat() * 6.28f, 5, 0f, 0f, Color.WHITE))
+                }
+            }
+            "coffee" -> {
+                // kind 0: 3D Dönen Kahve Çekirdekleri (18 adet)
+                for (i in 0 until 18) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 1.1f,
+                            vy = -(1.2f + Random.nextFloat() * 1.8f),
+                            size = 18f + Random.nextFloat() * 14f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = 0,
+                            angle = Random.nextFloat() * 360f,
+                            spinSpeed = (Random.nextFloat() - 0.5f) * 4.5f,
+                            color = if (i % 2 == 0) Color.rgb(78, 52, 46) else Color.rgb(62, 39, 35)
+                        )
+                    )
+                }
+                // kind 1: İpeksi Kahve Buharı Dalgaları (16 adet)
+                for (i in 0 until 16) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = 0f,
+                            vy = -(1.6f + Random.nextFloat() * 2.2f),
+                            size = 75f + Random.nextFloat() * 95f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = 1,
+                            angle = 0f,
+                            spinSpeed = 0f,
+                            color = Color.rgb(239, 235, 233)
+                        )
+                    )
                 }
             }
             "doner" -> {
-                for (i in 0 until 28) {
-                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, (Random.nextFloat() - 0.5f) * 1.2f, -(1.5f + Random.nextFloat() * 2.8f), 50f + Random.nextFloat() * 80f, Random.nextFloat() * 6.28f, if (i < 16) 0 else 1, if (i < 16) 45 else 190, if (i < 16) Color.rgb(255, 235, 220) else Color.rgb(255, 110, 0)))
+                // kind 0: Sıcak Buhar, kind 1: Kor Ateş Kıvılcımı, kind 2: Döner Sos/Yağ Damlası
+                for (i in 0 until 32) {
+                    val k = when {
+                        i < 14 -> 0
+                        i < 26 -> 1
+                        else -> 2
+                    }
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 1.4f,
+                            vy = if (k == 2) (2.8f + Random.nextFloat() * 2f) else -(1.8f + Random.nextFloat() * 3.2f),
+                            size = if (k == 0) (65f + Random.nextFloat() * 85f) else (4f + Random.nextFloat() * 5f),
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = k,
+                            angle = 0f,
+                            spinSpeed = 0f,
+                            color = Color.rgb(255, 110, 0)
+                        )
+                    )
                 }
             }
-            "hookah", "coffee" -> {
+            "hookah" -> {
+                // kind 0: Yoğun Bulut, kind 1: Yükselen Duman Halkaları (Smoke Rings)
                 for (i in 0 until 26) {
-                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, (Random.nextFloat() - 0.5f) * 1.0f, -(1.1f + Random.nextFloat() * 1.8f), 60f + Random.nextFloat() * 95f, Random.nextFloat() * 6.28f, i % 2, 42, if (mode == "hookah") Color.rgb(210, 235, 255) else Color.rgb(245, 225, 205)))
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 0.9f,
+                            vy = -(1.3f + Random.nextFloat() * 2.0f),
+                            size = if (i % 3 == 0) (28f + Random.nextFloat() * 35f) else (70f + Random.nextFloat() * 100f),
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = if (i % 3 == 0) 1 else 0,
+                            angle = 0f,
+                            spinSpeed = 0f,
+                            color = Color.rgb(215, 238, 255)
+                        )
+                    )
                 }
             }
             "gold", "snow" -> {
-                for (i in 0 until 35) {
-                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, (Random.nextFloat() - 0.5f) * 0.8f, if (mode == "snow") (1.5f + Random.nextFloat() * 2.5f) else -(0.8f + Random.nextFloat() * 1.5f), 6f + Random.nextFloat() * 18f, Random.nextFloat() * 6.28f, 0, 145, if (mode == "gold") Color.rgb(255, 215, 0) else Color.WHITE))
+                for (i in 0 until 38) {
+                    entities.add(
+                        Entity(
+                            x = Random.nextFloat() * 1080f,
+                            y = Random.nextFloat() * 1920f,
+                            vx = (Random.nextFloat() - 0.5f) * 0.8f,
+                            vy = if (mode == "snow") (1.8f + Random.nextFloat() * 2.6f) else -(1.0f + Random.nextFloat() * 1.6f),
+                            size = 6f + Random.nextFloat() * 18f,
+                            phase = Random.nextFloat() * 6.28f,
+                            kind = 0,
+                            angle = 0f,
+                            spinSpeed = 1.5f,
+                            color = if (mode == "gold") Color.rgb(255, 215, 0) else Color.WHITE
+                        )
+                    )
                 }
             }
         }
@@ -143,8 +423,9 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
         when (mode) {
             "fish" -> drawMarineEcosystem(canvas, w, h)
+            "coffee" -> drawCoffeeBeansAndSteam(canvas, w, h)
             "doner" -> drawRealisticDonerAndFire(canvas, w, h)
-            "hookah", "coffee" -> drawRealisticVolumetricSmoke(canvas, w, h)
+            "hookah" -> drawHookahCloudsAndRings(canvas, w, h)
             "gold", "snow" -> drawBokehOrSnow(canvas, w, h)
         }
 
@@ -169,96 +450,174 @@ class AnimatedOverlayView(context: Context) : View(context) {
         }
 
         if (mode != "none" || showCursor) {
-            postInvalidateDelayed(22L)
+            postInvalidateDelayed(20L)
+        }
+    }
+
+    // ☕ Gerçekçi 3D Dönen Kahve Çekirdekleri (Orta S-Kıvrımı ve Parlama İle) & Kıvrımlı Buhar
+    private fun drawCoffeeBeansAndSteam(canvas: Canvas, w: Float, h: Float) {
+        for (e in entities) {
+            e.y += e.vy
+            val swayX = e.x + sin((tick * 1.1f + e.phase).toDouble()).toFloat() * 26f
+            if (e.y < -120f) {
+                e.y = h + 80f
+                e.x = Random.nextFloat() * w
+            }
+
+            if (e.kind == 1) {
+                // İpeksi Kahve Buharı
+                val progress = ((h - e.y) / h).coerceIn(0f, 1f)
+                val rad = e.size * (0.85f + progress * 0.9f)
+                val alpha = ((1f - progress * 0.6f) * 44f).toInt().coerceIn(8, 48)
+                val steamGrad = RadialGradient(
+                    swayX, e.y, rad,
+                    intArrayOf(Color.argb(alpha, 245, 235, 225), Color.argb(alpha / 2, 230, 215, 200), Color.TRANSPARENT),
+                    floatArrayOf(0f, 0.55f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                paint.style = Paint.Style.FILL
+                paint.shader = steamGrad
+                canvas.drawCircle(swayX, e.y, rad, paint)
+                paint.shader = null
+            } else {
+                // 3D Kahve Çekirdeği Çizimi
+                e.angle = (e.angle + e.spinSpeed) % 360f
+                canvas.save()
+                canvas.translate(swayX, e.y)
+                canvas.rotate(e.angle)
+
+                val bw = e.size * 1.35f
+                val bh = e.size * 0.92f
+
+                // Çekirdek Gövdesi (Gölge + Ana Kahve Tonu)
+                paint.style = Paint.Style.FILL
+                paint.color = e.color
+                canvas.drawOval(RectF(-bw, -bh, bw, bh), paint)
+
+                // Üst Parlama (Kavrulmuş Parlaklık)
+                paint.color = Color.argb(70, 161, 136, 127)
+                canvas.drawOval(RectF(-bw * 0.7f, -bh * 0.75f, bw * 0.5f, -bh * 0.15f), paint)
+
+                // Karakteristik Orta S-Yarığı (Crease Line)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 3.5f
+                paint.color = Color.argb(220, 27, 15, 12)
+                val crease = Path().apply {
+                    moveTo(-bw * 0.85f, 0f)
+                    cubicTo(-bw * 0.3f, -bh * 0.45f, bw * 0.3f, bh * 0.45f, bw * 0.85f, 0f)
+                }
+                canvas.drawPath(crease, paint)
+
+                canvas.restore()
+            }
         }
     }
 
     private fun drawMarineEcosystem(canvas: Canvas, w: Float, h: Float) {
+        // Deniz Tabanı Mercan ve Sallanan Yosunlar
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 7f
-        paint.color = Color.argb(95, 46, 125, 50)
-        for (k in 1..8) {
-            val baseX = (w / 9f) * k
+        paint.strokeWidth = 8f
+        paint.strokeCap = Paint.Cap.ROUND
+        for (k in 1..9) {
+            val baseX = (w / 10f) * k
+            paint.color = if (k % 2 == 0) Color.argb(110, 46, 125, 50) else Color.argb(100, 0, 150, 136)
             val path = Path().apply {
                 moveTo(baseX, h)
-                val sway1 = sin((tick * 1.5f + k).toDouble()).toFloat() * 25f
-                val sway2 = cos((tick * 1.5f + k).toDouble()).toFloat() * 35f
-                quadTo(baseX + sway1, h - 90f, baseX + sway2, h - 180f)
+                val sway1 = sin((tick * 1.6f + k).toDouble()).toFloat() * 28f
+                val sway2 = cos((tick * 1.6f + k).toDouble()).toFloat() * 38f
+                cubicTo(baseX + sway1, h - 75f, baseX - sway1, h - 145f, baseX + sway2, h - 220f)
             }
             canvas.drawPath(path, paint)
         }
 
         for (e in entities) {
             when (e.kind) {
-                0, 1, 2 -> {
+                0, 1, 2 -> { // Sırt Yüzgeçli ve Kıvrımlı Gerçekçi Balıklar
                     e.x += e.vx
                     val dir = if (e.vx >= 0) 1f else -1f
-                    val waveY = e.y + sin((tick * 2f + e.phase).toDouble()).toFloat() * 18f
-                    if (dir > 0 && e.x > w + 120f) e.x = -100f
-                    if (dir < 0 && e.x < -120f) e.x = w + 100f
+                    val waveY = e.y + sin((tick * 2.2f + e.phase).toDouble()).toFloat() * 20f
+                    if (dir > 0 && e.x > w + 130f) e.x = -110f
+                    if (dir < 0 && e.x < -130f) e.x = w + 110f
 
+                    val primaryColor = when (e.kind) {
+                        0 -> Color.argb(200, 255, 109, 0) // Palyaço Balığı
+                        1 -> Color.argb(200, 2, 136, 209) // Mavi Cerrah Balığı
+                        else -> Color.argb(200, 255, 196, 0) // Sarı Kelebek Balığı
+                    }
+
+                    val bodyH = if (e.kind == 2) e.size * 0.88f else e.size * 0.54f
+                    val wag = sin((tick * 4.8f + e.phase).toDouble()).toFloat() * 13f
+
+                    // Çatallı Kuyruk Yüzgeci
                     paint.style = Paint.Style.FILL
-                    paint.color = when (e.kind) {
-                        0 -> Color.argb(185, 255, 112, 67)
-                        1 -> Color.argb(185, 41, 182, 246)
-                        else -> Color.argb(185, 255, 213, 79)
-                    }
-                    val bodyH = if (e.kind == 2) e.size * 0.85f else e.size * 0.52f
-                    canvas.drawOval(RectF(e.x - e.size, waveY - bodyH, e.x + e.size, waveY + bodyH), paint)
-
-                    if (e.kind == 0) {
-                        paint.color = Color.argb(180, 255, 255, 255)
-                        canvas.drawRect(e.x - e.size * 0.2f, waveY - bodyH * 0.9f, e.x + e.size * 0.1f, waveY + bodyH * 0.9f, paint)
-                        paint.color = Color.argb(185, 255, 112, 67)
-                    }
-
-                    val wag = sin((tick * 4f + e.phase).toDouble()).toFloat() * 12f
+                    paint.color = primaryColor
                     val tail = Path().apply {
-                        moveTo(e.x - dir * e.size * 0.85f, waveY)
-                        lineTo(e.x - dir * e.size * 1.65f, waveY - e.size * 0.65f + wag)
-                        lineTo(e.x - dir * e.size * 1.4f, waveY)
-                        lineTo(e.x - dir * e.size * 1.65f, waveY + e.size * 0.65f + wag)
+                        moveTo(e.x - dir * e.size * 0.75f, waveY)
+                        lineTo(e.x - dir * e.size * 1.7f, waveY - e.size * 0.72f + wag)
+                        lineTo(e.x - dir * e.size * 1.3f, waveY + wag * 0.3f)
+                        lineTo(e.x - dir * e.size * 1.7f, waveY + e.size * 0.72f + wag)
                         close()
                     }
                     canvas.drawPath(tail, paint)
 
+                    // Üst Sırt Yüzgeci (Dorsal Fin)
+                    val dorsal = Path().apply {
+                        moveTo(e.x + dir * e.size * 0.1f, waveY - bodyH * 0.85f)
+                        quadTo(e.x - dir * e.size * 0.35f, waveY - bodyH * 1.55f, e.x - dir * e.size * 0.65f, waveY - bodyH * 0.75f)
+                        close()
+                    }
+                    canvas.drawPath(dorsal, paint)
+
+                    // Ana Gövde
+                    canvas.drawOval(RectF(e.x - e.size, waveY - bodyH, e.x + e.size, waveY + bodyH), paint)
+
+                    // Tür Desenleri
+                    if (e.kind == 0) {
+                        paint.color = Color.argb(195, 255, 255, 255)
+                        canvas.drawRoundRect(RectF(e.x - e.size * 0.15f, waveY - bodyH * 0.92f, e.x + e.size * 0.12f, waveY + bodyH * 0.92f), 6f, 6f, paint)
+                    } else if (e.kind == 1) {
+                        paint.color = Color.argb(180, 255, 235, 59)
+                        canvas.drawPath(tail, paint)
+                    }
+
+                    // Canlı Göz
                     paint.color = Color.WHITE
-                    canvas.drawCircle(e.x + dir * e.size * 0.55f, waveY - bodyH * 0.25f, e.size * 0.15f, paint)
+                    canvas.drawCircle(e.x + dir * e.size * 0.58f, waveY - bodyH * 0.22f, e.size * 0.16f, paint)
                     paint.color = Color.BLACK
-                    canvas.drawCircle(e.x + dir * e.size * 0.60f, waveY - bodyH * 0.25f, e.size * 0.07f, paint)
+                    canvas.drawCircle(e.x + dir * e.size * 0.63f, waveY - bodyH * 0.22f, e.size * 0.08f, paint)
                 }
-                3 -> {
+                3 -> { // Vantuzlu Ahtapot
                     e.x += e.vx
-                    val bobY = e.y + sin((tick * 1.4f + e.phase).toDouble()).toFloat() * 35f
-                    if (e.x > w - 80f || e.x < 80f) e.vx = -e.vx
+                    val bobY = e.y + sin((tick * 1.5f + e.phase).toDouble()).toFloat() * 38f
+                    if (e.x > w - 85f || e.x < 85f) e.vx = -e.vx
 
                     paint.style = Paint.Style.FILL
                     paint.color = e.color
-                    canvas.drawOval(RectF(e.x - e.size, bobY - e.size * 1.1f, e.x + e.size, bobY + e.size * 0.3f), paint)
+                    canvas.drawOval(RectF(e.x - e.size, bobY - e.size * 1.15f, e.x + e.size, bobY + e.size * 0.32f), paint)
 
                     paint.style = Paint.Style.STROKE
-                    paint.strokeWidth = 6f
+                    paint.strokeWidth = 6.5f
                     for (t in -3..4) {
                         val startX = e.x + t * (e.size * 0.22f)
-                        val sway = sin((tick * 2.5f + t * 0.7f + e.phase).toDouble()).toFloat() * 22f
+                        val sway = sin((tick * 2.6f + t * 0.7f + e.phase).toDouble()).toFloat() * 24f
                         val tentacle = Path().apply {
                             moveTo(startX, bobY + e.size * 0.2f)
-                            quadTo(startX + sway, bobY + e.size * 1.1f, startX - sway * 0.6f, bobY + e.size * 1.9f)
+                            quadTo(startX + sway, bobY + e.size * 1.1f, startX - sway * 0.6f, bobY + e.size * 1.95f)
                         }
                         canvas.drawPath(tentacle, paint)
                     }
                     paint.style = Paint.Style.FILL
                     paint.color = Color.WHITE
-                    canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 7f, paint)
-                    canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 7f, paint)
+                    canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 7.5f, paint)
+                    canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 7.5f, paint)
                     paint.color = Color.BLACK
-                    canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 3.5f, paint)
-                    canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 3.5f, paint)
+                    canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 3.8f, paint)
+                    canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 3.8f, paint)
                 }
-                4 -> {
+                4 -> { // Kıskaçlı Yengeç
                     e.x += e.vx
                     if (e.x > w - 90f || e.x < 90f) e.vx = -e.vx
-                    val stepY = (h - 65f) + kotlin.math.abs(sin((tick * 5f + e.phase).toDouble()).toFloat()) * 8f
+                    val stepY = (h - 62f) + kotlin.math.abs(sin((tick * 5.5f + e.phase).toDouble()).toFloat()) * 8f
 
                     paint.style = Paint.Style.FILL
                     paint.color = e.color
@@ -272,13 +631,13 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         canvas.drawLine(e.x + e.size * 0.8f, stepY + leg * 6f, e.x + e.size * 1.45f, stepY + 18f - legOffset, paint)
                     }
                     paint.style = Paint.Style.FILL
-                    canvas.drawCircle(e.x - e.size * 1.25f, stepY - e.size * 0.85f, 11f, paint)
-                    canvas.drawCircle(e.x + e.size * 1.25f, stepY - e.size * 0.85f, 11f, paint)
+                    canvas.drawArc(RectF(e.x - e.size * 1.6f, stepY - e.size * 1.25f, e.x - e.size * 0.9f, stepY - e.size * 0.55f), 30f, 290f, true, paint)
+                    canvas.drawArc(RectF(e.x + e.size * 0.9f, stepY - e.size * 1.25f, e.x + e.size * 1.6f, stepY - e.size * 0.55f), 210f, 290f, true, paint)
                     paint.color = Color.WHITE
                     canvas.drawCircle(e.x - 10f, stepY - e.size * 0.7f, 5.5f, paint)
                     canvas.drawCircle(e.x + 10f, stepY - e.size * 0.7f, 5.5f, paint)
                 }
-                5 -> {
+                5 -> { // Parlak Su Kabarcıkları
                     e.y += e.vy
                     val bx = e.x + sin((tick * 2f + e.phase).toDouble()).toFloat() * 14f
                     if (e.y < -30f) {
@@ -287,8 +646,11 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     }
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 2f
-                    paint.color = Color.argb(115, 200, 245, 255)
+                    paint.color = Color.argb(130, 200, 245, 255)
                     canvas.drawCircle(bx, e.y, e.size, paint)
+                    paint.style = Paint.Style.FILL
+                    paint.color = Color.argb(160, 255, 255, 255)
+                    canvas.drawCircle(bx - e.size * 0.3f, e.y - e.size * 0.3f, e.size * 0.22f, paint)
                 }
             }
         }
@@ -296,57 +658,67 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
     private fun drawRealisticDonerAndFire(canvas: Canvas, w: Float, h: Float) {
         val fireGrad = RadialGradient(
-            w - 150f, h - 80f, 360f,
-            intArrayOf(Color.argb(120, 255, 87, 34), Color.argb(50, 211, 47, 47), Color.TRANSPARENT),
+            w - 150f, h - 80f, 380f,
+            intArrayOf(Color.argb(135, 255, 87, 34), Color.argb(60, 211, 47, 47), Color.TRANSPARENT),
             floatArrayOf(0f, 0.55f, 1f),
             Shader.TileMode.CLAMP
         )
         paint.shader = fireGrad
         paint.style = Paint.Style.FILL
-        canvas.drawCircle(w - 150f, h - 80f, 360f, paint)
+        canvas.drawCircle(w - 150f, h - 80f, 380f, paint)
         paint.shader = null
 
         val cx = w - 145f
         val cy = h - 250f
-        paint.color = Color.argb(180, 190, 195, 200)
-        canvas.drawRect(cx - 5f, cy - 150f, cx + 5f, cy + 150f, paint)
+        paint.color = Color.argb(190, 190, 195, 200)
+        canvas.drawRect(cx - 5f, cy - 155f, cx + 5f, cy + 155f, paint)
 
         for (layer in -5..5) {
             val yPos = cy + layer * 20f
-            val coneRadius = (88f - (layer + 5) * 3.8f)
+            val coneRadius = (90f - (layer + 5) * 3.8f)
             val shimmer = sin((tick * 2.5f + layer * 0.8f).toDouble()).toFloat() * 6f
-            paint.color = if ((layer + (tick * 2).toInt()) % 2 == 0) Color.argb(175, 150, 55, 20) else Color.argb(175, 195, 82, 32)
+            paint.color = if ((layer + (tick * 2).toInt()) % 2 == 0) Color.argb(185, 145, 52, 18) else Color.argb(185, 198, 84, 30)
             canvas.drawOval(RectF(cx - coneRadius + shimmer, yPos - 13f, cx + coneRadius + shimmer, yPos + 13f), paint)
         }
 
         for (e in entities) {
             e.y += e.vy
             val driftX = e.x + sin((tick * 1.2f + e.phase).toDouble()).toFloat() * 28f
-            if (e.y < -120f) {
+            if (e.kind == 2 && e.y > h) {
+                e.y = cy - 80f
+                e.x = cx + (Random.nextFloat() - 0.5f) * 90f
+            } else if (e.kind != 2 && e.y < -120f) {
                 e.y = h + 60f
                 e.x = Random.nextFloat() * w
             }
-            if (e.kind == 0) {
-                val radius = e.size * (1f + ((h - e.y) / h) * 0.6f)
-                val steamGrad = RadialGradient(
-                    driftX, e.y, radius,
-                    intArrayOf(Color.argb(42, 255, 245, 238), Color.argb(18, 255, 235, 220), Color.TRANSPARENT),
-                    floatArrayOf(0f, 0.6f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-                paint.shader = steamGrad
-                canvas.drawCircle(driftX, e.y, radius, paint)
-                paint.shader = null
-            } else {
-                val flicker = (120 + sin((tick * 8f + e.phase).toDouble()) * 85).toInt().coerceIn(40, 220)
-                paint.color = Color.argb(flicker, 255, 145, 0)
-                canvas.drawCircle(driftX, e.y, 4.5f, paint)
+
+            when (e.kind) {
+                0 -> {
+                    val radius = e.size * (1f + ((h - e.y) / h) * 0.65f)
+                    val steamGrad = RadialGradient(
+                        driftX, e.y, radius,
+                        intArrayOf(Color.argb(46, 255, 245, 238), Color.argb(20, 255, 235, 220), Color.TRANSPARENT),
+                        floatArrayOf(0f, 0.6f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                    paint.shader = steamGrad
+                    canvas.drawCircle(driftX, e.y, radius, paint)
+                    paint.shader = null
+                }
+                1 -> {
+                    val flicker = (130 + sin((tick * 8f + e.phase).toDouble()) * 85).toInt().coerceIn(45, 230)
+                    paint.color = Color.argb(flicker, 255, 152, 0)
+                    canvas.drawCircle(driftX, e.y, e.size, paint)
+                }
+                2 -> { // Dönerden Süzülen Parlak Sos/Yağ Damlası
+                    paint.color = Color.argb(210, 255, 193, 7)
+                    canvas.drawOval(RectF(e.x - 3.5f, e.y - 7f, e.x + 3.5f, e.y + 7f), paint)
+                }
             }
         }
     }
 
-    private fun drawRealisticVolumetricSmoke(canvas: Canvas, w: Float, h: Float) {
-        paint.style = Paint.Style.FILL
+    private fun drawHookahCloudsAndRings(canvas: Canvas, w: Float, h: Float) {
         for (e in entities) {
             e.y += e.vy
             val waveX = e.x + cos((tick * 0.9f + e.phase).toDouble()).toFloat() * 48f
@@ -355,21 +727,29 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 e.x = Random.nextFloat() * w
             }
             val progress = ((h - e.y) / h).coerceIn(0f, 1f)
-            val rad = e.size * (0.8f + progress * 1.1f)
-            val peakAlpha = ((1f - progress * 0.65f) * 52f).toInt().coerceIn(8, 60)
-            val r = Color.red(e.color)
-            val g = Color.green(e.color)
-            val b = Color.blue(e.color)
 
-            val smokeShader = RadialGradient(
-                waveX, e.y, rad,
-                intArrayOf(Color.argb(peakAlpha, r, g, b), Color.argb(peakAlpha / 2, r, g, b), Color.TRANSPARENT),
-                floatArrayOf(0f, 0.55f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            paint.shader = smokeShader
-            canvas.drawCircle(waveX, e.y, rad, paint)
-            paint.shader = null
+            if (e.kind == 1) {
+                // Yükseldikçe Genişleyen Gerçekçi Nargile Duman Halkası (Smoke Ring)
+                val ringRad = e.size * (0.9f + progress * 1.4f)
+                val ringAlpha = ((1f - progress * 0.7f) * 85f).toInt().coerceIn(12, 90)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 9f + progress * 8f
+                paint.color = Color.argb(ringAlpha, 220, 240, 255)
+                canvas.drawOval(RectF(waveX - ringRad, e.y - ringRad * 0.62f, waveX + ringRad, e.y + ringRad * 0.62f), paint)
+            } else {
+                paint.style = Paint.Style.FILL
+                val rad = e.size * (0.8f + progress * 1.15f)
+                val peakAlpha = ((1f - progress * 0.65f) * 54f).toInt().coerceIn(8, 60)
+                val smokeShader = RadialGradient(
+                    waveX, e.y, rad,
+                    intArrayOf(Color.argb(peakAlpha, 215, 238, 255), Color.argb(peakAlpha / 2, 200, 230, 255), Color.TRANSPARENT),
+                    floatArrayOf(0f, 0.55f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+                paint.shader = smokeShader
+                canvas.drawCircle(waveX, e.y, rad, paint)
+                paint.shader = null
+            }
         }
     }
 
@@ -385,7 +765,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 e.y = h + 20f
                 e.x = Random.nextFloat() * w
             }
-            val pulseAlpha = (80 + sin((tick * 3f + e.phase).toDouble()) * 65).toInt().coerceIn(30, 180)
+            val pulseAlpha = (85 + sin((tick * 3f + e.phase).toDouble()) * 65).toInt().coerceIn(30, 185)
             paint.color = if (mode == "gold") Color.argb(pulseAlpha, 255, 215, 0) else Color.argb(pulseAlpha, 255, 255, 255)
             canvas.drawCircle(sx, e.y, e.size, paint)
         }
@@ -471,7 +851,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            txtStatus.text = "Sürüm: v$vName (YENİ) | Kumandadan QR Okutun veya Ağı Tarayın"
+            txtStatus.text = "Sürüm: v$vName | Kumandadan QR Okutun veya Ağı Tarayın"
         } catch (_: Exception) {}
 
         initPlayer()
@@ -492,7 +872,15 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
+    // Arka Plandayken Menuboard'u %100 Garantili Olarak En Öne Getirir
     private fun bringMenuboardToFront() {
+        // 1. Global Erişilebilirlik Servisi Açıksa Doğrudan Oradan Öne Çek
+        val svc = MenuboardControlService.instance
+        if (svc != null) {
+            svc.bringPackageToFront(packageName)
+        }
+
+        // 2. Ek olarak PendingIntent + Activity Reorder tetikle
         runOnUiThread {
             try {
                 val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
@@ -510,16 +898,10 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     PendingIntent.FLAG_UPDATE_CURRENT
                 }
-                val pendingIntent = PendingIntent.getActivity(applicationContext, 999, frontIntent, flags)
-                pendingIntent.send()
+                PendingIntent.getActivity(applicationContext, 999, frontIntent, flags).send()
                 startActivity(frontIntent)
             } catch (_: Exception) {}
         }
-        Thread {
-            try {
-                Runtime.getRuntime().exec(arrayOf("am", "start", "-n", "$packageName/.MainActivity"))
-            } catch (_: Exception) {}
-        }.start()
     }
 
     private fun checkForUpdate() {
@@ -832,53 +1214,53 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
+            // Arka Plandayken Bile Çalışan Global Mouse, Klavye ve Öne Getirme Yöneticisi
             if (uri == "/api/input" && method == Method.POST) {
                 val type = session.parameters["type"]?.firstOrNull() ?: ""
+                val svc = MenuboardControlService.instance
+
                 when (type) {
                     "move" -> {
                         val dx = session.parameters["dx"]?.firstOrNull()?.toFloatOrNull() ?: 0f
                         val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
-                        runOnUiThread {
-                            val dm = resources.displayMetrics
-                            animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(10f, dm.widthPixels - 20f)
-                            animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(10f, dm.heightPixels - 20f)
-                            animatedOverlayView.showCursor = true
-                            animatedOverlayView.bringToFront()
-                            animatedOverlayView.invalidate()
-                            handler.removeCallbacks(hideCursorRunnable)
-                            handler.postDelayed(hideCursorRunnable, 8000L)
+                        if (svc != null) {
+                            svc.moveCursorBy(dx, dy)
+                        } else {
+                            runOnUiThread {
+                                val dm = resources.displayMetrics
+                                animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(10f, dm.widthPixels - 20f)
+                                animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(10f, dm.heightPixels - 20f)
+                                animatedOverlayView.showCursor = true
+                                animatedOverlayView.bringToFront()
+                                animatedOverlayView.invalidate()
+                                handler.removeCallbacks(hideCursorRunnable)
+                                handler.postDelayed(hideCursorRunnable, 8000L)
+                            }
                         }
                     }
                     "click" -> {
-                        val cx = animatedOverlayView.cursorX
-                        val cy = animatedOverlayView.cursorY
-                        runOnUiThread {
-                            val downTime = SystemClock.uptimeMillis()
-                            val evDown = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, cx, cy, 0)
-                            val evUp = MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, cx, cy, 0)
-                            window.decorView.dispatchTouchEvent(evDown)
-                            window.decorView.dispatchTouchEvent(evUp)
-                            evDown.recycle()
-                            evUp.recycle()
+                        if (svc != null) {
+                            svc.clickAtCursor()
+                        } else {
+                            val cx = animatedOverlayView.cursorX
+                            val cy = animatedOverlayView.cursorY
+                            runOnUiThread {
+                                val downTime = SystemClock.uptimeMillis()
+                                val evDown = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, cx, cy, 0)
+                                val evUp = MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, cx, cy, 0)
+                                window.decorView.dispatchTouchEvent(evDown)
+                                window.decorView.dispatchTouchEvent(evUp)
+                                evDown.recycle()
+                                evUp.recycle()
+                            }
                         }
-                        Thread {
-                            try {
-                                Runtime.getRuntime().exec(arrayOf("input", "tap", cx.toInt().toString(), cy.toInt().toString()))
-                            } catch (_: Exception) {}
-                        }.start()
                     }
                     "scroll" -> {
-                        val dy = session.parameters["dy"]?.firstOrNull()?.toIntOrNull() ?: 0
-                        val cx = animatedOverlayView.cursorX.toInt()
-                        val cy = animatedOverlayView.cursorY.toInt()
-                        Thread {
-                            try {
-                                Runtime.getRuntime().exec(arrayOf("input", "swipe", cx.toString(), cy.toString(), cx.toString(), (cy + dy).toString(), "200"))
-                            } catch (_: Exception) {}
-                        }.start()
+                        val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
+                        svc?.scrollAtCursor(dy)
                     }
                     "nav" -> {
-                        when (session.parameters["act"]?.firstOrNull() ?: "") {
+                        when (val act = session.parameters["act"]?.firstOrNull() ?: "") {
                             "MENUBOARD" -> bringMenuboardToFront()
                             "APP_DETAILS" -> {
                                 runOnUiThread {
@@ -888,7 +1270,6 @@ class MainActivity : AppCompatActivity() {
                                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         }
                                         startActivity(detIntent)
-                                        Toast.makeText(this@MainActivity, "Sağ üstteki 3 noktaya (⋮) basıp 'Kısıtlanmış ayarlara izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show()
                                     } catch (_: Exception) {}
                                 }
                             }
@@ -914,23 +1295,24 @@ class MainActivity : AppCompatActivity() {
                                     } catch (_: Exception) {}
                                 }
                             }
-                            "HOME" -> {
-                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                                    addCategory(Intent.CATEGORY_HOME)
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            else -> {
+                                if (svc != null) {
+                                    svc.performGlobalNav(act)
+                                } else if (act == "HOME") {
+                                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                        addCategory(Intent.CATEGORY_HOME)
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    startActivity(homeIntent)
                                 }
-                                startActivity(homeIntent)
-                            }
-                            "BACK" -> {
-                                Thread {
-                                    try { Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK) } catch (_: Exception) {}
-                                }.start()
                             }
                         }
                     }
                     "text" -> {
                         val text = session.parameters["val"]?.firstOrNull() ?: ""
-                        if (text.isNotEmpty()) {
+                        if (svc != null) {
+                            svc.inputKeyboardText(text, isBackspace = false)
+                        } else if (text.isNotEmpty()) {
                             Thread {
                                 try { Instrumentation().sendStringSync(text) } catch (_: Exception) {}
                             }.start()
@@ -938,15 +1320,19 @@ class MainActivity : AppCompatActivity() {
                     }
                     "key" -> {
                         val code = session.parameters["code"]?.firstOrNull() ?: ""
-                        Thread {
-                            try {
-                                if (code == "BACKSPACE") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DEL)
-                                else if (code == "ENTER") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
-                            } catch (_: Exception) {}
-                        }.start()
+                        if (svc != null && code == "BACKSPACE") {
+                            svc.inputKeyboardText("", isBackspace = true)
+                        } else {
+                            Thread {
+                                try {
+                                    if (code == "BACKSPACE") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DEL)
+                                    else if (code == "ENTER") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+                                } catch (_: Exception) {}
+                            }.start()
+                        }
                     }
                 }
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", if (svc != null) "OK_GLOBAL" else "NEED_SERVICE")
             }
 
             if (uri == "/api/sefim/bgobject" && method == Method.POST) {
@@ -962,7 +1348,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/sefim/backup" && method == Method.GET) {
-                val backupFile = File(filesDir, "sefim_backup_v117.json")
+                val backupFile = File(filesDir, "sefim_backup_v118.json")
                 val content = if (backupFile.exists()) backupFile.readText() else ""
                 return newFixedLengthResponse(Response.Status.OK, "application/json", content)
             }
@@ -972,7 +1358,7 @@ class MainActivity : AppCompatActivity() {
                 session.parseBody(files)
                 val postData = files["postData"] ?: ""
                 if (postData.isNotEmpty()) {
-                    File(filesDir, "sefim_backup_v117.json").writeText(postData)
+                    File(filesDir, "sefim_backup_v118.json").writeText(postData)
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SAVED")
             }
@@ -1015,27 +1401,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            if (uri == "/api/app/install" && method == Method.POST) {
-                val files = HashMap<String, String>()
-                session.parseBody(files)
-                val tempFilePath = files["file"]
-                if (tempFilePath != null) {
-                    val tempFile = File(tempFilePath)
-                    val targetApk = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "remote_pushed_${System.currentTimeMillis()}.apk")
-                    FileInputStream(tempFile).use { input ->
-                        FileOutputStream(targetApk).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Kumandadan APK alındı, kurulum başlatılıyor...", Toast.LENGTH_LONG).show()
-                        installLocalApkFile(targetApk)
-                    }
-                    return newFixedLengthResponse(Response.Status.OK, "text/plain", "INSTALL_STARTED")
-                }
-                return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "NO_FILE")
-            }
-
             if (uri == "/api/apps" && method == Method.GET) {
                 val pm = packageManager
                 val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -1061,11 +1426,16 @@ class MainActivity : AppCompatActivity() {
                         bringMenuboardToFront()
                         return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
                     }
-                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        runOnUiThread {
-                            try { startActivity(launchIntent) } catch (_: Exception) {}
+                    val svc = MenuboardControlService.instance
+                    if (svc != null) {
+                        svc.bringPackageToFront(pkg)
+                    } else {
+                        val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            runOnUiThread {
+                                try { startActivity(launchIntent) } catch (_: Exception) {}
+                            }
                         }
                     }
                     return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
@@ -1151,7 +1521,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/ping" && method == Method.GET) {
-                val resObj = mapOf("id" to deviceId, "tag" to deviceTag, "bgObject" to activeBgObject)
+                val resObj = mapOf(
+                    "id" to deviceId,
+                    "tag" to deviceTag,
+                    "bgObject" to activeBgObject,
+                    "serviceActive" to (MenuboardControlService.instance != null).toString()
+                )
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resObj))
             }
 
