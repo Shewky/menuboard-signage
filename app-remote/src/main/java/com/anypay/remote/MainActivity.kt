@@ -74,7 +74,6 @@ data class MediaItemModel(
     var fileDurationSec: Int = 0
 )
 
-// Gson eski sürüm verilerini okurken hiçbir alanın NullPointerException fırlatmaması için tüm alanlar nullable (String?) tanımlandı
 data class SefimProductItem(
     val id: String? = "",
     val productName: String? = "",
@@ -82,7 +81,7 @@ data class SefimProductItem(
     val choice1Text: String? = "",
     val choice2Text: String? = "",
     val optionsText: String? = "",
-    val subDetails: String? = "", // v1.12/v1.13 eski önbellek uyumluluğu için
+    val subDetails: String? = "",
     var recipeContent: String? = "",
     var manualAllergen: String? = "",
     var isSelected: Boolean = true,
@@ -170,7 +169,6 @@ class MainActivity : AppCompatActivity() {
     private var pendingPhotoProductName: String? = null
     private var targetApkDevice: DeviceItem? = null
 
-    // Büyük videoların (200MB+) zaman aşımına uğramaması için 10 dakikalık (600 sn) yazma/okuma süresi
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(600, TimeUnit.SECONDS)
@@ -321,6 +319,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Eski sürümlerden (v1.13/1.14) kalan ve çökme yaratan bozuk önbelleği temizle
+        getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE).edit().remove("sefim_full_backup_json").apply()
+
         tabDevices = findViewById(R.id.tabDevices)
         tabMedia = findViewById(R.id.tabMedia)
         panelTabDevices = findViewById(R.id.panelTabDevices)
@@ -343,8 +344,13 @@ class MainActivity : AppCompatActivity() {
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.16" }
-        supportActionBar?.title = "Menuboard Kumanda (v$vName)"
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.17" }
+        supportActionBar?.title = "Kumanda v$vName (YENİ)"
+
+        val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
+        if (resIdVer != 0) {
+            findViewById<TextView>(resIdVer)?.text = "v$vName (YENİ)"
+        }
 
         setupDynamicSefimTabAndControls()
 
@@ -445,10 +451,12 @@ class MainActivity : AppCompatActivity() {
         val topTabsBar = tabDevices.parent as? LinearLayout
         val existingTabSefimId = resources.getIdentifier("tabSefim", "id", packageName)
         tabSefim = if (existingTabSefimId != 0) {
-            findViewById(existingTabSefimId)
+            findViewById<Button>(existingTabSefimId)?.apply {
+                text = "🍽️ ŞEFİM v1.17"
+            }
         } else {
             Button(this).apply {
-                text = "🍽️ Şefim Menu"
+                text = "🍽️ ŞEFİM v1.17"
                 setTextColor(0xFF888888.toInt())
                 textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
@@ -668,11 +676,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --- NULL-SAFE ALERJEN VE SEÇENEK FİLTRELEME MOTORU ---
-
-    private fun computeAllergenWarning(item: SefimProductItem): String {
+    private fun computeAllergenWarning(item: SefimProductItem?): String {
+        if (item == null) return ""
         val detected = mutableListOf<String>()
-        val text = item.recipeContent.orEmpty().lowercase()
+        val text = (item.recipeContent ?: "").lowercase()
 
         val rules = listOf(
             "Gluten" to listOf("un", "buğday", "ekmek", "lavaş", "pide", "makarna", "bulgur", "irmik", "galeta", "hamur", "kadayıf", "baklava", "yufka", "bisküvi", "gluten"),
@@ -690,32 +697,39 @@ class MainActivity : AppCompatActivity() {
                 detected.add(allergenName)
             }
         }
-        val manual = item.manualAllergen.orEmpty().trim()
+        val manual = (item.manualAllergen ?: "").trim()
         if (manual.isNotEmpty()) {
             detected.add(manual)
         }
         return detected.distinct().joinToString(", ")
     }
 
-    private fun buildFilteredChoicesString(item: SefimProductItem): String {
-        val c1 = item.choice1Text.orEmpty().trim()
-        val c2 = item.choice2Text.orEmpty().trim()
-        val opt = item.optionsText.orEmpty().trim()
-        val legacySub = item.subDetails.orEmpty().trim()
+    private fun buildFilteredChoicesString(item: SefimProductItem?): String {
+        if (item == null) return ""
+        return try {
+            val c1 = (item.choice1Text ?: "").trim()
+            val c2 = (item.choice2Text ?: "").trim()
+            val opt = (item.optionsText ?: "").trim()
+            val legacySub = (item.subDetails ?: "").trim()
 
-        val parts = mutableListOf<String>()
-        if (cbShowChoice1.isChecked && c1.isNotEmpty()) parts.add("Seçenek 1: $c1")
-        if (cbShowChoice2.isChecked && c2.isNotEmpty()) parts.add("Seçenek 2: $c2")
-        if (cbShowOptions.isChecked && opt.isNotEmpty()) parts.add("Opsiyon: $opt")
+            val show1 = if (::cbShowChoice1.isInitialized) cbShowChoice1.isChecked else true
+            val show2 = if (::cbShowChoice2.isInitialized) cbShowChoice2.isChecked else true
+            val showOpt = if (::cbShowOptions.isInitialized) cbShowOptions.isChecked else true
 
-        // Eğer eski sürümden (v1.12/1.13) kalan subDetails varsa ve yeni alanlar boşsa onu da güvenli göster
-        if (parts.isEmpty() && legacySub.isNotEmpty() && (cbShowChoice1.isChecked || cbShowChoice2.isChecked || cbShowOptions.isChecked)) {
-            return legacySub
+            val parts = mutableListOf<String>()
+            if (show1 && c1.isNotEmpty()) parts.add("Seçenek 1: $c1")
+            if (show2 && c2.isNotEmpty()) parts.add("Seçenek 2: $c2")
+            if (showOpt && opt.isNotEmpty()) parts.add("Opsiyon: $opt")
+
+            if (parts.isEmpty() && legacySub.isNotEmpty() && (show1 || show2 || showOpt)) {
+                legacySub
+            } else {
+                parts.joinToString(" | ")
+            }
+        } catch (_: Exception) {
+            ""
         }
-        return parts.joinToString(" | ")
     }
-
-    // --- 4 SEKTÖREL TEST MENÜSÜ SEÇİCİ ---
 
     private fun showDemoMenuSelectorDialog() {
         val categories = arrayOf(
@@ -864,8 +878,6 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("İptal", null)
             .show()
     }
-
-    // --- ⚙️ AYAR BUTONU MENÜSÜ: MOUSE & KLAVYE, UZAKTAN APK VE UYGULAMA BAŞLATMA ---
 
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val options = arrayOf(
@@ -1182,10 +1194,10 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // --- ÇİFT YÖNLÜ ŞEFİM YEDEKLEME VE KURTARMA ---
+    // --- YENİ ÖNBELLEK ANAHTARI (v1.17): ESKİ HATALI VERİLERLE ASLA ÇAKIŞMAZ ---
 
     private fun saveLocalSefimState() {
-        val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
+        val dbPrefs = getSharedPreferences("sefim_v117_prefs", Context.MODE_PRIVATE)
         val payload = SefimBackupPayload(
             dbServer = dbPrefs.getString("db_server", "192.168.2.167\\YIRMIBES") ?: "",
             dbName = dbPrefs.getString("db_name", "BALIKCISUKRU") ?: "",
@@ -1205,17 +1217,17 @@ class MainActivity : AppCompatActivity() {
             products = sefimProducts,
             metaCacheByName = productMetaCache
         )
-        dbPrefs.edit().putString("sefim_full_backup_json", gson.toJson(payload)).apply()
+        dbPrefs.edit().putString("sefim_v117_json", gson.toJson(payload)).apply()
     }
 
     private fun loadLocalSefimState() {
-        val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
-        val json = dbPrefs.getString("sefim_full_backup_json", null) ?: return
+        val dbPrefs = getSharedPreferences("sefim_v117_prefs", Context.MODE_PRIVATE)
+        val json = dbPrefs.getString("sefim_v117_json", null) ?: return
         try {
             val payload = gson.fromJson(json, SefimBackupPayload::class.java) ?: return
-            edtRestaurantName.setText(payload.restaurantName.orEmpty().ifEmpty { "BALIKÇI ŞÜKRÜ" })
-            edtHeaderNote.setText(payload.headerNote.orEmpty())
-            edtFooterNote.setText(payload.footerNote.orEmpty())
+            edtRestaurantName.setText((payload.restaurantName ?: "").ifEmpty { "BALIKÇI ŞÜKRÜ" })
+            edtHeaderNote.setText(payload.headerNote ?: "")
+            edtFooterNote.setText(payload.footerNote ?: "")
             edtMenuPageDuration.setText((if (payload.pageDurationSec > 0) payload.pageDurationSec else 12).toString())
             cbShowChoice1.isChecked = payload.showChoice1
             cbShowChoice2.isChecked = payload.showChoice2
@@ -1227,7 +1239,7 @@ class MainActivity : AppCompatActivity() {
             sefimProducts.clear()
             payload.products?.let { sefimProducts.addAll(it) }
             sefimProducts.forEach { prod ->
-                val pName = prod.productName.orEmpty()
+                val pName = prod.productName ?: ""
                 val meta = productMetaCache[pName]
                 if (meta != null) {
                     if (prod.imageBase64.isNullOrEmpty()) prod.imageBase64 = meta.imageBase64
@@ -1240,8 +1252,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun pushSefimBackupToMenuboard() {
         val host = activeDevice?.host ?: return
-        val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
-        val json = dbPrefs.getString("sefim_full_backup_json", null) ?: return
+        val dbPrefs = getSharedPreferences("sefim_v117_prefs", Context.MODE_PRIVATE)
+        val json = dbPrefs.getString("sefim_v117_json", null) ?: return
 
         val req = Request.Builder()
             .url("http://$host/api/sefim/backup")
@@ -1266,13 +1278,13 @@ class MainActivity : AppCompatActivity() {
                 if (remoteJson.isNotEmpty() && sefimProducts.isEmpty()) {
                     try {
                         val payload = gson.fromJson(remoteJson, SefimBackupPayload::class.java) ?: return
-                        val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
+                        val dbPrefs = getSharedPreferences("sefim_v117_prefs", Context.MODE_PRIVATE)
                         dbPrefs.edit()
-                            .putString("db_server", payload.dbServer.orEmpty())
-                            .putString("db_name", payload.dbName.orEmpty())
-                            .putString("db_user", payload.dbUser.orEmpty())
-                            .putString("db_pass", payload.dbPass.orEmpty())
-                            .putString("sefim_full_backup_json", remoteJson)
+                            .putString("db_server", payload.dbServer ?: "")
+                            .putString("db_name", payload.dbName ?: "")
+                            .putString("db_user", payload.dbUser ?: "")
+                            .putString("db_pass", payload.dbPass ?: "")
+                            .putString("sefim_v117_json", remoteJson)
                             .apply()
 
                         payload.metaCacheByName?.let { productMetaCache.putAll(it) }
@@ -1280,12 +1292,12 @@ class MainActivity : AppCompatActivity() {
                         payload.products?.let { sefimProducts.addAll(it) }
 
                         runOnUiThread {
-                            edtRestaurantName.setText(payload.restaurantName.orEmpty())
-                            edtHeaderNote.setText(payload.headerNote.orEmpty())
-                            edtFooterNote.setText(payload.footerNote.orEmpty())
+                            edtRestaurantName.setText(payload.restaurantName ?: "")
+                            edtHeaderNote.setText(payload.headerNote ?: "")
+                            edtFooterNote.setText(payload.footerNote ?: "")
                             edtMenuPageDuration.setText((if (payload.pageDurationSec > 0) payload.pageDurationSec else 12).toString())
                             sefimAdapter.notifyDataSetChanged()
-                            Toast.makeText(this@MainActivity, "Şefim ürünleri ve önbellek Menuboard'dan geri yüklendi!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, "Şefim ürünleri Menuboard'dan geri yüklendi!", Toast.LENGTH_LONG).show()
                         }
                     } catch (_: Exception) {}
                 } else if (remoteJson.isEmpty() && sefimProducts.isNotEmpty()) {
@@ -1296,7 +1308,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDbConfigDialog() {
-        val prefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("sefim_v117_prefs", Context.MODE_PRIVATE)
         val edtServer = EditText(this).apply {
             hint = "Örn: 192.168.2.167\\YIRMIBES veya 192.168.2.167:1433"
             setText(prefs.getString("db_server", "192.168.2.167\\YIRMIBES"))
@@ -1366,7 +1378,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchSefimProductsFromDb() {
-        val prefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("sefim_v117_prefs", Context.MODE_PRIVATE)
         val server = prefs.getString("db_server", "") ?: ""
         val dbName = prefs.getString("db_name", "") ?: ""
         val user = prefs.getString("db_user", "") ?: ""
@@ -1442,7 +1454,7 @@ class MainActivity : AppCompatActivity() {
                 val rs = stmt.executeQuery("SELECT * FROM Product")
                 val meta = rs.metaData
                 val fetchedList = mutableListOf<SefimProductItem>()
-                val previousSelectionMap = sefimProducts.associate { it.productName.orEmpty() to it.isSelected }
+                val previousSelectionMap = sefimProducts.associate { (it.productName ?: "") to it.isSelected }
 
                 while (rs.next()) {
                     val id = getColString(rs, meta, listOf("Id", "ProductId", "RECNO", "Kod"))
@@ -1478,8 +1490,8 @@ class MainActivity : AppCompatActivity() {
                                 choice1Text = c1List.distinct().joinToString(", "),
                                 choice2Text = c2List.distinct().joinToString(", "),
                                 optionsText = optList.distinct().joinToString(", "),
-                                recipeContent = cachedMeta?.recipeContent.orEmpty(),
-                                manualAllergen = cachedMeta?.manualAllergen.orEmpty(),
+                                recipeContent = cachedMeta?.recipeContent ?: "",
+                                manualAllergen = cachedMeta?.manualAllergen ?: "",
                                 isSelected = keepSelected,
                                 imageBase64 = cachedMeta?.imageBase64
                             )
@@ -1588,13 +1600,13 @@ class MainActivity : AppCompatActivity() {
             var testY = startTopY
 
             for (item in selectedItems) {
-                val pName = item.productName.orEmpty()
+                val pName = item.productName ?: ""
                 val hasImg = !(item.imageBase64 ?: productMetaCache[pName]?.imageBase64).isNullOrEmpty()
                 val choicesStr = buildFilteredChoicesString(item)
                 val allergenStr = computeAllergenWarning(item)
                 var extraLinesHeight = 0f
                 if (choicesStr.isNotEmpty()) extraLinesHeight += subSizePx + 12f
-                if (item.recipeContent.orEmpty().isNotEmpty()) extraLinesHeight += subSizePx + 10f
+                if ((item.recipeContent ?: "").isNotEmpty()) extraLinesHeight += subSizePx + 10f
                 if (allergenStr.isNotEmpty()) extraLinesHeight += subSizePx + 10f
 
                 val rowHeight = maxOf(if (hasImg) 145f else 0f, titleSizePx + extraLinesHeight + 48f)
@@ -1701,7 +1713,7 @@ class MainActivity : AppCompatActivity() {
 
                 var currentY = startTopY
                 for (item in pageItems) {
-                    val pName = item.productName.orEmpty()
+                    val pName = item.productName ?: ""
                     var textStartX = 65f
                     val imgB64 = item.imageBase64 ?: productMetaCache[pName]?.imageBase64
 
@@ -1718,7 +1730,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     canvas.drawText(pName, textStartX, currentY + 12f, paintTitle)
-                    canvas.drawText(item.price.orEmpty(), width - 65f, currentY + 12f, paintPrice)
+                    canvas.drawText(item.price ?: "", width - 65f, currentY + 12f, paintPrice)
 
                     var lineOffsetY = currentY + 12f
 
@@ -1728,7 +1740,7 @@ class MainActivity : AppCompatActivity() {
                         canvas.drawText("↳ $choicesStr", textStartX + 10f, lineOffsetY, paintSub)
                     }
 
-                    val recStr = item.recipeContent.orEmpty()
+                    val recStr = item.recipeContent ?: ""
                     if (recStr.isNotEmpty()) {
                         lineOffsetY += subSizePx + 10f
                         canvas.drawText("İçindekiler: $recStr", textStartX + 10f, lineOffsetY, paintRecipe)
@@ -2045,7 +2057,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // 200MB ve Üstü Videoları Çökmeden Gönderen Doğrudan Raw Akış Yükleyicisi
     private fun uploadMediaFile(uri: Uri) {
         val host = activeDevice?.host ?: return
         val contentResolver = applicationContext.contentResolver
@@ -2057,7 +2068,6 @@ class MainActivity : AppCompatActivity() {
         contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (cursor.moveToFirst() && nameIndex >= 0) {
-                // Dosya adındaki boşluk ve özel karakterleri temizle
                 fileName = cursor.getString(nameIndex).replace(Regex("[^a-zA-Z0-9._-]"), "_")
             }
         }
@@ -2089,7 +2099,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun writeTo(sink: okio.BufferedSink) {
                 contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val buffer = ByteArray(65536) // 64 KB hızlı akış
+                    val buffer = ByteArray(65536)
                     var read: Int
                     var uploaded: Long = 0
                     var lastReportedPct = -1
@@ -2098,7 +2108,6 @@ class MainActivity : AppCompatActivity() {
                         if (totalLength > 0) {
                             uploaded += read
                             val progress = ((uploaded * 100) / totalLength).toInt()
-                            // UI Thread'in kilitlenmemesi için sadece yüzde değiştiğinde bildir!
                             if (progress != lastReportedPct) {
                                 lastReportedPct = progress
                                 runOnUiThread { uploadProgressBar?.progress = progress }
@@ -2299,10 +2308,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: SefimViewHolder, position: Int) {
-            val item = sefimProducts[position]
-            val pName = item.productName.orEmpty()
+            val item = sefimProducts.getOrNull(position) ?: return
+            val pName = item.productName ?: ""
             val (_, textColor, accentColor) = getSelectedThemeColors()
-            val fontSize = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
+            val fontSize = fontSizeValues.getOrElse(spinnerSefimFontSize.selectedItemPosition) { 18f }
             val style = if (cbSefimBold.isChecked) Typeface.BOLD else Typeface.NORMAL
 
             holder.cbInclude.setOnCheckedChangeListener(null)
@@ -2364,13 +2373,13 @@ class MainActivity : AppCompatActivity() {
             holder.txtName.textSize = fontSize
             holder.txtName.setTypeface(null, style)
 
-            holder.txtPrice.text = item.price.orEmpty()
+            holder.txtPrice.text = item.price ?: ""
             holder.txtPrice.setTextColor(accentColor)
             holder.txtPrice.textSize = fontSize
             holder.txtPrice.setTypeface(null, Typeface.BOLD)
 
             val filteredSub = buildFilteredChoicesString(item)
-            val recStr = item.recipeContent.orEmpty()
+            val recStr = item.recipeContent ?: ""
             val fullSubText = buildString {
                 if (filteredSub.isNotEmpty()) append("↳ $filteredSub")
                 if (recStr.isNotEmpty()) {
