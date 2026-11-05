@@ -7,13 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Typeface
+import android.graphics.*
 import android.media.MediaMetadataRetriever
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -23,10 +17,15 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Base64
+import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -53,6 +52,7 @@ import java.net.DatagramSocket
 import java.sql.DriverManager
 import java.util.Collections
 import java.util.concurrent.TimeUnit
+import kotlin.math.hypot
 
 data class DeviceItem(
     val id: String,
@@ -77,9 +77,19 @@ data class SefimProductItem(
     val id: String,
     val productName: String,
     val price: String,
-    val subDetails: String,
+    val choice1Text: String = "",
+    val choice2Text: String = "",
+    val optionsText: String = "",
+    var recipeContent: String = "",
+    var manualAllergen: String = "",
     var isSelected: Boolean = true,
     var imageBase64: String? = null
+)
+
+data class ProductMetaCache(
+    var imageBase64: String? = null,
+    var recipeContent: String = "",
+    var manualAllergen: String = ""
 )
 
 data class SefimBackupPayload(
@@ -90,12 +100,16 @@ data class SefimBackupPayload(
     val restaurantName: String = "BALIKÇI ŞÜKRÜ",
     val headerNote: String = "",
     val footerNote: String = "Afiyet Olsun • KDV Dahildir",
+    val pageDurationSec: Int = 12,
+    val showChoice1: Boolean = true,
+    val showChoice2: Boolean = true,
+    val showOptions: Boolean = true,
     val themeIndex: Int = 0,
     val fontSizeIndex: Int = 1,
     val isBold: Boolean = true,
     val bgObjectMode: String = "none",
     val products: List<SefimProductItem> = emptyList(),
-    val imageCacheByName: Map<String, String> = emptyMap()
+    val metaCacheByName: Map<String, ProductMetaCache> = emptyMap()
 )
 
 data class RemoteAppInfo(
@@ -139,8 +153,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnFetchSefim: Button
     private lateinit var btnLoadDemoProducts: Button
     private lateinit var edtRestaurantName: EditText
+    private lateinit var edtMenuPageDuration: EditText
     private lateinit var edtHeaderNote: EditText
     private lateinit var edtFooterNote: EditText
+    private lateinit var cbShowChoice1: CheckBox
+    private lateinit var cbShowChoice2: CheckBox
+    private lateinit var cbShowOptions: CheckBox
     private lateinit var spinnerSefimTheme: Spinner
     private lateinit var spinnerSefimFontSize: Spinner
     private lateinit var spinnerSefimBgObject: Spinner
@@ -150,7 +168,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sefimAdapter: SefimProductAdapter
     private var sefimProducts = mutableListOf<SefimProductItem>()
 
-    private var productImageCache = mutableMapOf<String, String>()
+    // Ürün İsmine Göre Görsel + Reçete + Alerjen Önbelleği
+    private var productMetaCache = mutableMapOf<String, ProductMetaCache>()
     private var pendingPhotoProductName: String? = null
     private var targetApkDevice: DeviceItem? = null
 
@@ -180,22 +199,33 @@ class MainActivity : AppCompatActivity() {
     )
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
 
+    // 10 Göz Alıcı Modern Tema Şablonu
     private val themeNames = arrayOf(
-        "🖤 Koyu Lüks (Gold)",
-        "🤍 Modern Beyaz",
-        "🔥 Restoran Ateşi",
-        "🌌 Neon Cyberpunk"
+        "🖤 Koyu Lüks (Gold & Siyah)",
+        "🤍 Modern Beyaz (Ferah)",
+        "🔥 Restoran Ateşi (Kırmızı & Kömür)",
+        "🌌 Neon Cyberpunk (Gece & Cyan)",
+        "🌊 Okyanus Derinliği (Balık & Deniz)",
+        "🌿 Zümrüt Bahçesi (Doğal & Vegan)",
+        "👑 Osmanlı Kehribar (Bordo & Altın)",
+        "🧁 Paris Pastanesi (Tatlı & Cafe)",
+        "🍕 İtalyan Trattoria (Sıcak Terracotta)",
+        "💎 Minimalist Slate (Modern Gri)"
     )
+
     private val fontSizes = arrayOf("Küçük (14pt)", "Orta (18pt)", "Büyük (22pt)", "Dev (26pt)")
     private val fontSizeValues = arrayOf(14f, 18f, 22f, 26f)
 
     private val bgObjectNames = arrayOf(
         "Yok (Sade Arka Plan)",
-        "🐟 Yüzen Balıklar",
-        "🥙 Dönen Döner & Buhar",
-        "💨 Nargile Dumanı"
+        "🐟 Deniz Akvaryumu (Balıklar, Ahtapot & Yengeç)",
+        "🥙 Gerçekçi Dönen Döner & Kor Ateş Buharı",
+        "💨 Gerçekçi Nargile & Yoğun Duman",
+        "☕ Sıcak Kahve Buharı (Cafe)",
+        "✨ Altın Işıltı (Luxury Bokeh)",
+        "❄️ Kış Kar Yağışı"
     )
-    private val bgObjectValues = arrayOf("none", "fish", "doner", "hookah")
+    private val bgObjectValues = arrayOf("none", "fish", "doner", "hookah", "coffee", "gold", "snow")
 
     private val heartbeatRunnable = object : Runnable {
         override fun run() {
@@ -241,7 +271,9 @@ class MainActivity : AppCompatActivity() {
                         scaled.compress(Bitmap.CompressFormat.JPEG, 82, baos)
                         val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
 
-                        productImageCache[prodName] = b64
+                        val meta = productMetaCache.getOrPut(prodName) { ProductMetaCache() }
+                        meta.imageBase64 = b64
+
                         sefimProducts.filter { it.productName.equals(prodName, ignoreCase = true) }.forEach {
                             it.imageBase64 = b64
                         }
@@ -327,8 +359,12 @@ class MainActivity : AppCompatActivity() {
         btnFetchSefim = findViewById(R.id.btnFetchSefim)
         btnLoadDemoProducts = findViewById(R.id.btnLoadDemoProducts)
         edtRestaurantName = findViewById(R.id.edtRestaurantName)
+        edtMenuPageDuration = findViewById(R.id.edtMenuPageDuration)
         edtHeaderNote = findViewById(R.id.edtHeaderNote)
         edtFooterNote = findViewById(R.id.edtFooterNote)
+        cbShowChoice1 = findViewById(R.id.cbShowChoice1)
+        cbShowChoice2 = findViewById(R.id.cbShowChoice2)
+        cbShowOptions = findViewById(R.id.cbShowOptions)
         spinnerSefimTheme = findViewById(R.id.spinnerSefimTheme)
         spinnerSefimFontSize = findViewById(R.id.spinnerSefimFontSize)
         spinnerSefimBgObject = findViewById(R.id.spinnerSefimBgObject)
@@ -374,6 +410,14 @@ class MainActivity : AppCompatActivity() {
             sefimAdapter.notifyDataSetChanged()
             saveLocalSefimState()
         }
+
+        val filterChangeListener = CompoundButton.OnCheckedChangeListener { _, _ ->
+            sefimAdapter.notifyDataSetChanged()
+            saveLocalSefimState()
+        }
+        cbShowChoice1.setOnCheckedChangeListener(filterChangeListener)
+        cbShowChoice2.setOnCheckedChangeListener(filterChangeListener)
+        cbShowOptions.setOnCheckedChangeListener(filterChangeListener)
 
         spinnerSefimBgObject.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -451,7 +495,7 @@ class MainActivity : AppCompatActivity() {
 
         btnDbConfig.setOnClickListener { showDbConfigDialog() }
         btnFetchSefim.setOnClickListener { fetchSefimProductsFromDb() }
-        btnLoadDemoProducts.setOnClickListener { loadDemoSefimProducts() }
+        btnLoadDemoProducts.setOnClickListener { showDemoMenuSelectorDialog() }
         btnPublishSefimMenu.setOnClickListener { publishSefimMenuToMenuboard() }
 
         imgFooterLogo.setOnClickListener {
@@ -472,46 +516,228 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
-    // Şefim PC Yanınızda Değilken Görsel Ekleme ve Çoklu Sayfayı Test Etmek İçin Demo Ürün Yükleyici
-    private fun loadDemoSefimProducts() {
-        val sampleItems = listOf(
-            SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Seçenek 1: Roka Salatası | Opsiyon: Mısır Ekmeği"),
-            SefimProductItem("2", "Deniz Çuprası (400-500gr)", "410 ₺", "Seçenek 1: Közlenmiş Soğan | Seçenek 2: Limon Sosu"),
-            SefimProductItem("3", "Tereyağlı Karides Güveç", "340 ₺", "Seçenek 1: Kaşarlı | Opsiyon: Acı Pul Biberli"),
-            SefimProductItem("4", "Kalamar Tava (Özel Soslu)", "320 ₺", "Seçenek 1: Tarator Sos | Seçenek 2: Mevsim Yeşillik"),
-            SefimProductItem("5", "Somon Izgara Menü", "450 ₺", "Seçenek 1: Buharda Sebze | Opsiyon: Soslu Patates"),
-            SefimProductItem("6", "Balık Ekmek Spesiyal", "210 ₺", "Seçenek 1: Bol Yeşillik | Seçenek 2: Turşu Suyu"),
-            SefimProductItem("7", "Hamsi Tava Porsiyon", "260 ₺", "Seçenek 1: Çoban Salata | Opsiyon: Mısır Unlu"),
-            SefimProductItem("8", "Midye Dolma (10 Adet)", "180 ₺", "Seçenek 1: Bol Limonlu"),
-            SefimProductItem("9", "Fırında Tahinli Helva", "140 ₺", "Seçenek 1: Fındıklı | Seçenek 2: Sade"),
-            SefimProductItem("10", "Şalgam & Meşrubat Çeşitleri", "65 ₺", "Seçenek 1: Acılı / Acısız | Opsiyon: Soğuk")
+    // --- OTOMATİK VE MANUEL ALERJEN ALGILAMA MOTORU ---
+
+    private fun computeAllergenWarning(item: SefimProductItem): String {
+        val detected = mutableListOf<String>()
+        val text = item.recipeContent.lowercase()
+
+        val rules = listOf(
+            "Gluten" to listOf("un", "buğday", "ekmek", "lavaş", "pide", "makarna", "bulgur", "irmik", "galeta", "hamur", "kadayıf", "baklava", "yufka", "bisküvi", "gluten"),
+            "Süt Ürünü" to listOf("süt", "peynir", "kaşar", "tereyağ", "krema", "yoğurt", "kaymak", "dondurma", "mozzarella", "labne", "mascarpone", "laktoz"),
+            "Yumurta" to listOf("yumurta", "mayonez", "mereng"),
+            "Kuruyemiş" to listOf("fıstık", "fındık", "ceviz", "badem", "kaju", "antep"),
+            "Susam" to listOf("susam", "tahin", "helva"),
+            "Deniz Ürünü" to listOf("balık", "levrek", "çupra", "somon", "hamsi", "karides", "kalamar", "midye", "ahtapot", "yengeç"),
+            "Soya" to listOf("soya"),
+            "Hardal" to listOf("hardal")
         )
 
-        val previousSelectionMap = sefimProducts.associate { it.productName to it.isSelected }
-        sefimProducts.clear()
-        for (item in sampleItems) {
-            item.imageBase64 = productImageCache[item.productName]
-            item.isSelected = previousSelectionMap[item.productName] ?: true
-            sefimProducts.add(item)
+        for ((allergenName, keywords) in rules) {
+            if (keywords.any { text.contains(it) }) {
+                detected.add(allergenName)
+            }
         }
+
+        if (item.manualAllergen.isNotBlank()) {
+            detected.add(item.manualAllergen.trim())
+        }
+
+        return detected.distinct().joinToString(", ")
+    }
+
+    private fun buildFilteredChoicesString(item: SefimProductItem): String {
+        val parts = mutableListOf<String>()
+        if (cbShowChoice1.isChecked && item.choice1Text.isNotEmpty()) {
+            parts.add("Seçenek 1: ${item.choice1Text}")
+        }
+        if (cbShowChoice2.isChecked && item.choice2Text.isNotEmpty()) {
+            parts.add("Seçenek 2: ${item.choice2Text}")
+        }
+        if (cbShowOptions.isChecked && item.optionsText.isNotEmpty()) {
+            parts.add("Opsiyon: ${item.optionsText}")
+        }
+        return parts.joinToString(" | ")
+    }
+
+    // --- 4 SEKTÖREL TEST MENÜSÜ SEÇİCİ (BALIK, DÖNER, CAFE, TATLICI) ---
+
+    private fun showDemoMenuSelectorDialog() {
+        val categories = arrayOf(
+            "🐟 Örnek Balık Restoranı Menüsü",
+            "🥙 Örnek Döner & Kebap Menüsü",
+            "☕ Örnek Cafe & Bistro Menüsü",
+            "🍰 Örnek Tatlıcı & Pastane Menüsü"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("🧪 Test Menüsü Seçin")
+            .setItems(categories) { _, which ->
+                loadDemoCategory(which)
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun loadDemoCategory(catIndex: Int) {
+        val items: List<SefimProductItem> = when (catIndex) {
+            0 -> {
+                edtRestaurantName.setText("BALIKÇI ŞÜKRÜ")
+                edtHeaderNote.setText("Günlük Taze Deniz Ürünleri & Izgara")
+                spinnerSefimTheme.setSelection(4) // Okyanus Derinliği
+                spinnerSefimBgObject.setSelection(1) // Deniz Akvaryumu
+                listOf(
+                    SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Roka Salatası", "Köz Soğan", "Mısır Ekmeği", "Taze deniz levreği, zeytinyağı, limon"),
+                    SefimProductItem("2", "Deniz Çuprası (450gr)", "410 ₺", "Mevsim Salata", "Limon Sos", "Fırın Patates", "Çupra balığı, defne yaprağı"),
+                    SefimProductItem("3", "Tereyağlı Karides Güveç", "360 ₺", "Bol Kaşarlı", "Sarımsaklı", "Acı Pul Biber", "Çimçim karides, tereyağ, kaşar peyniri, sarımsak"),
+                    SefimProductItem("4", "Kalamar Tava Spesiyal", "340 ₺", "Tarator Sos", "Akdeniz Yeşillik", "Çıtır Kaplama", "Ege kalamarı, un, yumurta, ceviz, yoğurt, sarımsak"),
+                    SefimProductItem("5", "Norveç Somon Izgara", "460 ₺", "Buharda Sebze", "Kremalı Sos", "Kinoa Salatası", "Somon balığı, krema, karabiber"),
+                    SefimProductItem("6", "Ahtapot Izgara", "520 ₺", "Kırmızı Soğan", "Zeytinyağlı", "Sıcak Servis", "Ahtapot kolu, zeytinyağı, kekik"),
+                    SefimProductItem("7", "Hamsi Tava Porsiyon", "260 ₺", "Çoban Salata", "Turp & Roka", "Mısır Unlu", "Karadeniz hamsi balığı, mısır unu"),
+                    SefimProductItem("8", "Fırında Tahinli Helva", "150 ₺", "Bol Fındıklı", "Dondurmalı", "Sıcak Güveç", "Tahin, susam, süt, fındık")
+                )
+            }
+            1 -> {
+                edtRestaurantName.setText("USTA DÖNER & KEBAP")
+                edtHeaderNote.setText("%100 Yaprak Et Döner & Odun Ateşi")
+                spinnerSefimTheme.setSelection(2) // Restoran Ateşi
+                spinnerSefimBgObject.setSelection(2) // Gerçekçi Döner & Ateş
+                listOf(
+                    SefimProductItem("1", "İskender Kebap (Yaprak)", "390 ₺", "Ekstra Tereyağ", "Tava Yoğurdu", "Köz Biber & Domates", "Yaprak döner, tırnak pide, tereyağ, yoğurt, domates sos"),
+                    SefimProductItem("2", "Et Döner Dürüm (150gr)", "270 ₺", "Çift Lavaş", "Patates Kızartması", "Soğanlı / Soğansız", "Yaprak et döner, lavaş ekmeği, turşu"),
+                    SefimProductItem("3", "Pilav Üstü Et Döner", "340 ₺", "Tereyağlı Pirinç", "Acı Biber Turşusu", "Lavaş İle", "Et döner, pirinç pilavı, tereyağ"),
+                    SefimProductItem("4", "Beyti Sarma Kebap", "380 ₺", "Sarımsaklı Yoğurt", "Özel Domates Sos", "Antep Fıstıklı", "Kuzu kıyma, lavaş, tereyağ, yoğurt, fıstık"),
+                    SefimProductItem("5", "Kaşarlı Pide Döner", "310 ₺", "Kapalı Pide", "Yumurta İlaveli", "Bol Tereyağ", "Buğday unu, kaşar peyniri, et döner, yumurta, tereyağ"),
+                    SefimProductItem("6", "Künefe (Hatay Peynirli)", "190 ₺", "Kaymaklı", "Bol Antep Fıstıklı", "Sıcak Şerbetli", "Tel kadayıf, buğday unu, peynir, tereyağ, antep fıstık")
+                )
+            }
+            2 -> {
+                edtRestaurantName.setText("ROAST & BREW CAFE")
+                edtHeaderNote.setText("3. Nesil Kahve & Artizan Lezzetler")
+                spinnerSefimTheme.setSelection(5) // Zümrüt Bahçesi
+                spinnerSefimBgObject.setSelection(4) // Kahve Buharı
+                listOf(
+                    SefimProductItem("1", "Caramel Macchiato", "135 ₺", "Yulaf Sütü", "Ekstra Espresso", "Sıcak / Buzlu", "Espresso, taze süt, karamel sos"),
+                    SefimProductItem("2", "Avokado Poşe Yumurta Tost", "240 ₺", "Ekşi Maya Ekmek", "Akdeniz Yeşillik", "Çeçil Peynirli", "Ekşi maya ekmek, yumurta, avokado, peynir"),
+                    SefimProductItem("3", "Fettuccine Alfredo", "280 ₺", "Izgara Tavuklu", "Mantarlı", "Parmesan Peynirli", "Makarna, krema, tereyağ, parmesan peynir"),
+                    SefimProductItem("4", "Club Sandviç Menü", "260 ₺", "Baharatlı Patates", "Hardal Sos", "Kepekli Ekmek", "Tost ekmeği, tavuk, yumurta, mayonez, hardal, peynir"),
+                    SefimProductItem("5", "Lotus Biscoff Latte", "145 ₺", "Tam Yağlı Süt", "Krema dolgulu", "Bisküvi Parçalı", "Espresso, süt, krema, karamelize bisküvi")
+                )
+            }
+            else -> {
+                edtRestaurantName.setText("SARAY PASTANESİ")
+                edtHeaderNote.setText("Günlük Taze Pasta, Baklava & Sütlü Tatlılar")
+                spinnerSefimTheme.setSelection(7) // Paris Pastanesi
+                spinnerSefimBgObject.setSelection(5) // Altın Işıltı
+                listOf(
+                    SefimProductItem("1", "San Sebastian Cheesecake", "210 ₺", "Belçika Çikolatalı", "Taze Çilekli", "Ekstra Sos", "Krema, labne peynir, yumurta, un"),
+                    SefimProductItem("2", "Fıstıklı Soğuk Baklava", "250 ₺", "Gaziantep Boz Fıstık", "Süt Şerbetli", "4 Dilim", "Baklava yufkası, un, süt, tereyağ, antep fıstık"),
+                    SefimProductItem("3", "Magnolia (Çilek & Muz)", "165 ₺", "Bebe Bisküvili", "Fındık Parçalı", "Özel Krema", "Süt, krema, yumurta, bisküvi, fındık"),
+                    SefimProductItem("4", "Profiterol Kulesi", "180 ₺", "Bitter Çikolata", "Krem Şanti", "Fıstık Tozlu", "Un, yumurta, tereyağ, süt, fıstık"),
+                    SefimProductItem("5", "Maraş Kesme Dondurma", "140 ₺", "Keçi Sütlü", "Badem & Fıstıklı", "Külah İle", "Keçi sütü, salep, badem, fıstık")
+                )
+            }
+        }
+
+        sefimProducts.clear()
+        for (prod in items) {
+            val cached = productMetaCache[prod.productName]
+            if (cached != null) {
+                if (!cached.imageBase64.isNullOrEmpty()) prod.imageBase64 = cached.imageBase64
+                if (cached.recipeContent.isNotEmpty()) prod.recipeContent = cached.recipeContent
+                if (cached.manualAllergen.isNotEmpty()) prod.manualAllergen = cached.manualAllergen
+            }
+            sefimProducts.add(prod)
+        }
+
         saveLocalSefimState()
         pushSefimBackupToMenuboard()
         sefimAdapter.notifyDataSetChanged()
-        Toast.makeText(this, "10 adet test ürünü yüklendi! Kamera ikonuna basıp görsel ekleyebilirsiniz.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "${items.size} örnek ürün, reçete ve alerjenleriyle yüklendi!", Toast.LENGTH_LONG).show()
     }
 
-    // --- ⚙️ AYAR BUTONU MENÜSÜ: UZAKTAN APK KURMA & UYGULAMA BAŞLATMA ---
+    // --- Ürün İçeriği (Reçete) ve Manuel Alerjen Düzenleme Penceresi ---
+
+    private fun showEditRecipeAndAllergenDialog(item: SefimProductItem) {
+        val edtRecipe = EditText(this).apply {
+            hint = "Reçete / İçerik (Örn: Un, tereyağ, süt, karides, ceviz...)"
+            setText(item.recipeContent)
+            minLines = 2
+        }
+        val edtManualAllergen = EditText(this).apply {
+            hint = "Manuel Alerjen Ekle (Opsiyonel)"
+            setText(item.manualAllergen)
+        }
+        val txtPreview = TextView(this).apply {
+            setPadding(0, 16, 0, 8)
+            setTextColor(Color.parseColor("#D32F2F"))
+            typeface = Typeface.DEFAULT_BOLD
+            val currentWarn = computeAllergenWarning(item)
+            text = if (currentWarn.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $currentWarn" else "✓ Alerjen tespit edilmedi (Uyarı yazılmaz)"
+        }
+
+        val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val temp = item.copy(
+                    recipeContent = edtRecipe.text.toString(),
+                    manualAllergen = edtManualAllergen.text.toString()
+                )
+                val warn = computeAllergenWarning(temp)
+                txtPreview.text = if (warn.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $warn" else "✓ Alerjen tespit edilmedi (Uyarı yazılmaz)"
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        }
+        edtRecipe.addTextChangedListener(watcher)
+        edtManualAllergen.addTextChangedListener(watcher)
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 30, 50, 10)
+            addView(TextView(this@MainActivity).apply { text = "Ürün İçeriği / Reçete Malzemeleri:" })
+            addView(edtRecipe)
+            addView(TextView(this@MainActivity).apply {
+                text = "Ek Manuel Alerjen Uyarısı (İsteğe Bağlı):"
+                setPadding(0, 14, 0, 0)
+            })
+            addView(edtManualAllergen)
+            addView(txtPreview)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("${item.productName} - İçerik & Alerjen")
+            .setView(layout)
+            .setPositiveButton("Kaydet") { _, _ ->
+                item.recipeContent = edtRecipe.text.toString().trim()
+                item.manualAllergen = edtManualAllergen.text.toString().trim()
+
+                val meta = productMetaCache.getOrPut(item.productName) { ProductMetaCache() }
+                meta.recipeContent = item.recipeContent
+                meta.manualAllergen = item.manualAllergen
+
+                saveLocalSefimState()
+                pushSefimBackupToMenuboard()
+                sefimAdapter.notifyDataSetChanged()
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    // --- ⚙️ AYAR BUTONU MENÜSÜ: MOUSE & KLAVYE KONTROLÜ, UZAKTAN APK VE UYGULAMA BAŞLATMA ---
 
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val options = arrayOf(
+            "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
             "📦 Uzaktan APK Gönder & Kur",
-            "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat"
+            "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
+            "📺 Menuboard Uygulamasını Tekrar Öne Getir"
         )
         AlertDialog.Builder(this)
             .setTitle("${device.nameTag} (${device.host}) Yönetimi")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> {
+                    0 -> showVirtualTouchpadAndKeyboardDialog(device)
+                    1 -> {
                         targetApkDevice = device
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
@@ -519,11 +745,180 @@ class MainActivity : AppCompatActivity() {
                         }
                         pickRemoteApkLauncher.launch(intent)
                     }
-                    1 -> fetchAndShowInstalledApps(device)
+                    2 -> fetchAndShowInstalledApps(device)
+                    3 -> sendRemoteInput(device, "type=nav&act=MENUBOARD")
                 }
             }
             .setNegativeButton("Kapat", null)
             .show()
+    }
+
+    // Sanal Touchpad (Mouse) ve Uzaktan Klavye Kontrol Penceresi
+    private fun showVirtualTouchpadAndKeyboardDialog(device: DeviceItem) {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(30, 24, 30, 16)
+        }
+
+        val infoTxt = TextView(this).apply {
+            text = "Parmağınızı gri alanda gezdirerek Mouse'u hareket ettirin, tıklamak için dokunun."
+            textSize = 11f
+            setTextColor(Color.DKGRAY)
+            setPadding(0, 0, 0, 12)
+        }
+        root.addView(infoTxt)
+
+        // Touchpad Dokunmatik Alanı
+        val touchpad = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 460)
+            setBackgroundColor(Color.parseColor("#263238"))
+        }
+        val padHint = TextView(this).apply {
+            text = "🖱️ TOUCHPAD ALANI\n(Kaydır: İmleç | Dokun: Sol Tık)"
+            setTextColor(Color.parseColor("#80CBC4"))
+            gravity = Gravity.CENTER
+            textSize = 13f
+        }
+        touchpad.addView(padHint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        var lastX = 0f
+        var lastY = 0f
+        var downX = 0f
+        var downY = 0f
+        var downTime = 0L
+        var lastSendTime = 0L
+
+        touchpad.setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastX = ev.x
+                    lastY = ev.y
+                    downX = ev.x
+                    downY = ev.y
+                    downTime = System.currentTimeMillis()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val now = System.currentTimeMillis()
+                    val dx = (ev.x - lastX) * 1.9f
+                    val dy = (ev.y - lastY) * 1.9f
+                    if (now - lastSendTime > 28L && (kotlin.math.abs(dx) > 1.5f || kotlin.math.abs(dy) > 1.5f)) {
+                        lastX = ev.x
+                        lastY = ev.y
+                        lastSendTime = now
+                        sendRemoteInput(device, "type=move&dx=${dx.toInt()}&dy=${dy.toInt()}")
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dist = hypot((ev.x - downX).toDouble(), (ev.y - downY).toDouble())
+                    if (System.currentTimeMillis() - downTime < 260L && dist < 18.0) {
+                        sendRemoteInput(device, "type=click")
+                    }
+                }
+            }
+            true
+        }
+        root.addView(touchpad)
+
+        // Navigasyon ve Kaydırma Butonları
+        val navRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 12, 0, 8)
+        }
+        val btnBack = Button(this).apply {
+            text = "◀ Geri"
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, 95, 1f)
+            setOnClickListener { sendRemoteInput(device, "type=nav&act=BACK") }
+        }
+        val btnHome = Button(this).apply {
+            text = "⏺ Ana Ekran"
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, 95, 1.1f)
+            setOnClickListener { sendRemoteInput(device, "type=nav&act=HOME") }
+        }
+        val btnScrollUp = Button(this).apply {
+            text = "▲ Kaydır"
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, 95, 1f)
+            setOnClickListener { sendRemoteInput(device, "type=scroll&dy=-350") }
+        }
+        val btnScrollDown = Button(this).apply {
+            text = "▼ Kaydır"
+            textSize = 11f
+            layoutParams = LinearLayout.LayoutParams(0, 95, 1f)
+            setOnClickListener { sendRemoteInput(device, "type=scroll&dy=350") }
+        }
+        navRow.addView(btnBack)
+        navRow.addView(btnHome)
+        navRow.addView(btnScrollUp)
+        navRow.addView(btnScrollDown)
+        root.addView(navRow)
+
+        // Klavye Gönderim Satırı
+        val kbRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val edtRemoteKb = EditText(this).apply {
+            hint = "Menuboard'a yazılacak metin..."
+            textSize = 13f
+            setSingleLine(true)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnSendText = Button(this).apply {
+            text = "⌨️ Gönder"
+            textSize = 11f
+            setOnClickListener {
+                val txt = edtRemoteKb.text.toString()
+                if (txt.isNotEmpty()) {
+                    sendRemoteInput(device, "type=text&val=${Uri.encode(txt)}")
+                    edtRemoteKb.setText("")
+                } else {
+                    // Klavyeyi Aç
+                    edtRemoteKb.requestFocus()
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.showSoftInput(edtRemoteKb, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
+        }
+        val btnBackspace = Button(this).apply {
+            text = "⌫"
+            textSize = 13f
+            setOnClickListener { sendRemoteInput(device, "type=key&code=BACKSPACE") }
+        }
+        kbRow.addView(edtRemoteKb)
+        kbRow.addView(btnSendText)
+        kbRow.addView(btnBackspace)
+        root.addView(kbRow)
+
+        val btnOpenAcc = Button(this).apply {
+            text = "⚠️ Mouse Çalışmıyorsa Menuboard'da İzin Ekranını Aç"
+            textSize = 10f
+            setOnClickListener {
+                sendRemoteInput(device, "type=nav&act=ACCESSIBILITY_SETTINGS")
+                Toast.makeText(this@MainActivity, "Menuboard ekranında Erişilebilirlik ayarları açıldı. 'Anypay Uzaktan Mouse' servisini aktif edin.", Toast.LENGTH_LONG).show()
+            }
+        }
+        root.addView(btnOpenAcc)
+
+        AlertDialog.Builder(this)
+            .setTitle("🖱️ ${device.nameTag} - Mouse & Klavye")
+            .setView(root)
+            .setPositiveButton("Kapat", null)
+            .show()
+    }
+
+    private fun sendRemoteInput(device: DeviceItem, queryParams: String) {
+        val req = Request.Builder()
+            .url("http://${device.host}/api/input?$queryParams")
+            .post("".toRequestBody(null))
+            .build()
+        httpClient.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) {
+                response.close()
+            }
+        })
     }
 
     private fun uploadAndInstallApkOnMenuboard(device: DeviceItem, uri: Uri) {
@@ -591,7 +986,7 @@ class MainActivity : AppCompatActivity() {
         httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı! Cihazın açık ve aynı ağda olduğundan emin olun.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_LONG).show()
                 }
             }
 
@@ -602,7 +997,7 @@ class MainActivity : AppCompatActivity() {
                     val type = object : TypeToken<List<RemoteAppInfo>>() {}.type
                     val apps: List<RemoteAppInfo> = gson.fromJson(body, type)
                     if (apps.isEmpty()) {
-                        runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi alınamadı (Menuboard v1.12+ olmalı).", Toast.LENGTH_LONG).show() }
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi alınamadı.", Toast.LENGTH_LONG).show() }
                         return
                     }
                     val labels = apps.map { "${it.appName}\n(${it.packageName})" }.toTypedArray()
@@ -639,7 +1034,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // --- ÇİFT YÖNLÜ ŞEFİM YEDEKLEME VE OTOMATİK KURTARMA ---
+    // --- ÇİFT YÖNLÜ ŞEFİM YEDEKLEME VE KURTARMA ---
 
     private fun saveLocalSefimState() {
         val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
@@ -651,12 +1046,16 @@ class MainActivity : AppCompatActivity() {
             restaurantName = edtRestaurantName.text.toString().trim(),
             headerNote = edtHeaderNote.text.toString().trim(),
             footerNote = edtFooterNote.text.toString().trim(),
+            pageDurationSec = edtMenuPageDuration.text.toString().toIntOrNull() ?: 12,
+            showChoice1 = cbShowChoice1.isChecked,
+            showChoice2 = cbShowChoice2.isChecked,
+            showOptions = cbShowOptions.isChecked,
             themeIndex = spinnerSefimTheme.selectedItemPosition,
             fontSizeIndex = spinnerSefimFontSize.selectedItemPosition,
             isBold = cbSefimBold.isChecked,
             bgObjectMode = bgObjectValues.getOrElse(spinnerSefimBgObject.selectedItemPosition) { "none" },
             products = sefimProducts,
-            imageCacheByName = productImageCache
+            metaCacheByName = productMetaCache
         )
         dbPrefs.edit().putString("sefim_full_backup_json", gson.toJson(payload)).apply()
     }
@@ -669,15 +1068,22 @@ class MainActivity : AppCompatActivity() {
             edtRestaurantName.setText(payload.restaurantName)
             edtHeaderNote.setText(payload.headerNote)
             edtFooterNote.setText(payload.footerNote)
+            edtMenuPageDuration.setText(payload.pageDurationSec.toString())
+            cbShowChoice1.isChecked = payload.showChoice1
+            cbShowChoice2.isChecked = payload.showChoice2
+            cbShowOptions.isChecked = payload.showOptions
 
-            productImageCache.clear()
-            productImageCache.putAll(payload.imageCacheByName)
+            productMetaCache.clear()
+            productMetaCache.putAll(payload.metaCacheByName)
 
             sefimProducts.clear()
             sefimProducts.addAll(payload.products)
             sefimProducts.forEach { prod ->
-                if (prod.imageBase64.isNullOrEmpty() && productImageCache.containsKey(prod.productName)) {
-                    prod.imageBase64 = productImageCache[prod.productName]
+                val meta = productMetaCache[prod.productName]
+                if (meta != null) {
+                    if (prod.imageBase64.isNullOrEmpty()) prod.imageBase64 = meta.imageBase64
+                    if (prod.recipeContent.isEmpty()) prod.recipeContent = meta.recipeContent
+                    if (prod.manualAllergen.isEmpty()) prod.manualAllergen = meta.manualAllergen
                 }
             }
         } catch (_: Exception) {}
@@ -720,7 +1126,7 @@ class MainActivity : AppCompatActivity() {
                             .putString("sefim_full_backup_json", remoteJson)
                             .apply()
 
-                        productImageCache.putAll(payload.imageCacheByName)
+                        productMetaCache.putAll(payload.metaCacheByName)
                         sefimProducts.clear()
                         sefimProducts.addAll(payload.products)
 
@@ -728,31 +1134,13 @@ class MainActivity : AppCompatActivity() {
                             edtRestaurantName.setText(payload.restaurantName)
                             edtHeaderNote.setText(payload.headerNote)
                             edtFooterNote.setText(payload.footerNote)
+                            edtMenuPageDuration.setText(payload.pageDurationSec.toString())
                             sefimAdapter.notifyDataSetChanged()
-                            Toast.makeText(this@MainActivity, "Şefim ürünleri ve görselleri Menuboard'dan geri yüklendi!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, "Şefim ürünleri ve önbellek Menuboard'dan geri yüklendi!", Toast.LENGTH_LONG).show()
                         }
                     } catch (_: Exception) {}
                 } else if (remoteJson.isEmpty() && sefimProducts.isNotEmpty()) {
                     pushSefimBackupToMenuboard()
-                } else if (remoteJson.isNotEmpty() && sefimProducts.isNotEmpty()) {
-                    try {
-                        val payload = gson.fromJson(remoteJson, SefimBackupPayload::class.java)
-                        var updated = false
-                        for ((k, v) in payload.imageCacheByName) {
-                            if (!productImageCache.containsKey(k) && v.isNotEmpty()) {
-                                productImageCache[k] = v
-                                updated = true
-                            }
-                        }
-                        if (updated) {
-                            sefimProducts.forEach { prod ->
-                                if (prod.imageBase64.isNullOrEmpty() && productImageCache.containsKey(prod.productName)) {
-                                    prod.imageBase64 = productImageCache[prod.productName]
-                                }
-                            }
-                            runOnUiThread { sefimAdapter.notifyDataSetChanged() }
-                        }
-                    } catch (_: Exception) {}
                 }
             }
         })
@@ -923,19 +1311,21 @@ class MainActivity : AppCompatActivity() {
                     val inlineC2 = getColString(rs, meta, listOf("Choice2", "Choice2Name", "Secenek2"))
                     val inlineOpt = getColString(rs, meta, listOf("Option", "Options", "OptionName", "Opsiyon"))
 
-                    val detailsBuilder = mutableListOf<String>()
-                    if (inlineC1.isNotEmpty()) detailsBuilder.add("Seçenek 1: $inlineC1")
-                    choice1Map[id]?.let { if (it.isNotEmpty()) detailsBuilder.add("Seçenek 1: ${it.joinToString(", ")}") }
+                    val c1List = mutableListOf<String>()
+                    if (inlineC1.isNotEmpty()) c1List.add(inlineC1)
+                    choice1Map[id]?.let { c1List.addAll(it) }
 
-                    if (inlineC2.isNotEmpty()) detailsBuilder.add("Seçenek 2: $inlineC2")
-                    choice2Map[id]?.let { if (it.isNotEmpty()) detailsBuilder.add("Seçenek 2: ${it.joinToString(", ")}") }
+                    val c2List = mutableListOf<String>()
+                    if (inlineC2.isNotEmpty()) c2List.add(inlineC2)
+                    choice2Map[id]?.let { c2List.addAll(it) }
 
-                    if (inlineOpt.isNotEmpty()) detailsBuilder.add("Opsiyon: $inlineOpt")
-                    optionsMap[id]?.let { if (it.isNotEmpty()) detailsBuilder.add("Opsiyon: ${it.joinToString(", ")}") }
+                    val optList = mutableListOf<String>()
+                    if (inlineOpt.isNotEmpty()) optList.add(inlineOpt)
+                    optionsMap[id]?.let { optList.addAll(it) }
 
                     if (name.isNotEmpty()) {
                         val formattedPrice = if (rawPrice.isNotEmpty()) "$rawPrice ₺" else ""
-                        val cachedImage = productImageCache[name]
+                        val cachedMeta = productMetaCache[name]
                         val keepSelected = previousSelectionMap[name] ?: true
 
                         fetchedList.add(
@@ -943,9 +1333,13 @@ class MainActivity : AppCompatActivity() {
                                 id = id,
                                 productName = name,
                                 price = formattedPrice,
-                                subDetails = detailsBuilder.distinct().joinToString(" | "),
+                                choice1Text = c1List.distinct().joinToString(", "),
+                                choice2Text = c2List.distinct().joinToString(", "),
+                                optionsText = optList.distinct().joinToString(", "),
+                                recipeContent = cachedMeta?.recipeContent ?: "",
+                                manualAllergen = cachedMeta?.manualAllergen ?: "",
                                 isSelected = keepSelected,
-                                imageBase64 = cachedImage
+                                imageBase64 = cachedMeta?.imageBase64
                             )
                         )
                     }
@@ -965,7 +1359,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     AlertDialog.Builder(this)
                         .setTitle("Veritabanı Bağlantı Hatası")
-                        .setMessage("Hata: ${e.localizedMessage}\n\nŞu an DB bilgisayarınız yanınızda değilse '🧪 Test Ürünleri' butonuna basarak görsel ekleme ve menü yayınlamayı test edebilirsiniz.")
+                        .setMessage("Hata: ${e.localizedMessage}\n\n'🧪 Test Menüleri' butonuna basarak hazır balık, döner, cafe veya tatlı menülerini hemen deneyebilirsiniz.")
                         .setPositiveButton("Tamam", null)
                         .show()
                 }
@@ -985,12 +1379,19 @@ class MainActivity : AppCompatActivity() {
         return ""
     }
 
+    // 10 Modern Tema İçin Renk Paleti (Arka Plan, Ana Yazı, Vurgu/Fiyat)
     private fun getSelectedThemeColors(): Triple<Int, Int, Int> {
         return when (spinnerSefimTheme.selectedItemPosition) {
-            1 -> Triple(Color.parseColor("#FFFFFF"), Color.parseColor("#212121"), Color.parseColor("#D32F2F"))
-            2 -> Triple(Color.parseColor("#1B0000"), Color.parseColor("#FFFFFF"), Color.parseColor("#FF5252"))
-            3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF"))
-            else -> Triple(Color.parseColor("#141414"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700"))
+            1 -> Triple(Color.parseColor("#FAFAFA"), Color.parseColor("#212121"), Color.parseColor("#D32F2F")) // Modern Beyaz
+            2 -> Triple(Color.parseColor("#1B0505"), Color.parseColor("#FFF8E1"), Color.parseColor("#FF5252")) // Restoran Ateşi
+            3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF")) // Neon Cyberpunk
+            4 -> Triple(Color.parseColor("#041E3A"), Color.parseColor("#E1F5FE"), Color.parseColor("#29B6F6")) // Okyanus Derinliği
+            5 -> Triple(Color.parseColor("#0D2618"), Color.parseColor("#E8F5E9"), Color.parseColor("#69F0AE")) // Zümrüt Bahçesi
+            6 -> Triple(Color.parseColor("#2B0912"), Color.parseColor("#FFF3E0"), Color.parseColor("#FFC107")) // Osmanlı Kehribar
+            7 -> Triple(Color.parseColor("#FFF0F5"), Color.parseColor("#4A1525"), Color.parseColor("#D81B60")) // Paris Pastanesi
+            8 -> Triple(Color.parseColor("#26140C"), Color.parseColor("#FFF8F0"), Color.parseColor("#FF8A65")) // İtalyan Trattoria
+            9 -> Triple(Color.parseColor("#1E272C"), Color.parseColor("#ECEFF1"), Color.parseColor("#80CBC4")) // Minimalist Slate
+            else -> Triple(Color.parseColor("#121212"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700")) // Koyu Lüks Gold
         }
     }
 
@@ -999,7 +1400,7 @@ class MainActivity : AppCompatActivity() {
         rvSefimProducts.setBackgroundColor(bgColor)
     }
 
-    // --- RESTORAN ADI, ÜST BİLGİ, ALT BİLGİ VE ÇOK SAYFALI GÖRSELLİ MENÜ ÇİZİMİ ---
+    // --- ÇOK SAYFALI, REÇETELİ VE ALERJEN UYARILI MENÜ ÇİZİMİ ---
 
     private fun publishSefimMenuToMenuboard() {
         val host = activeDevice?.host
@@ -1009,13 +1410,14 @@ class MainActivity : AppCompatActivity() {
         }
         val selectedItems = sefimProducts.filter { it.isSelected }
         if (selectedItems.isEmpty()) {
-            Toast.makeText(this, "Liste boş! Lütfen önce DB'den çekin veya '🧪 Test Ürünleri' butonuna basın.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Liste boş! Lütfen '🧪 Test Menüleri' butonundan örnek bir menü seçin.", Toast.LENGTH_LONG).show()
             return
         }
 
         val restName = edtRestaurantName.text.toString().trim().ifEmpty { "MENÜ" }
         val topInfo = edtHeaderNote.text.toString().trim()
         val bottomInfo = edtFooterNote.text.toString().trim()
+        val pageDurSec = (edtMenuPageDuration.text.toString().toIntOrNull() ?: 12).coerceAtLeast(3)
 
         saveLocalSefimState()
         pushSefimBackupToMenuboard()
@@ -1036,10 +1438,10 @@ class MainActivity : AppCompatActivity() {
             val (bgColor, textColor, accentColor) = getSelectedThemeColors()
             val isBold = cbSefimBold.isChecked
             val baseFontPt = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
-            val titleSizePx = baseFontPt * 2.1f
-            val subSizePx = baseFontPt * 1.35f
+            val titleSizePx = baseFontPt * 2.0f
+            val subSizePx = baseFontPt * 1.25f
 
-            val startTopY = if (topInfo.isNotEmpty()) 250f else 205f
+            val startTopY = if (topInfo.isNotEmpty()) 245f else 200f
             val maxBottomY = if (bottomInfo.isNotEmpty()) height - 150f else height - 90f
 
             val pages = mutableListOf<List<SefimProductItem>>()
@@ -1047,12 +1449,15 @@ class MainActivity : AppCompatActivity() {
             var testY = startTopY
 
             for (item in selectedItems) {
-                val hasImg = !(item.imageBase64 ?: productImageCache[item.productName]).isNullOrEmpty()
-                val rowHeight = if (hasImg) {
-                    145f
-                } else {
-                    titleSizePx + (if (item.subDetails.isNotEmpty()) subSizePx + 20f else 0f) + 52f
-                }
+                val hasImg = !(item.imageBase64 ?: productMetaCache[item.productName]?.imageBase64).isNullOrEmpty()
+                val choicesStr = buildFilteredChoicesString(item)
+                val allergenStr = computeAllergenWarning(item)
+                var extraLinesHeight = 0f
+                if (choicesStr.isNotEmpty()) extraLinesHeight += subSizePx + 12f
+                if (item.recipeContent.isNotEmpty()) extraLinesHeight += subSizePx + 10f
+                if (allergenStr.isNotEmpty()) extraLinesHeight += subSizePx + 10f
+
+                val rowHeight = maxOf(if (hasImg) 145f else 0f, titleSizePx + extraLinesHeight + 48f)
 
                 if (testY + rowHeight > maxBottomY && currentPageItems.isNotEmpty()) {
                     pages.add(currentPageItems)
@@ -1078,7 +1483,7 @@ class MainActivity : AppCompatActivity() {
 
                 val paintRestName = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
-                    textSize = 60f
+                    textSize = 58f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = Paint.Align.CENTER
                 }
@@ -1086,14 +1491,14 @@ class MainActivity : AppCompatActivity() {
                 val paintHeaderInfo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = textColor
                     alpha = 220
-                    textSize = 32f
+                    textSize = 30f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
                     textAlign = Paint.Align.CENTER
                 }
 
                 val paintFooterInfo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
-                    textSize = 32f
+                    textSize = 30f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = Paint.Align.CENTER
                 }
@@ -1126,62 +1531,81 @@ class MainActivity : AppCompatActivity() {
                     typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD_ITALIC else Typeface.ITALIC)
                 }
 
+                val paintRecipe = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = textColor
+                    alpha = 190
+                    textSize = subSizePx * 0.92f
+                }
+
+                val paintAllergen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.parseColor("#FF5252")
+                    textSize = subSizePx * 0.92f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+
                 val paintLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
-                    alpha = 80
-                    strokeWidth = 2.5f
+                    alpha = 75
+                    strokeWidth = 2f
                 }
 
-                // 1. Restoran Adı ve Üst Bilgi Çizimi
-                canvas.drawText(restName, width / 2f, 95f, paintRestName)
+                canvas.drawText(restName, width / 2f, 92f, paintRestName)
                 if (totalPages > 1) {
-                    canvas.drawText("Sayfa ${pageIdx + 1}/$totalPages", width - 60f, 95f, paintPageBadge)
+                    canvas.drawText("Sayfa ${pageIdx + 1}/$totalPages", width - 60f, 92f, paintPageBadge)
                 }
 
-                var headerLineY = 125f
+                var headerLineY = 122f
                 if (topInfo.isNotEmpty()) {
-                    canvas.drawText(topInfo, width / 2f, 145f, paintHeaderInfo)
-                    headerLineY = 172f
+                    canvas.drawText(topInfo, width / 2f, 140f, paintHeaderInfo)
+                    headerLineY = 166f
                 }
                 canvas.drawLine(60f, headerLineY, width - 60f, headerLineY, paintLine)
 
-                // 2. Ürün Satırları ve Önbellekli Görsellerin Çizimi
                 var currentY = startTopY
                 for (item in pageItems) {
                     var textStartX = 65f
-                    val imgB64 = item.imageBase64 ?: productImageCache[item.productName]
+                    val imgB64 = item.imageBase64 ?: productMetaCache[item.productName]?.imageBase64
 
                     if (!imgB64.isNullOrEmpty()) {
                         try {
                             val bytes = Base64.decode(imgB64, Base64.DEFAULT)
                             val prodBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                             if (prodBmp != null) {
-                                val dstRect = RectF(65f, currentY - 35f, 175f, currentY + 75f)
+                                val dstRect = RectF(65f, currentY - 30f, 175f, currentY + 80f)
                                 canvas.drawBitmap(prodBmp, null, dstRect, null)
                                 textStartX = 200f
                             }
                         } catch (_: Exception) {}
                     }
 
-                    canvas.drawText(item.productName, textStartX, currentY + 15f, paintTitle)
-                    canvas.drawText(item.price, width - 65f, currentY + 15f, paintPrice)
+                    canvas.drawText(item.productName, textStartX, currentY + 12f, paintTitle)
+                    canvas.drawText(item.price, width - 65f, currentY + 12f, paintPrice)
 
-                    if (item.subDetails.isNotEmpty()) {
-                        canvas.drawText("↳ ${item.subDetails}", textStartX + 15f, currentY + 15f + subSizePx + 14f, paintSub)
+                    var lineOffsetY = currentY + 12f
+
+                    val choicesStr = buildFilteredChoicesString(item)
+                    if (choicesStr.isNotEmpty()) {
+                        lineOffsetY += subSizePx + 12f
+                        canvas.drawText("↳ $choicesStr", textStartX + 10f, lineOffsetY, paintSub)
                     }
 
-                    val stepY = if (!imgB64.isNullOrEmpty()) {
-                        140f
-                    } else {
-                        titleSizePx + (if (item.subDetails.isNotEmpty()) subSizePx + 20f else 0f) + 48f
+                    if (item.recipeContent.isNotEmpty()) {
+                        lineOffsetY += subSizePx + 10f
+                        canvas.drawText("İçindekiler: ${item.recipeContent}", textStartX + 10f, lineOffsetY, paintRecipe)
                     }
 
-                    currentY += stepY - 22f
+                    val allergenWarn = computeAllergenWarning(item)
+                    if (allergenWarn.isNotEmpty()) {
+                        lineOffsetY += subSizePx + 10f
+                        canvas.drawText("⚠️ Alerjen Uyarısı: $allergenWarn", textStartX + 10f, lineOffsetY, paintAllergen)
+                    }
+
+                    val usedHeight = maxOf(if (!imgB64.isNullOrEmpty()) 125f else 0f, (lineOffsetY - currentY) + 25f)
+                    currentY += usedHeight
                     canvas.drawLine(65f, currentY, width - 65f, currentY, paintLine)
-                    currentY += 28f
+                    currentY += 32f
                 }
 
-                // 3. Alt Bilgi (Footer Note) Çizimi
                 if (bottomInfo.isNotEmpty()) {
                     canvas.drawLine(60f, height - 115f, width - 60f, height - 115f, paintLine)
                     canvas.drawText(bottomInfo, width / 2f, height - 65f, paintFooterInfo)
@@ -1210,7 +1634,7 @@ class MainActivity : AppCompatActivity() {
                                     id = "${batchTime}_${pageIdx + 1}",
                                     fileName = fileName,
                                     type = "image",
-                                    durationSec = 12,
+                                    durationSec = pageDurSec,
                                     waitAfterSec = 0,
                                     animation = "fade"
                                 )
@@ -1221,7 +1645,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             runOnUiThread {
-                Toast.makeText(this, "Toplam $totalPages sayfa menü oluşturuldu ve yayınlandı!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Toplam $totalPages sayfa menü ($pageDurSec sn geçişli) yayınlandı!", Toast.LENGTH_LONG).show()
                 syncPlaylistToMenuboard()
             }
         }.start()
@@ -1665,7 +2089,9 @@ class MainActivity : AppCompatActivity() {
             val btnPickPhoto: ImageButton = v.findViewById(R.id.btnPickProductPhoto)
             val txtName: TextView = v.findViewById(R.id.txtProductName)
             val txtChoices: TextView = v.findViewById(R.id.txtProductChoices)
+            val txtAllergen: TextView = v.findViewById(R.id.txtProductAllergen)
             val txtPrice: TextView = v.findViewById(R.id.txtProductPrice)
+            val btnEditRecipe: Button = v.findViewById(R.id.btnEditRecipe)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SefimViewHolder {
@@ -1686,7 +2112,7 @@ class MainActivity : AppCompatActivity() {
                 saveLocalSefimState()
             }
 
-            val cachedB64 = item.imageBase64 ?: productImageCache[item.productName]
+            val cachedB64 = item.imageBase64 ?: productMetaCache[item.productName]?.imageBase64
             if (!cachedB64.isNullOrEmpty()) {
                 try {
                     val bytes = Base64.decode(cachedB64, Base64.DEFAULT)
@@ -1715,7 +2141,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                                 pickProductPhotoLauncher.launch(intent)
                             } else {
-                                productImageCache.remove(item.productName)
+                                productMetaCache[item.productName]?.imageBase64 = null
                                 item.imageBase64 = null
                                 saveLocalSefimState()
                                 pushSefimBackupToMenuboard()
@@ -1743,13 +2169,35 @@ class MainActivity : AppCompatActivity() {
             holder.txtPrice.textSize = fontSize
             holder.txtPrice.setTypeface(null, Typeface.BOLD)
 
-            if (item.subDetails.isNotEmpty()) {
+            val filteredSub = buildFilteredChoicesString(item)
+            val fullSubText = buildString {
+                if (filteredSub.isNotEmpty()) append("↳ $filteredSub")
+                if (item.recipeContent.isNotEmpty()) {
+                    if (isNotEmpty()) append("\n")
+                    append("🍽️ İçerik: ${item.recipeContent}")
+                }
+            }
+
+            if (fullSubText.isNotEmpty()) {
                 holder.txtChoices.visibility = View.VISIBLE
-                holder.txtChoices.text = "↳ ${item.subDetails}"
+                holder.txtChoices.text = fullSubText
                 holder.txtChoices.setTextColor(accentColor)
-                holder.txtChoices.textSize = (fontSize - 4f).coerceAtLeast(11f)
+                holder.txtChoices.textSize = (fontSize - 4f).coerceAtLeast(10f)
             } else {
                 holder.txtChoices.visibility = View.GONE
+            }
+
+            // Otomatik + Manuel Alerjen Gösterimi
+            val allergenWarning = computeAllergenWarning(item)
+            if (allergenWarning.isNotEmpty()) {
+                holder.txtAllergen.visibility = View.VISIBLE
+                holder.txtAllergen.text = "⚠️ Alerjen: $allergenWarning"
+            } else {
+                holder.txtAllergen.visibility = View.GONE
+            }
+
+            holder.btnEditRecipe.setOnClickListener {
+                showEditRecipeAndAllergenDialog(item)
             }
         }
 
