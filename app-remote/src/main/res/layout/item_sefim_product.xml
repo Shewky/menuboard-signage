@@ -6,7 +6,7 @@
     android:layout_marginVertical="3dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="8dp">
+    android:padding="6dp">
 
     <CheckBox
         android:id="@+id/cbProductInclude"
@@ -16,9 +16,9 @@
 
     <!-- Ürün Görseli Önizleme / Ekleme -->
     <FrameLayout
-        android:layout_width="54dp"
-        android:layout_height="54dp"
-        android:layout_marginStart="4dp"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_marginStart="2dp"
         android:background="#33888888">
 
         <ImageView
@@ -47,25 +47,55 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Ürün Adı"
-            android:textSize="15sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/txtProductChoices"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="1dp"
             android:text="↳ Seçenekler"
             android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/txtProductAllergen"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:text="⚠️ Alerjen: Gluten"
+            android:textColor="#FF5252"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/txtProductPrice"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="6dp"
-        android:text="0.00 ₺"
-        android:textSize="15sp"
-        android:textStyle="bold" />
+        android:gravity="end|center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/txtProductPrice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0.00 ₺"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnEditRecipe"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_marginTop="2dp"
+            android:backgroundTint="#37474F"
+            android:minWidth="60dp"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="0dp"
+            android:text="📝 İçerik"
+            android:textColor="#FFFFFF"
+            android:textSize="9sp" />
+    </LinearLayout>
 
 </LinearLayout>
