@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var qrOverlay: View
     private lateinit var imgQrCode: ImageView
     private lateinit var txtIpAddress: TextView
-    private lateinit var txtAppVersion: TextView
+    private lateinit var txtStatus: TextView
     private lateinit var btnSettings: ImageView
     private lateinit var btnCloseQr: Button
     private lateinit var findMeOverlay: View
@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
         qrOverlay = findViewById(R.id.qrOverlay)
         imgQrCode = findViewById(R.id.imgQrCode)
         txtIpAddress = findViewById(R.id.txtIpAddress)
-        txtAppVersion = findViewById(R.id.txtAppVersion)
+        txtStatus = findViewById(R.id.txtStatus)
         btnSettings = findViewById(R.id.btnSettings)
         btnCloseQr = findViewById(R.id.btnCloseQr)
         findMeOverlay = findViewById(R.id.findMeOverlay)
@@ -126,7 +126,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            txtAppVersion.text = "Sürüm: v$vName"
+            txtStatus.text = "Sürüm: v$vName | QR Kodu Okutun veya Ağı Tarayın"
         } catch (_: Exception) {}
 
         initPlayer()
