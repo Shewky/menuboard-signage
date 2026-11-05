@@ -7,6 +7,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -37,18 +42,22 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.sql.DriverManager
 import java.util.Collections
+import java.util.concurrent.TimeUnit
 
 data class DeviceItem(
     val id: String,
     var host: String,
     var nameTag: String,
     var isFinding: Boolean = false,
-    var isOnline: Boolean = false
+    var isOnline: Boolean = false,
+    var lastSeenMs: Long = 0L
 )
 
 data class MediaItemModel(
@@ -61,17 +70,27 @@ data class MediaItemModel(
     var fileDurationSec: Int = 0
 )
 
+data class SefimProductItem(
+    val id: String,
+    val productName: String,
+    val price: String,
+    val subDetails: String, // Choice1, Choice2, Option alt kırılımları
+    var isSelected: Boolean = true
+)
+
 class MainActivity : AppCompatActivity() {
 
-    // GitHub Actions derleme sırasında burayı otomatik olarak gerçek repo adınızla değiştirir:
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var tabDevices: Button
     private lateinit var tabMedia: Button
+    private lateinit var tabSefim: Button
     private lateinit var panelTabDevices: View
     private lateinit var panelTabMedia: View
+    private lateinit var panelTabSefim: View
 
     private lateinit var txtActiveDeviceName: TextView
+    private lateinit var txtRemoteVersion: TextView
     private lateinit var txtConnectionStatus: TextView
 
     private lateinit var btnScanNetwork: Button
@@ -91,10 +110,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaAdapter: MediaAdapter
     private var playlist = mutableListOf<MediaItemModel>()
 
+    // Şefim Menu Bileşenleri
+    private lateinit var btnDbConfig: Button
+    private lateinit var btnFetchSefim: Button
+    private lateinit var spinnerSefimTheme: Spinner
+    private lateinit var spinnerSefimFontSize: Spinner
+    private lateinit var cbSefimBold: CheckBox
+    private lateinit var rvSefimProducts: RecyclerView
+    private lateinit var btnPublishSefimMenu: Button
+    private lateinit var sefimAdapter: SefimProductAdapter
+    private var sefimProducts = mutableListOf<SefimProductItem>()
+
     private lateinit var imgFooterLogo: ImageView
     private lateinit var btnSupportCall: Button
 
     private val httpClient = OkHttpClient()
+    // Tüm cihazların online/offline durumunu hızlı yoklamak için 2 saniyelik ping istemcisi
+    private val pingClient = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .build()
+
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
     private var isConnected = false
@@ -102,21 +138,26 @@ class MainActivity : AppCompatActivity() {
     private var isUdpListening = true
 
     private val animOptions = arrayOf(
-        "Solma (Fade)", 
-        "Soldan Kay", 
-        "Sağdan Kay", 
-        "Yukarıdan Kay", 
-        "Aşağıdan Kay", 
-        "Yakınlaş (Zoom In)", 
-        "Uzaklaş (Zoom Out)", 
-        "Animasyonsuz"
+        "Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yukarıdan Kay",
+        "Aşağıdan Kay", "Yakınlaş (Zoom In)", "Uzaklaş (Zoom Out)", "Animasyonsuz"
     )
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
 
+    // Şefim Görsel Temalar ve Font Seçenekleri
+    private val themeNames = arrayOf(
+        "🖤 Koyu Lüks (Gold)",
+        "🤍 Modern Beyaz",
+        "🔥 Restoran Ateşi",
+        "🌌 Neon Cyberpunk"
+    )
+    private val fontSizes = arrayOf("Küçük (14pt)", "Orta (18pt)", "Büyük (22pt)", "Dev (26pt)")
+    private val fontSizeValues = arrayOf(14f, 18f, 22f, 26f)
+
+    // Her 8 saniyede bir listedeki TÜM Menuboard'ların online/offline durumunu kontrol eder
     private val heartbeatRunnable = object : Runnable {
         override fun run() {
-            checkConnectionAndSync()
-            handler.postDelayed(this, 10000L)
+            checkAllDevicesStatus()
+            handler.postDelayed(this, 8000L)
         }
     }
 
@@ -131,7 +172,7 @@ class MainActivity : AppCompatActivity() {
                 val host = "$ip:$port"
 
                 updateOrAddDevice(id, host, tag, true)
-                switchTab(false)
+                switchTab(1)
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
             }
@@ -177,11 +218,19 @@ class MainActivity : AppCompatActivity() {
 
         tabDevices = findViewById(R.id.tabDevices)
         tabMedia = findViewById(R.id.tabMedia)
+        tabSefim = findViewById(R.id.tabSefim)
         panelTabDevices = findViewById(R.id.panelTabDevices)
         panelTabMedia = findViewById(R.id.panelTabMedia)
+        panelTabSefim = findViewById(R.id.panelTabSefim)
 
         txtActiveDeviceName = findViewById(R.id.txtActiveDeviceName)
+        txtRemoteVersion = findViewById(R.id.txtRemoteVersion)
         txtConnectionStatus = findViewById(R.id.txtConnectionStatus)
+
+        try {
+            val vName = packageManager.getPackageInfo(packageName, 0).versionName
+            txtRemoteVersion.text = "v$vName"
+        } catch (_: Exception) {}
 
         btnScanNetwork = findViewById(R.id.btnScanNetwork)
         btnScanQr = findViewById(R.id.btnScanQr)
@@ -195,10 +244,21 @@ class MainActivity : AppCompatActivity() {
         btnPickMedia = findViewById(R.id.btnPickMedia)
         recyclerViewPlaylist = findViewById(R.id.recyclerViewPlaylist)
 
+        btnDbConfig = findViewById(R.id.btnDbConfig)
+        btnFetchSefim = findViewById(R.id.btnFetchSefim)
+        spinnerSefimTheme = findViewById(R.id.spinnerSefimTheme)
+        spinnerSefimFontSize = findViewById(R.id.spinnerSefimFontSize)
+        cbSefimBold = findViewById(R.id.cbSefimBold)
+        rvSefimProducts = findViewById(R.id.rvSefimProducts)
+        btnPublishSefimMenu = findViewById(R.id.btnPublishSefimMenu)
+
         imgFooterLogo = findViewById(R.id.imgFooterLogo)
         btnSupportCall = findViewById(R.id.btnSupportCall)
 
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
+        spinnerSefimTheme.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, themeNames)
+        spinnerSefimFontSize.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fontSizes)
+        spinnerSefimFontSize.setSelection(1)
 
         loadSavedDevices()
 
@@ -210,6 +270,22 @@ class MainActivity : AppCompatActivity() {
         recyclerViewPlaylist.layoutManager = LinearLayoutManager(this)
         recyclerViewPlaylist.adapter = mediaAdapter
 
+        sefimAdapter = SefimProductAdapter()
+        rvSefimProducts.layoutManager = LinearLayoutManager(this)
+        rvSefimProducts.adapter = sefimAdapter
+
+        // Tema ve Font değiştiğinde önizlemeyi anında güncelle
+        val styleListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                applySefimPreviewBackground()
+                sefimAdapter.notifyDataSetChanged()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        spinnerSefimTheme.onItemSelectedListener = styleListener
+        spinnerSefimFontSize.onItemSelectedListener = styleListener
+        cbSefimBold.setOnCheckedChangeListener { _, _ -> sefimAdapter.notifyDataSetChanged() }
+
         val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
             override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
                 val fromPos = vh.adapterPosition
@@ -218,9 +294,7 @@ class MainActivity : AppCompatActivity() {
                 mediaAdapter.notifyItemMoved(fromPos, toPos)
                 return true
             }
-
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
-
             override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
                 super.clearView(recyclerView, viewHolder)
                 syncPlaylistToMenuboard()
@@ -228,8 +302,9 @@ class MainActivity : AppCompatActivity() {
         })
         itemTouchHelper.attachToRecyclerView(recyclerViewPlaylist)
 
-        tabDevices.setOnClickListener { switchTab(true) }
-        tabMedia.setOnClickListener { switchTab(false) }
+        tabDevices.setOnClickListener { switchTab(0) }
+        tabMedia.setOnClickListener { switchTab(1) }
+        tabSefim.setOnClickListener { switchTab(2) }
 
         btnScanQr.setOnClickListener {
             val options = ScanOptions().apply {
@@ -241,7 +316,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnScanNetwork.setOnClickListener {
-            Toast.makeText(this, "Ağ taranıyor... Cihazlar sinyal gönderdikçe listelenecek.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Ağdaki tüm cihazların durumu kontrol ediliyor...", Toast.LENGTH_SHORT).show()
+            checkAllDevicesStatus()
         }
 
         btnToggleScreenShare.setOnClickListener {
@@ -249,7 +325,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-
             if (!isSharingScreen) {
                 val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 screenShareLauncher.launch(mpManager.createScreenCaptureIntent())
@@ -271,6 +346,11 @@ class MainActivity : AppCompatActivity() {
             pickMediaLauncher.launch(intent)
         }
 
+        // Şefim Veritabanı Butonları
+        btnDbConfig.setOnClickListener { showDbConfigDialog() }
+        btnFetchSefim.setOnClickListener { fetchSefimProductsFromDb() }
+        btnPublishSefimMenu.setOnClickListener { publishSefimMenuToMenuboard() }
+
         imgFooterLogo.setOnClickListener {
             val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.interfon.com.tr"))
             startActivity(browserIntent)
@@ -287,6 +367,373 @@ class MainActivity : AppCompatActivity() {
 
         startUdpListener()
         checkForUpdate()
+    }
+
+    // --- ŞEFİM POS VERİTABANI (MS SQL) VE TEMA MOTORU ---
+
+    private fun showDbConfigDialog() {
+        val prefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
+        val edtServer = EditText(this).apply {
+            hint = "Sunucu IP:Port (Örn: 192.168.1.100:1433)"
+            setText(prefs.getString("db_server", "192.168.1.100:1433"))
+        }
+        val edtDbName = EditText(this).apply {
+            hint = "Veritabanı Adı (Örn: SefimPos)"
+            setText(prefs.getString("db_name", ""))
+        }
+        val edtUser = EditText(this).apply {
+            hint = "Kullanıcı Adı (Örn: sa)"
+            setText(prefs.getString("db_user", "sa"))
+        }
+        val edtPass = EditText(this).apply {
+            hint = "Şifre"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(prefs.getString("db_pass", ""))
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 30, 50, 10)
+            addView(TextView(this@MainActivity).apply { text = "SQL Server IP ve Port:" })
+            addView(edtServer)
+            addView(TextView(this@MainActivity).apply { text = "Database Adı:" })
+            addView(edtDbName)
+            addView(TextView(this@MainActivity).apply { text = "Kullanıcı Adı:" })
+            addView(edtUser)
+            addView(TextView(this@MainActivity).apply { text = "Şifre:" })
+            addView(edtPass)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Şefim MS SQL Bağlantı Ayarları")
+            .setView(layout)
+            .setPositiveButton("Kaydet") { _, _ ->
+                prefs.edit()
+                    .putString("db_server", edtServer.text.toString().trim())
+                    .putString("db_name", edtDbName.text.toString().trim())
+                    .putString("db_user", edtUser.text.toString().trim())
+                    .putString("db_pass", edtPass.text.toString())
+                    .apply()
+                Toast.makeText(this, "Veritabanı bilgileri kaydedildi.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun fetchSefimProductsFromDb() {
+        val prefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
+        val server = prefs.getString("db_server", "") ?: ""
+        val dbName = prefs.getString("db_name", "") ?: ""
+        val user = prefs.getString("db_user", "") ?: ""
+        val pass = prefs.getString("db_pass", "") ?: ""
+
+        if (server.isEmpty() || dbName.isEmpty()) {
+            Toast.makeText(this, "Lütfen önce ⚙️ DB Ayarları butonundan bilgileri girin!", Toast.LENGTH_LONG).show()
+            showDbConfigDialog()
+            return
+        }
+
+        Toast.makeText(this, "Şefim veritabanına bağlanılıyor...", Toast.LENGTH_SHORT).show()
+
+        Thread {
+            try {
+                Class.forName("net.sourceforge.jtds.jdbc.Driver")
+                val cleanServer = if (server.contains(":")) server else "$server:1433"
+                val connUrl = "jdbc:jtds:sqlserver://$cleanServer/$dbName"
+                DriverManager.setLoginTimeout(5)
+                val conn = DriverManager.getConnection(connUrl, user, pass)
+
+                // 1. Yardımcı Haritalar: Choice1, Choice2 ve Option tabloları mevcutsa yan belleğe çek
+                val choice1Map = mutableMapOf<String, MutableList<String>>()
+                val choice2Map = mutableMapOf<String, MutableList<String>>()
+                val optionsMap = mutableMapOf<String, MutableList<String>>()
+
+                try {
+                    val st1 = conn.createStatement()
+                    val rs1 = st1.executeQuery("SELECT * FROM Choice1")
+                    val meta1 = rs1.metaData
+                    while (rs1.next()) {
+                        val pId = getColString(rs1, meta1, listOf("ProductId", "Product_Id", "UrunId", "Id"))
+                        val cName = getColString(rs1, meta1, listOf("Name", "ChoiceName", "ProductName", "Header", "Description"))
+                        if (pId.isNotEmpty() && cName.isNotEmpty()) {
+                            choice1Map.getOrPut(pId) { mutableListOf() }.add(cName)
+                        }
+                    }
+                    rs1.close()
+                } catch (_: Exception) {}
+
+                try {
+                    val st2 = conn.createStatement()
+                    val rs2 = st2.executeQuery("SELECT * FROM Choice2")
+                    val meta2 = rs2.metaData
+                    while (rs2.next()) {
+                        val pId = getColString(rs2, meta2, listOf("ProductId", "Choice1Id", "Product_Id", "Id"))
+                        val cName = getColString(rs2, meta2, listOf("Name", "ChoiceName", "ProductName", "Header", "Description"))
+                        if (pId.isNotEmpty() && cName.isNotEmpty()) {
+                            choice2Map.getOrPut(pId) { mutableListOf() }.add(cName)
+                        }
+                    }
+                    rs2.close()
+                } catch (_: Exception) {}
+
+                try {
+                    val stOpt = conn.createStatement()
+                    val rsOpt = stOpt.executeQuery("SELECT * FROM [Option]")
+                    val metaOpt = rsOpt.metaData
+                    while (rsOpt.next()) {
+                        val pId = getColString(rsOpt, metaOpt, listOf("ProductId", "Product_Id", "Id"))
+                        val oName = getColString(rsOpt, metaOpt, listOf("Name", "OptionName", "Header", "Description"))
+                        if (pId.isNotEmpty() && oName.isNotEmpty()) {
+                            optionsMap.getOrPut(pId) { mutableListOf() }.add(oName)
+                        }
+                    }
+                    rsOpt.close()
+                } catch (_: Exception) {}
+
+                // 2. Ana Product Tablosunu Çek
+                val stmt = conn.createStatement()
+                val rs = stmt.executeQuery("SELECT * FROM Product")
+                val meta = rs.metaData
+                val fetchedList = mutableListOf<SefimProductItem>()
+
+                while (rs.next()) {
+                    val id = getColString(rs, meta, listOf("Id", "ProductId", "RECNO", "Kod"))
+                    val name = getColString(rs, meta, listOf("ProductName", "Name", "UrunAdi", "Header", "Description"))
+                    val rawPrice = getColString(rs, meta, listOf("Price", "Price1", "Fiyat", "SatisFiyati", "Amount"))
+
+                    // Ürün satırının kendi içinde Choice1, Choice2, Option kolonları varsa veya yan tablodan eşleşiyorsa birleştir
+                    val inlineC1 = getColString(rs, meta, listOf("Choice1", "Choice1Name", "Secenek1"))
+                    val inlineC2 = getColString(rs, meta, listOf("Choice2", "Choice2Name", "Secenek2"))
+                    val inlineOpt = getColString(rs, meta, listOf("Option", "Options", "OptionName", "Opsiyon"))
+
+                    val detailsBuilder = mutableListOf<String>()
+                    if (inlineC1.isNotEmpty()) detailsBuilder.add("Seçenek 1: $inlineC1")
+                    choice1Map[id]?.let { if (it.isNotEmpty()) detailsBuilder.add("Seçenek 1: ${it.joinToString(", ")}") }
+
+                    if (inlineC2.isNotEmpty()) detailsBuilder.add("Seçenek 2: $inlineC2")
+                    choice2Map[id]?.let { if (it.isNotEmpty()) detailsBuilder.add("Seçenek 2: ${it.joinToString(", ")}") }
+
+                    if (inlineOpt.isNotEmpty()) detailsBuilder.add("Opsiyon: $inlineOpt")
+                    optionsMap[id]?.let { if (it.isNotEmpty()) detailsBuilder.add("Opsiyon: ${it.joinToString(", ")}") }
+
+                    if (name.isNotEmpty()) {
+                        val formattedPrice = if (rawPrice.isNotEmpty()) "$rawPrice ₺" else ""
+                        fetchedList.add(
+                            SefimProductItem(
+                                id = id,
+                                productName = name,
+                                price = formattedPrice,
+                                subDetails = detailsBuilder.distinct().joinToString(" | ")
+                            )
+                        )
+                    }
+                }
+                rs.close()
+                conn.close()
+
+                runOnUiThread {
+                    sefimProducts.clear()
+                    sefimProducts.addAll(fetchedList)
+                    sefimAdapter.notifyDataSetChanged()
+                    Toast.makeText(this, "${fetchedList.size} ürün başarıyla çekildi!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    AlertDialog.Builder(this)
+                        .setTitle("Veritabanı Bağlantı Hatası")
+                        .setMessage("Hata detayı:\n${e.localizedMessage}\n\nLütfen IP, Port (1433), DB adı ve SQL TCP/IP iznini kontrol edin.")
+                        .setPositiveButton("Tamam", null)
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    private fun getColString(rs: java.sql.ResultSet, meta: java.sql.ResultSetMetaData, candidates: List<String>): String {
+        for (colName in candidates) {
+            for (i in 1..meta.columnCount) {
+                if (meta.getColumnName(i).equals(colName, ignoreCase = true)) {
+                    val v = rs.getString(i)?.trim() ?: ""
+                    if (v.isNotEmpty() && v != "null" && v != "0" && v != "0.00") return v
+                }
+            }
+        }
+        return ""
+    }
+
+    private fun getSelectedThemeColors(): Triple<Int, Int, Int> {
+        // Arka plan, Ana Yazı Rengi, Fiyat & Seçenek Vurgu Rengi
+        return when (spinnerSefimTheme.selectedItemPosition) {
+            1 -> Triple(Color.parseColor("#FFFFFF"), Color.parseColor("#212121"), Color.parseColor("#D32F2F")) // Modern Beyaz
+            2 -> Triple(Color.parseColor("#1B0000"), Color.parseColor("#FFFFFF"), Color.parseColor("#FF5252")) // Restoran Ateşi
+            3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF")) // Neon Cyberpunk
+            else -> Triple(Color.parseColor("#141414"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700")) // Koyu Lüks (Gold)
+        }
+    }
+
+    private fun applySefimPreviewBackground() {
+        val (bgColor, _, _) = getSelectedThemeColors()
+        rvSefimProducts.setBackgroundColor(bgColor)
+    }
+
+    // Seçili Şefim Menüsünü 1080x1920 Full HD Görsel Olarak Çizip Menuboard'da Yayınla
+    private fun publishSefimMenuToMenuboard() {
+        val host = activeDevice?.host
+        if (host.isNullOrEmpty()) {
+            Toast.makeText(this, "Lütfen önce Cihazlar sekmesinden bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val selectedItems = sefimProducts.filter { it.isSelected }
+        if (selectedItems.isEmpty()) {
+            Toast.makeText(this, "Yayınlanacak en az 1 ürün seçmelisiniz!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "Menü şablonu hazırlanıyor ve Menuboard'a gönderiliyor...", Toast.LENGTH_SHORT).show()
+
+        Thread {
+            val width = 1080
+            val height = 1920
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+
+            val (bgColor, textColor, accentColor) = getSelectedThemeColors()
+            canvas.drawColor(bgColor)
+
+            val isBold = cbSefimBold.isChecked
+            val baseFontPt = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
+            val titleSizePx = baseFontPt * 2.2f
+            val subSizePx = baseFontPt * 1.45f
+
+            val paintHeader = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                textSize = 64f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+            }
+
+            val paintTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textColor
+                textSize = titleSizePx
+                typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD else Typeface.NORMAL)
+            }
+
+            val paintPrice = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                textSize = titleSizePx
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.RIGHT
+            }
+
+            val paintSub = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                alpha = 210
+                textSize = subSizePx
+                typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD_ITALIC else Typeface.ITALIC)
+            }
+
+            val paintLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                alpha = 70
+                strokeWidth = 2f
+            }
+
+            // Üst Başlık
+            canvas.drawText("MENÜ", width / 2f, 110f, paintHeader)
+            canvas.drawLine(80f, 145f, width - 80f, 145f, paintLine)
+
+            var currentY = 220f
+            for (item in selectedItems) {
+                if (currentY > height - 120f) break
+
+                canvas.drawText(item.productName, 70f, currentY, paintTitle)
+                canvas.drawText(item.price, width - 70f, currentY, paintPrice)
+
+                if (item.subDetails.isNotEmpty()) {
+                    currentY += subSizePx + 14f
+                    canvas.drawText("↳ ${item.subDetails}", 95f, currentY, paintSub)
+                }
+
+                currentY += 28f
+                canvas.drawLine(70f, currentY, width - 70f, currentY, paintLine)
+                currentY += titleSizePx + 30f
+            }
+
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+            val bytes = stream.toByteArray()
+            val fileName = "sefim_menu_${System.currentTimeMillis()}.jpg"
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", fileName, bytes.toRequestBody("image/jpeg".toMediaTypeOrNull()))
+                .build()
+
+            val uploadRequest = Request.Builder()
+                .url("http://$host/api/upload?filename=$fileName")
+                .post(requestBody)
+                .build()
+
+            httpClient.newCall(uploadRequest).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Menü gönderilemedi!", Toast.LENGTH_SHORT).show() }
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    if (response.isSuccessful) {
+                        val newItem = MediaItemModel(
+                            id = System.currentTimeMillis().toString(),
+                            fileName = fileName,
+                            type = "image",
+                            durationSec = 30,
+                            waitAfterSec = 0,
+                            animation = "fade"
+                        )
+                        playlist.add(0, newItem) // İlk sıraya ekle
+                        syncPlaylistToMenuboard()
+                    }
+                }
+            })
+        }.start()
+    }
+
+    // --- TÜM CİHAZLAR İÇİN GERÇEK ZAMANLI ONLINE / OFFLINE KONTROLÜ ---
+
+    private fun checkAllDevicesStatus() {
+        val now = System.currentTimeMillis()
+        if (deviceList.isEmpty()) return
+
+        for (dev in deviceList) {
+            val req = Request.Builder().url("http://${dev.host}/api/ping").build()
+            pingClient.newCall(req).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    // UDP'den de son 10 saniyedir ses yoksa kesin olarak Offline işaretle
+                    if (now - dev.lastSeenMs > 10000L) {
+                        dev.isOnline = false
+                    }
+                    if (activeDevice?.id == dev.id) {
+                        updateConnectionUi(dev.isOnline)
+                    }
+                    runOnUiThread { deviceAdapter.notifyDataSetChanged() }
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val ok = response.isSuccessful
+                    response.close()
+                    dev.isOnline = ok
+                    if (ok) dev.lastSeenMs = System.currentTimeMillis()
+
+                    if (activeDevice?.id == dev.id) {
+                        val wasDisconnected = !isConnected
+                        updateConnectionUi(ok)
+                        if (ok && (wasDisconnected || playlist.isEmpty())) {
+                            fetchPlaylist()
+                        }
+                    }
+                    runOnUiThread { deviceAdapter.notifyDataSetChanged() }
+                }
+            })
+        }
     }
 
     private fun checkForUpdate() {
@@ -421,12 +868,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean) {
+        val now = System.currentTimeMillis()
         val existing = deviceList.find { it.id == id }
         if (existing != null) {
             existing.host = host
             existing.isOnline = online
+            if (online) existing.lastSeenMs = now
         } else {
-            deviceList.add(DeviceItem(id, host, tag, isOnline = online))
+            deviceList.add(DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L))
         }
         saveDevices()
         deviceAdapter.notifyDataSetChanged()
@@ -435,21 +884,19 @@ class MainActivity : AppCompatActivity() {
             activeDevice?.host = host
             activeDevice?.isOnline = online
             txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"
+            updateConnectionUi(online)
         }
     }
 
-    private fun switchTab(showDevices: Boolean) {
-        if (showDevices) {
-            panelTabDevices.visibility = View.VISIBLE
-            panelTabMedia.visibility = View.GONE
-            tabDevices.setTextColor(0xFF00E676.toInt())
-            tabMedia.setTextColor(0xFF888888.toInt())
-        } else {
-            panelTabDevices.visibility = View.GONE
-            panelTabMedia.visibility = View.VISIBLE
-            tabDevices.setTextColor(0xFF888888.toInt())
-            tabMedia.setTextColor(0xFF00E676.toInt())
-        }
+    // 0: Cihazlar, 1: Medya, 2: Şefim Menu
+    private fun switchTab(tabIndex: Int) {
+        panelTabDevices.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
+        panelTabMedia.visibility = if (tabIndex == 1) View.VISIBLE else View.GONE
+        panelTabSefim.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
+
+        tabDevices.setTextColor(if (tabIndex == 0) 0xFF00E676.toInt() else 0xFF888888.toInt())
+        tabMedia.setTextColor(if (tabIndex == 1) 0xFF00E676.toInt() else 0xFF888888.toInt())
+        tabSefim.setTextColor(if (tabIndex == 2) 0xFF00E676.toInt() else 0xFF888888.toInt())
     }
 
     private fun selectDevice(device: DeviceItem) {
@@ -462,7 +909,7 @@ class MainActivity : AppCompatActivity() {
 
         saveDevices()
         deviceAdapter.notifyDataSetChanged()
-        checkConnectionAndSync()
+        checkAllDevicesStatus()
     }
 
     private fun loadSavedDevices() {
@@ -471,6 +918,8 @@ class MainActivity : AppCompatActivity() {
         if (!json.isNullOrEmpty()) {
             val type = object : TypeToken<MutableList<DeviceItem>>() {}.type
             deviceList = gson.fromJson(json, type)
+            // İlk açılışta gerçek ping yanıtı gelene kadar hepsini varsayılan offline başlat
+            deviceList.forEach { it.isOnline = false }
         }
     }
 
@@ -489,32 +938,6 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(heartbeatRunnable)
     }
 
-    private fun checkConnectionAndSync() {
-        val currentDevice = activeDevice ?: return
-        val request = Request.Builder().url("http://${currentDevice.host}/api/ping").build()
-
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                currentDevice.isOnline = false
-                updateConnectionUi(false)
-                runOnUiThread { deviceAdapter.notifyDataSetChanged() }
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    currentDevice.isOnline = true
-                    val wasDisconnected = !isConnected
-                    updateConnectionUi(true)
-                    if (wasDisconnected || playlist.isEmpty()) fetchPlaylist()
-                } else {
-                    currentDevice.isOnline = false
-                    updateConnectionUi(false)
-                }
-                runOnUiThread { deviceAdapter.notifyDataSetChanged() }
-            }
-        })
-    }
-
     private fun updateConnectionUi(connected: Boolean) {
         isConnected = connected
         runOnUiThread {
@@ -522,7 +945,7 @@ class MainActivity : AppCompatActivity() {
                 txtConnectionStatus.text = "Bağlı"
                 txtConnectionStatus.setTextColor(0xFF2E7D32.toInt())
             } else {
-                txtConnectionStatus.text = "Bağlantı Yok"
+                txtConnectionStatus.text = "Bağlı Değil"
                 txtConnectionStatus.setTextColor(0xFFD32F2F.toInt())
             }
         }
@@ -706,6 +1129,54 @@ class MainActivity : AppCompatActivity() {
         isUdpListening = false
     }
 
+    // --- RECYCLERVIEW ADAPTÖRLERİ ---
+
+    inner class SefimProductAdapter : RecyclerView.Adapter<SefimProductAdapter.SefimViewHolder>() {
+        inner class SefimViewHolder(v: View) : RecyclerView.ViewHolder(v) {
+            val cbInclude: CheckBox = v.findViewById(R.id.cbProductInclude)
+            val txtName: TextView = v.findViewById(R.id.txtProductName)
+            val txtChoices: TextView = v.findViewById(R.id.txtProductChoices)
+            val txtPrice: TextView = v.findViewById(R.id.txtProductPrice)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SefimViewHolder {
+            val v = LayoutInflater.from(parent.context).inflate(R.layout.item_sefim_product, parent, false)
+            return SefimViewHolder(v)
+        }
+
+        override fun onBindViewHolder(holder: SefimViewHolder, position: Int) {
+            val item = sefimProducts[position]
+            val (_, textColor, accentColor) = getSelectedThemeColors()
+            val fontSize = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
+            val style = if (cbSefimBold.isChecked) Typeface.BOLD else Typeface.NORMAL
+
+            holder.cbInclude.setOnCheckedChangeListener(null)
+            holder.cbInclude.isChecked = item.isSelected
+            holder.cbInclude.setOnCheckedChangeListener { _, isChecked -> item.isSelected = isChecked }
+
+            holder.txtName.text = item.productName
+            holder.txtName.setTextColor(textColor)
+            holder.txtName.textSize = fontSize
+            holder.txtName.setTypeface(null, style)
+
+            holder.txtPrice.text = item.price
+            holder.txtPrice.setTextColor(accentColor)
+            holder.txtPrice.textSize = fontSize
+            holder.txtPrice.setTypeface(null, Typeface.BOLD)
+
+            if (item.subDetails.isNotEmpty()) {
+                holder.txtChoices.visibility = View.VISIBLE
+                holder.txtChoices.text = "↳ ${item.subDetails}"
+                holder.txtChoices.setTextColor(accentColor)
+                holder.txtChoices.textSize = (fontSize - 4f).coerceAtLeast(11f)
+            } else {
+                holder.txtChoices.visibility = View.GONE
+            }
+        }
+
+        override fun getItemCount(): Int = sefimProducts.size
+    }
+
     inner class DeviceAdapter : RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
         inner class DeviceViewHolder(v: View) : RecyclerView.ViewHolder(v) {
             val viewStatusDot: View = v.findViewById(R.id.viewStatusDot)
@@ -728,9 +1199,9 @@ class MainActivity : AppCompatActivity() {
             holder.txtDeviceIp.text = dev.host
 
             if (dev.isOnline) {
-                holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt())
+                holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt()) // Yeşil
             } else {
-                holder.viewStatusDot.setBackgroundColor(0xFFD32F2F.toInt())
+                holder.viewStatusDot.setBackgroundColor(0xFFD32F2F.toInt()) // Kırmızı
             }
 
             if (dev.isFinding) {
@@ -743,7 +1214,7 @@ class MainActivity : AppCompatActivity() {
 
             holder.itemView.setOnClickListener {
                 selectDevice(dev)
-                switchTab(false)
+                switchTab(1)
             }
 
             holder.btnEditTag.setOnClickListener { showEditTagDialog(dev) }
