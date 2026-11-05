@@ -2,12 +2,8 @@ package com.anypay.menuboard
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
-import android.content.Intent
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.PixelFormat
+import android.content.Context
+import android.graphics.*
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -25,7 +21,7 @@ class MenuboardControlService : AccessibilityService() {
     }
 
     private var windowManager: WindowManager? = null
-    private var cursorView: CursorOverlayView? = null
+    private var cursorView: GlobalCursorView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     var cursorX = 540f
@@ -34,7 +30,7 @@ class MenuboardControlService : AccessibilityService() {
     private var screenH = 1920
     private val hideCursorRunnable = Runnable { cursorView?.visibility = View.GONE }
 
-    inner class CursorOverlayView(context: android.content.Context) : View(context) {
+    inner class GlobalCursorView(ctx: Context) : View(ctx) {
         private val paintFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FF1744")
             style = Paint.Style.FILL
@@ -42,7 +38,7 @@ class MenuboardControlService : AccessibilityService() {
         private val paintStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 3.5f
         }
         private val cursorPath = Path()
 
@@ -50,12 +46,12 @@ class MenuboardControlService : AccessibilityService() {
             super.onDraw(canvas)
             cursorPath.reset()
             cursorPath.moveTo(cursorX, cursorY)
-            cursorPath.lineTo(cursorX, cursorY + 34f)
-            cursorPath.lineTo(cursorX + 10f, cursorY + 26f)
-            cursorPath.lineTo(cursorX + 18f, cursorY + 40f)
-            cursorPath.lineTo(cursorX + 24f, cursorY + 36f)
-            cursorPath.lineTo(cursorX + 16f, cursorY + 22f)
-            cursorPath.lineTo(cursorX + 28f, cursorY + 22f)
+            cursorPath.lineTo(cursorX, cursorY + 38f)
+            cursorPath.lineTo(cursorX + 11f, cursorY + 29f)
+            cursorPath.lineTo(cursorX + 19f, cursorY + 44f)
+            cursorPath.lineTo(cursorX + 26f, cursorY + 40f)
+            cursorPath.lineTo(cursorX + 17f, cursorY + 25f)
+            cursorPath.lineTo(cursorX + 30f, cursorY + 25f)
             cursorPath.close()
 
             canvas.drawPath(cursorPath, paintFill)
@@ -71,13 +67,13 @@ class MenuboardControlService : AccessibilityService() {
         screenH = dm.heightPixels
         cursorX = screenW / 2f
         cursorY = screenH / 2f
-        setupCursorOverlay()
+        attachGlobalCursorOverlay()
     }
 
-    private fun setupCursorOverlay() {
+    private fun attachGlobalCursorOverlay() {
         try {
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-            cursorView = CursorOverlayView(this)
+            cursorView = GlobalCursorView(this)
             val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             } else {
@@ -101,6 +97,7 @@ class MenuboardControlService : AccessibilityService() {
 
     fun moveCursorBy(dx: Float, dy: Float) {
         mainHandler.post {
+            if (cursorView == null) attachGlobalCursorOverlay()
             val dm = resources.displayMetrics
             screenW = dm.widthPixels
             screenH = dm.heightPixels
@@ -118,7 +115,7 @@ class MenuboardControlService : AccessibilityService() {
             cursorView?.visibility = View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val path = Path().apply { moveTo(cursorX, cursorY) }
-                val stroke = GestureDescription.StrokeDescription(path, 0, 60)
+                val stroke = GestureDescription.StrokeDescription(path, 0, 55)
                 val gesture = GestureDescription.Builder().addStroke(stroke).build()
                 dispatchGesture(gesture, null, null)
             }
@@ -128,7 +125,7 @@ class MenuboardControlService : AccessibilityService() {
     fun scrollAtCursor(scrollDy: Float) {
         mainHandler.post {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val endY = (cursorY + scrollDy).coerceIn(50f, screenH - 50f)
+                val endY = (cursorY + scrollDy).coerceIn(60f, screenH - 60f)
                 val path = Path().apply {
                     moveTo(cursorX, cursorY)
                     lineTo(cursorX, endY)
@@ -140,13 +137,32 @@ class MenuboardControlService : AccessibilityService() {
         }
     }
 
-    fun performNavAction(actionName: String) {
+    fun performGlobalNav(act: String) {
         mainHandler.post {
-            when (actionName) {
+            when (act) {
                 "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
                 "HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
                 "RECENTS" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
             }
+        }
+    }
+
+    fun bringPackageToFront(pkg: String) {
+        mainHandler.post {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            mainHandler.postDelayed({
+                try {
+                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(
+                            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                            android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        )
+                        startActivity(launchIntent)
+                    }
+                } catch (_: Exception) {}
+            }, 140L)
         }
     }
 
@@ -176,19 +192,6 @@ class MenuboardControlService : AccessibilityService() {
             if (found != null) return found
         }
         return null
-    }
-
-    fun launchAppFromService(pkg: String): Boolean {
-        return try {
-            val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-            if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                startActivity(launchIntent)
-                true
-            } else false
-        } catch (_: Exception) {
-            false
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
