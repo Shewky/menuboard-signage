@@ -11,8 +11,8 @@ android {
         applicationId = "com.anypay.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 108
-        versionName = "1.08"
+        versionCode = 109
+        versionName = "1.09"
     }
 
     signingConfigs {
@@ -57,5 +57,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.github.bumptech.glide:glide:4.16.0")
+
+    // Şefim POS MS SQL Sürücüsü
     implementation("net.sourceforge.jtds:jtds:1.3.1")
 }
