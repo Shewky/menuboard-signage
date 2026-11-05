@@ -24,9 +24,7 @@ jobs:
 
     - name: Create Deterministic Signing Keystore
       run: |
-        # Sabit bir keystore dosyası yoksa oluştur, varsa hep aynısını kullan
         if [ ! -f "anypay-release.jks" ]; then
-          # Sabit seed ve parametrelerle standart keystore üretimi
           keytool -genkeypair -v \
             -keystore anypay-release.jks \
             -alias anypay_key \
@@ -37,7 +35,6 @@ jobs:
             -keypass anypay123456 \
             -dname "CN=Interfon, OU=IT, O=Interfon, L=Mersin, S=Mersin, C=TR"
           
-          # Üretilen sabit anahtarı bir sonraki derlemelerde de aynı kalması için repoya kaydet
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add anypay-release.jks
@@ -50,20 +47,28 @@ jobs:
         sed -i "s|KULLANICI_ADINIZ/menuboard-signage|${{ github.repository }}|g" app-menuboard/src/main/java/com/anypay/menuboard/MainActivity.kt
         sed -i "s|KULLANICI_ADINIZ/menuboard-signage|${{ github.repository }}|g" app-remote/src/main/java/com/anypay/remote/MainActivity.kt
 
+    - name: Sync & Extract Version Across Both Modules
+      id: extract_version
+      run: |
+        VERSION=$(grep 'versionName =' app-menuboard/build.gradle.kts | sed 's/.*versionName = "\(.*\)".*/\1/' | tr -d '[:space:]')
+        VCODE=$(grep 'versionCode =' app-menuboard/build.gradle.kts | sed 's/.*versionCode = \([0-9]*\).*/\1/' | tr -d '[:space:]')
+        
+        # Kumanda (app-remote) sürümünü Menuboard ile zorla birebir eşitle:
+        sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/g" app-remote/build.gradle.kts
+        sed -i "s/versionCode = [0-9]*/versionCode = $VCODE/g" app-remote/build.gradle.kts
+        
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "VCODE=$VCODE" >> $GITHUB_OUTPUT
+        echo "Eşitlenen Sürüm: v$VERSION (Code: $VCODE)"
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: '8.2.1'
+        cache-disabled: true
 
-- name: Extract Version Name from build.gradle.kts
-      id: extract_version
-      run: |
-        VERSION=$(grep 'versionName =' app-menuboard/build.gradle.kts | sed 's/.*versionName = "\(.*\)".*/\1/' | tr -d '[:space:]')
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        echo "Bulunan Sürüm: v$VERSION"
-
-    - name: Build Both APKs
-      run: gradle assembleDebug --stacktrace
+    - name: Clean and Build Both APKs Without Cache
+      run: gradle clean assembleDebug --no-build-cache --rerun-tasks --stacktrace
 
     - name: Rename APKs with Version
       run: |
@@ -87,7 +92,7 @@ jobs:
       with:
         tag_name: v${{ steps.extract_version.outputs.VERSION }}
         name: Sürüm v${{ steps.extract_version.outputs.VERSION }}
-        body: "Otomatik derlenen v${{ steps.extract_version.outputs.VERSION }} sürümü (Sabit İmzalı)."
+        body: "Otomatik derlenen v${{ steps.extract_version.outputs.VERSION }} (versionCode: ${{ steps.extract_version.outputs.VCODE }}) sürümü."
         prerelease: false
         overwrite: true
         files: |
