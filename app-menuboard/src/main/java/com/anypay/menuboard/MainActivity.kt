@@ -2,6 +2,8 @@ package com.anypay.menuboard
 
 import android.app.AlertDialog
 import android.app.DownloadManager
+import android.app.Instrumentation
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -14,8 +16,10 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.animation.*
 import android.widget.Button
@@ -69,11 +73,15 @@ data class InstalledAppInfo(
     val packageName: String
 )
 
-// Gerçekçi Çok Katmanlı Animasyon Motoru (Balık, Ahtapot, Yengeç, Döner, Nargile, Kahve, Altın, Kar)
 class AnimatedOverlayView(context: Context) : View(context) {
     private var mode: String = "none"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var tick = 0f
+
+    var cursorX = 540f
+    var cursorY = 960f
+    var showCursor = false
+    private val cursorPath = Path()
 
     private data class Entity(
         var x: Float,
@@ -82,7 +90,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
         var vy: Float,
         var size: Float,
         var phase: Float,
-        var kind: Int, // 0: Clownfish, 1: BlueTang, 2: Angelfish, 3: Octopus, 4: Crab, 5: Bubble/Smoke/Ember
+        var kind: Int,
         var alpha: Int,
         var color: Int
     )
@@ -92,131 +100,35 @@ class AnimatedOverlayView(context: Context) : View(context) {
     fun setAnimationMode(newMode: String) {
         mode = newMode
         entities.clear()
-        if (mode == "none") {
-            visibility = GONE
-            return
-        }
-        visibility = VISIBLE
-
         when (mode) {
             "fish" -> {
-                // Çeşitli Balıklar (0,1,2)
                 for (i in 0 until 10) {
                     val dir = if (i % 2 == 0) 1f else -1f
-                    entities.add(
-                        Entity(
-                            x = Random.nextFloat() * 1080f,
-                            y = 180f + Random.nextFloat() * 1450f,
-                            vx = (1.6f + Random.nextFloat() * 2.4f) * dir,
-                            vy = 0f,
-                            size = 24f + Random.nextFloat() * 22f,
-                            phase = Random.nextFloat() * 6.28f,
-                            kind = i % 3,
-                            alpha = 185,
-                            color = 0
-                        )
-                    )
+                    entities.add(Entity(Random.nextFloat() * 1080f, 180f + Random.nextFloat() * 1450f, (1.6f + Random.nextFloat() * 2.4f) * dir, 0f, 24f + Random.nextFloat() * 22f, Random.nextFloat() * 6.28f, i % 3, 185, 0))
                 }
-                // 2 Adet Ahtapot (kind = 3)
                 for (i in 0 until 2) {
-                    entities.add(
-                        Entity(
-                            x = 200f + i * 650f,
-                            y = 500f + i * 700f,
-                            vx = 0.7f * (if (i == 0) 1f else -1f),
-                            vy = 0.4f,
-                            size = 42f,
-                            phase = i * 2.1f,
-                            kind = 3,
-                            alpha = 175,
-                            color = Color.argb(175, 186, 104, 200)
-                        )
-                    )
+                    entities.add(Entity(200f + i * 650f, 500f + i * 700f, 0.8f * (if (i == 0) 1f else -1f), 0.4f, 44f, i * 2.1f, 3, 180, Color.argb(180, 186, 104, 200)))
                 }
-                // 2 Adet Zeminde Yürüyen Yengeç (kind = 4)
                 for (i in 0 until 2) {
-                    entities.add(
-                        Entity(
-                            x = 300f + i * 450f,
-                            y = 1830f,
-                            vx = if (i == 0) 1.4f else -1.4f,
-                            vy = 0f,
-                            size = 32f,
-                            phase = i * 1.5f,
-                            kind = 4,
-                            alpha = 200,
-                            color = Color.argb(200, 229, 57, 53)
-                        )
-                    )
+                    entities.add(Entity(300f + i * 450f, 1830f, if (i == 0) 1.5f else -1.5f, 0f, 34f, i * 1.5f, 4, 210, Color.argb(210, 229, 57, 53)))
                 }
-                // Su Kabarcıkları (kind = 5)
                 for (i in 0 until 22) {
-                    entities.add(
-                        Entity(
-                            x = Random.nextFloat() * 1080f,
-                            y = Random.nextFloat() * 1920f,
-                            vx = 0f,
-                            vy = -(1.8f + Random.nextFloat() * 2.5f),
-                            size = 4f + Random.nextFloat() * 10f,
-                            phase = Random.nextFloat() * 6.28f,
-                            kind = 5,
-                            alpha = 110,
-                            color = Color.WHITE
-                        )
-                    )
+                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, 0f, -(1.8f + Random.nextFloat() * 2.5f), 4f + Random.nextFloat() * 10f, Random.nextFloat() * 6.28f, 5, 115, Color.WHITE))
                 }
             }
             "doner" -> {
-                // Gerçekçi Çok Katmanlı Buhar (kind = 0) ve Kor Kıvılcımlar (kind = 1)
                 for (i in 0 until 28) {
-                    entities.add(
-                        Entity(
-                            x = Random.nextFloat() * 1080f,
-                            y = Random.nextFloat() * 1920f,
-                            vx = (Random.nextFloat() - 0.5f) * 1.2f,
-                            vy = -(1.5f + Random.nextFloat() * 2.8f),
-                            size = 45f + Random.nextFloat() * 75f,
-                            phase = Random.nextFloat() * 6.28f,
-                            kind = if (i < 16) 0 else 1,
-                            alpha = if (i < 16) 45 else 190,
-                            color = if (i < 16) Color.rgb(255, 235, 220) else Color.rgb(255, 110, 0)
-                        )
-                    )
+                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, (Random.nextFloat() - 0.5f) * 1.2f, -(1.5f + Random.nextFloat() * 2.8f), 50f + Random.nextFloat() * 80f, Random.nextFloat() * 6.28f, if (i < 16) 0 else 1, if (i < 16) 45 else 190, if (i < 16) Color.rgb(255, 235, 220) else Color.rgb(255, 110, 0)))
                 }
             }
             "hookah", "coffee" -> {
-                // Gerçekçi Kıvrımlı Nargile / Kahve Duman Bulutları
                 for (i in 0 until 26) {
-                    entities.add(
-                        Entity(
-                            x = Random.nextFloat() * 1080f,
-                            y = Random.nextFloat() * 1920f,
-                            vx = (Random.nextFloat() - 0.5f) * 1.0f,
-                            vy = -(1.1f + Random.nextFloat() * 1.8f),
-                            size = 55f + Random.nextFloat() * 90f,
-                            phase = Random.nextFloat() * 6.28f,
-                            kind = i % 2,
-                            alpha = 38,
-                            color = if (mode == "hookah") Color.rgb(210, 235, 255) else Color.rgb(245, 225, 205)
-                        )
-                    )
+                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, (Random.nextFloat() - 0.5f) * 1.0f, -(1.1f + Random.nextFloat() * 1.8f), 60f + Random.nextFloat() * 95f, Random.nextFloat() * 6.28f, i % 2, 42, if (mode == "hookah") Color.rgb(210, 235, 255) else Color.rgb(245, 225, 205)))
                 }
             }
             "gold", "snow" -> {
                 for (i in 0 until 35) {
-                    entities.add(
-                        Entity(
-                            x = Random.nextFloat() * 1080f,
-                            y = Random.nextFloat() * 1920f,
-                            vx = (Random.nextFloat() - 0.5f) * 0.8f,
-                            vy = if (mode == "snow") (1.5f + Random.nextFloat() * 2.5f) else -(0.8f + Random.nextFloat() * 1.5f),
-                            size = 6f + Random.nextFloat() * 18f,
-                            phase = Random.nextFloat() * 6.28f,
-                            kind = 0,
-                            alpha = 140,
-                            color = if (mode == "gold") Color.rgb(255, 215, 0) else Color.WHITE
-                        )
-                    )
+                    entities.add(Entity(Random.nextFloat() * 1080f, Random.nextFloat() * 1920f, (Random.nextFloat() - 0.5f) * 0.8f, if (mode == "snow") (1.5f + Random.nextFloat() * 2.5f) else -(0.8f + Random.nextFloat() * 1.5f), 6f + Random.nextFloat() * 18f, Random.nextFloat() * 6.28f, 0, 145, if (mode == "gold") Color.rgb(255, 215, 0) else Color.WHITE))
                 }
             }
         }
@@ -225,8 +137,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (mode == "none") return
-
         val w = width.toFloat().coerceAtLeast(1080f)
         val h = height.toFloat().coerceAtLeast(1920f)
         tick += 0.045f
@@ -238,11 +148,32 @@ class AnimatedOverlayView(context: Context) : View(context) {
             "gold", "snow" -> drawBokehOrSnow(canvas, w, h)
         }
 
-        postInvalidateDelayed(22L)
+        if (showCursor) {
+            cursorPath.reset()
+            cursorPath.moveTo(cursorX, cursorY)
+            cursorPath.lineTo(cursorX, cursorY + 36f)
+            cursorPath.lineTo(cursorX + 10f, cursorY + 28f)
+            cursorPath.lineTo(cursorX + 18f, cursorY + 42f)
+            cursorPath.lineTo(cursorX + 24f, cursorY + 38f)
+            cursorPath.lineTo(cursorX + 16f, cursorY + 24f)
+            cursorPath.lineTo(cursorX + 28f, cursorY + 24f)
+            cursorPath.close()
+
+            paint.style = Paint.Style.FILL
+            paint.color = Color.parseColor("#FF1744")
+            canvas.drawPath(cursorPath, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 3f
+            paint.color = Color.WHITE
+            canvas.drawPath(cursorPath, paint)
+        }
+
+        if (mode != "none" || showCursor) {
+            postInvalidateDelayed(22L)
+        }
     }
 
     private fun drawMarineEcosystem(canvas: Canvas, w: Float, h: Float) {
-        // Alt Kısımda Sallanan Deniz Yosunları
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 7f
         paint.color = Color.argb(95, 46, 125, 50)
@@ -259,7 +190,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
         for (e in entities) {
             when (e.kind) {
-                0, 1, 2 -> { // 3 Farklı Tür Balık
+                0, 1, 2 -> {
                     e.x += e.vx
                     val dir = if (e.vx >= 0) 1f else -1f
                     val waveY = e.y + sin((tick * 2f + e.phase).toDouble()).toFloat() * 18f
@@ -268,23 +199,19 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
                     paint.style = Paint.Style.FILL
                     paint.color = when (e.kind) {
-                        0 -> Color.argb(180, 255, 112, 67) // Palyaço Balığı (Turuncu)
-                        1 -> Color.argb(180, 41, 182, 246) // Mavi Tang
-                        else -> Color.argb(180, 255, 213, 79) // Sarı Melek Balığı
+                        0 -> Color.argb(185, 255, 112, 67)
+                        1 -> Color.argb(185, 41, 182, 246)
+                        else -> Color.argb(185, 255, 213, 79)
                     }
-
-                    // Gövde
                     val bodyH = if (e.kind == 2) e.size * 0.85f else e.size * 0.52f
                     canvas.drawOval(RectF(e.x - e.size, waveY - bodyH, e.x + e.size, waveY + bodyH), paint)
 
-                    // Palyaço Balığı Beyaz Çizgileri
                     if (e.kind == 0) {
-                        paint.color = Color.argb(175, 255, 255, 255)
+                        paint.color = Color.argb(180, 255, 255, 255)
                         canvas.drawRect(e.x - e.size * 0.2f, waveY - bodyH * 0.9f, e.x + e.size * 0.1f, waveY + bodyH * 0.9f, paint)
-                        paint.color = Color.argb(180, 255, 112, 67)
+                        paint.color = Color.argb(185, 255, 112, 67)
                     }
 
-                    // Sallanan Kuyruk Yüzgeci
                     val wag = sin((tick * 4f + e.phase).toDouble()).toFloat() * 12f
                     val tail = Path().apply {
                         moveTo(e.x - dir * e.size * 0.85f, waveY)
@@ -295,26 +222,22 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     }
                     canvas.drawPath(tail, paint)
 
-                    // Göz
                     paint.color = Color.WHITE
                     canvas.drawCircle(e.x + dir * e.size * 0.55f, waveY - bodyH * 0.25f, e.size * 0.15f, paint)
                     paint.color = Color.BLACK
                     canvas.drawCircle(e.x + dir * e.size * 0.60f, waveY - bodyH * 0.25f, e.size * 0.07f, paint)
                 }
-                3 -> { // Ahtapot (8 Dalgalanan Kol + Baş)
+                3 -> {
                     e.x += e.vx
                     val bobY = e.y + sin((tick * 1.4f + e.phase).toDouble()).toFloat() * 35f
                     if (e.x > w - 80f || e.x < 80f) e.vx = -e.vx
 
                     paint.style = Paint.Style.FILL
                     paint.color = e.color
-                    // Ahtapot Başı
                     canvas.drawOval(RectF(e.x - e.size, bobY - e.size * 1.1f, e.x + e.size, bobY + e.size * 0.3f), paint)
 
-                    // 8 Dalgalanan Kol
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 6f
-                    paint.strokeCap = Paint.Cap.ROUND
                     for (t in -3..4) {
                         val startX = e.x + t * (e.size * 0.22f)
                         val sway = sin((tick * 2.5f + t * 0.7f + e.phase).toDouble()).toFloat() * 22f
@@ -324,8 +247,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         }
                         canvas.drawPath(tentacle, paint)
                     }
-
-                    // Ahtapot Gözleri
                     paint.style = Paint.Style.FILL
                     paint.color = Color.WHITE
                     canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 7f, paint)
@@ -334,17 +255,15 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     canvas.drawCircle(e.x - e.size * 0.35f, bobY - e.size * 0.2f, 3.5f, paint)
                     canvas.drawCircle(e.x + e.size * 0.35f, bobY - e.size * 0.2f, 3.5f, paint)
                 }
-                4 -> { // Zeminde Yan Yürüyen Kıskaçlı Yengeç
+                4 -> {
                     e.x += e.vx
                     if (e.x > w - 90f || e.x < 90f) e.vx = -e.vx
                     val stepY = (h - 65f) + kotlin.math.abs(sin((tick * 5f + e.phase).toDouble()).toFloat()) * 8f
 
                     paint.style = Paint.Style.FILL
                     paint.color = e.color
-                    // Yengeç Kabuğu
                     canvas.drawOval(RectF(e.x - e.size, stepY - e.size * 0.55f, e.x + e.size, stepY + e.size * 0.55f), paint)
 
-                    // Bacaklar ve Yukarı Kalkan Kıskaçlar
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 4.5f
                     for (leg in -1..1) {
@@ -352,17 +271,14 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         canvas.drawLine(e.x - e.size * 0.8f, stepY + leg * 6f, e.x - e.size * 1.45f, stepY + 18f + legOffset, paint)
                         canvas.drawLine(e.x + e.size * 0.8f, stepY + leg * 6f, e.x + e.size * 1.45f, stepY + 18f - legOffset, paint)
                     }
-                    // Kıskaçlar
                     paint.style = Paint.Style.FILL
                     canvas.drawCircle(e.x - e.size * 1.25f, stepY - e.size * 0.85f, 11f, paint)
                     canvas.drawCircle(e.x + e.size * 1.25f, stepY - e.size * 0.85f, 11f, paint)
-
-                    // Saplı Gözler
                     paint.color = Color.WHITE
                     canvas.drawCircle(e.x - 10f, stepY - e.size * 0.7f, 5.5f, paint)
                     canvas.drawCircle(e.x + 10f, stepY - e.size * 0.7f, 5.5f, paint)
                 }
-                5 -> { // Su Kabarcıkları
+                5 -> {
                     e.y += e.vy
                     val bx = e.x + sin((tick * 2f + e.phase).toDouble()).toFloat() * 14f
                     if (e.y < -30f) {
@@ -379,7 +295,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
     }
 
     private fun drawRealisticDonerAndFire(canvas: Canvas, w: Float, h: Float) {
-        // Alt Kısımda Sıcak Kor Ateş Parıltısı
         val fireGrad = RadialGradient(
             w - 150f, h - 80f, 360f,
             intArrayOf(Color.argb(120, 255, 87, 34), Color.argb(50, 211, 47, 47), Color.TRANSPARENT),
@@ -391,7 +306,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
         canvas.drawCircle(w - 150f, h - 80f, 360f, paint)
         paint.shader = null
 
-        // Sağ Alt Köşede Gerçekçi 3D Dönen Döner Koni Yapısı
         val cx = w - 145f
         val cy = h - 250f
         paint.color = Color.argb(180, 190, 195, 200)
@@ -399,24 +313,12 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
         for (layer in -5..5) {
             val yPos = cy + layer * 20f
-            // Ters koni: Üst daha geniş, alt daha dar
             val coneRadius = (88f - (layer + 5) * 3.8f)
             val shimmer = sin((tick * 2.5f + layer * 0.8f).toDouble()).toFloat() * 6f
-            val rColor = if ((layer + (tick * 2).toInt()) % 2 == 0) {
-                Color.argb(175, 150, 55, 20)
-            } else {
-                Color.argb(175, 195, 82, 32)
-            }
-            paint.color = rColor
+            paint.color = if ((layer + (tick * 2).toInt()) % 2 == 0) Color.argb(175, 150, 55, 20) else Color.argb(175, 195, 82, 32)
             canvas.drawOval(RectF(cx - coneRadius + shimmer, yPos - 13f, cx + coneRadius + shimmer, yPos + 13f), paint)
-
-            // Kızarmış Doku Çizgileri
-            paint.color = Color.argb(130, 95, 30, 10)
-            val charX = cx + sin((tick * 1.8f + layer).toDouble()).toFloat() * (coneRadius * 0.6f)
-            canvas.drawOval(RectF(charX - 18f, yPos - 4f, charX + 18f, yPos + 4f), paint)
         }
 
-        // Gerçekçi Yumuşak Buhar Bulutları ve Kor Ateş Kıvılcımları
         for (e in entities) {
             e.y += e.vy
             val driftX = e.x + sin((tick * 1.2f + e.phase).toDouble()).toFloat() * 28f
@@ -424,9 +326,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 e.y = h + 60f
                 e.x = Random.nextFloat() * w
             }
-
             if (e.kind == 0) {
-                // RadialGradient ile gerçekçi yumuşak kenarlı buhar bulutu
                 val radius = e.size * (1f + ((h - e.y) / h) * 0.6f)
                 val steamGrad = RadialGradient(
                     driftX, e.y, radius,
@@ -438,7 +338,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 canvas.drawCircle(driftX, e.y, radius, paint)
                 paint.shader = null
             } else {
-                // Yükselen Kor Ateş Kıvılcımları
                 val flicker = (120 + sin((tick * 8f + e.phase).toDouble()) * 85).toInt().coerceIn(40, 220)
                 paint.color = Color.argb(flicker, 255, 145, 0)
                 canvas.drawCircle(driftX, e.y, 4.5f, paint)
@@ -458,7 +357,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
             val progress = ((h - e.y) / h).coerceIn(0f, 1f)
             val rad = e.size * (0.8f + progress * 1.1f)
             val peakAlpha = ((1f - progress * 0.65f) * 52f).toInt().coerceIn(8, 60)
-
             val r = Color.red(e.color)
             val g = Color.green(e.color)
             val b = Color.blue(e.color)
@@ -529,6 +427,10 @@ class MainActivity : AppCompatActivity() {
     private var activeBgObject = "none"
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
+    private val hideCursorRunnable = Runnable {
+        animatedOverlayView.showCursor = false
+        animatedOverlayView.invalidate()
+    }
 
     private val ipCheckRunnable = object : Runnable {
         override fun run() {
@@ -560,30 +462,22 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
+        val rootFrame = mediaContainer.parent as? FrameLayout ?: mediaContainer
         animatedOverlayView = AnimatedOverlayView(this)
-        mediaContainer.addView(
+        rootFrame.addView(
             animatedOverlayView,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         )
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            val accStatus = if (MenuboardControlService.instance != null) "Mouse Aktif" else "Mouse İçin Erişilebilirlik Açın"
-            txtStatus.text = "v$vName ($accStatus) | QR Okutun veya Ağı Tarayın"
+            txtStatus.text = "Sürüm: v$vName | Kumandadan QR Okutun veya Ağı Tarayın"
         } catch (_: Exception) {}
 
         initPlayer()
         loadSavedState()
 
         btnSettings.setOnClickListener { showQrOverlay() }
-        btnSettings.setOnLongClickListener {
-            // Uzun basıldığında Erişilebilirlik (Mouse) Ayarlarını açar
-            try {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            } catch (_: Exception) {}
-            true
-        }
-
         btnCloseQr.setOnClickListener {
             if (playlist.isNotEmpty()) {
                 hideQrOverlay()
@@ -596,6 +490,44 @@ class MainActivity : AppCompatActivity() {
         handler.post(ipCheckRunnable)
 
         checkForUpdate()
+    }
+
+    // Arka Plandayken Menuboard'u Zorla En Öne Getiren Çoklu Tetikleyici
+    private fun bringMenuboardToFront() {
+        runOnUiThread {
+            try {
+                // 1. Eğer Erişilebilirlik Servisi açıksa kendi bağlamından başlat
+                val svc = MenuboardControlService.instance
+                if (svc != null) {
+                    svc.launchAppFromService(packageName)
+                }
+
+                // 2. PendingIntent ile tam ekran öncelikli başlatma
+                val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
+                    action = Intent.ACTION_MAIN
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                    )
+                }
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                val pendingIntent = PendingIntent.getActivity(applicationContext, 999, frontIntent, flags)
+                pendingIntent.send()
+                startActivity(frontIntent)
+            } catch (_: Exception) {}
+        }
+        Thread {
+            try {
+                Runtime.getRuntime().exec(arrayOf("am", "start", "-n", "$packageName/.MainActivity"))
+            } catch (_: Exception) {}
+        }.start()
     }
 
     private fun checkForUpdate() {
@@ -750,7 +682,8 @@ class MainActivity : AppCompatActivity() {
 
         if (httpServer == null) {
             httpServer = SignageServer(8080)
-            httpServer?.start()
+            // Büyük videoların (200MB - 2GB) kopmaması için soket okuma zaman aşımını 10 dakikaya (600.000 ms) çıkarıyoruz!
+            httpServer?.start(600000, false)
         }
     }
 
@@ -908,7 +841,6 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Sanal Touchpad (Mouse) & Klavye Kontrol Uç Noktası
             if (uri == "/api/input" && method == Method.POST) {
                 val type = session.parameters["type"]?.firstOrNull() ?: ""
                 val svc = MenuboardControlService.instance
@@ -917,51 +849,108 @@ class MainActivity : AppCompatActivity() {
                     "move" -> {
                         val dx = session.parameters["dx"]?.firstOrNull()?.toFloatOrNull() ?: 0f
                         val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
-                        svc?.moveCursorBy(dx, dy)
+                        if (svc != null) {
+                            svc.moveCursorBy(dx, dy)
+                        } else {
+                            runOnUiThread {
+                                val dm = resources.displayMetrics
+                                animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(10f, dm.widthPixels - 20f)
+                                animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(10f, dm.heightPixels - 20f)
+                                animatedOverlayView.showCursor = true
+                                animatedOverlayView.bringToFront()
+                                animatedOverlayView.invalidate()
+                                handler.removeCallbacks(hideCursorRunnable)
+                                handler.postDelayed(hideCursorRunnable, 8000L)
+                            }
+                        }
                     }
                     "click" -> {
-                        svc?.clickAtCursor()
+                        if (svc != null) {
+                            svc.clickAtCursor()
+                        } else {
+                            val cx = animatedOverlayView.cursorX
+                            val cy = animatedOverlayView.cursorY
+                            runOnUiThread {
+                                val downTime = SystemClock.uptimeMillis()
+                                val evDown = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, cx, cy, 0)
+                                val evUp = MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, cx, cy, 0)
+                                window.decorView.dispatchTouchEvent(evDown)
+                                window.decorView.dispatchTouchEvent(evUp)
+                                evDown.recycle()
+                                evUp.recycle()
+                            }
+                        }
                     }
                     "scroll" -> {
                         val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
                         svc?.scrollAtCursor(dy)
                     }
                     "nav" -> {
-                        val act = session.parameters["act"]?.firstOrNull() ?: ""
-                        if (act == "MENUBOARD") {
-                            // Menuboard'u tekrar en öne getir
-                            val bringIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        when (val act = session.parameters["act"]?.firstOrNull() ?: "") {
+                            "MENUBOARD" -> bringMenuboardToFront()
+                            "APP_DETAILS" -> {
+                                // Android 13/14/15 Kısıtlanmış Ayarlar (Restricted Settings) kilidini açmak için uygulama bilgi ekranını açar
+                                runOnUiThread {
+                                    try {
+                                        val detIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", packageName, null)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        startActivity(detIntent)
+                                        Toast.makeText(this@MainActivity, "Sağ üstteki 3 noktaya (⋮) basıp 'Kısıtlanmış ayarlara izin ver' seçeneğini açın.", Toast.LENGTH_LONG).show()
+                                    } catch (_: Exception) {}
+                                }
                             }
-                            startActivity(bringIntent)
-                        } else if (act == "ACCESSIBILITY_SETTINGS") {
-                            val accIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            "OVERLAY_SETTINGS" -> {
+                                runOnUiThread {
+                                    try {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                            val ovIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            startActivity(ovIntent)
+                                        }
+                                    } catch (_: Exception) {}
+                                }
                             }
-                            startActivity(accIntent)
-                        } else {
-                            svc?.performNavAction(act)
+                            "ACCESSIBILITY_SETTINGS" -> {
+                                runOnUiThread {
+                                    try {
+                                        val accIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        startActivity(accIntent)
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                            else -> svc?.performNavAction(act)
                         }
                     }
                     "text" -> {
                         val text = session.parameters["val"]?.firstOrNull() ?: ""
-                        svc?.inputKeyboardText(text, isBackspace = false)
+                        if (svc != null) {
+                            svc.inputKeyboardText(text, isBackspace = false)
+                        } else if (text.isNotEmpty()) {
+                            Thread {
+                                try { Instrumentation().sendStringSync(text) } catch (_: Exception) {}
+                            }.start()
+                        }
                     }
                     "key" -> {
                         val code = session.parameters["code"]?.firstOrNull() ?: ""
-                        if (code == "BACKSPACE") {
-                            svc?.inputKeyboardText("", isBackspace = true)
-                        } else if (code == "ENTER") {
+                        if (svc != null && code == "BACKSPACE") {
+                            svc.inputKeyboardText("", isBackspace = true)
+                        } else {
                             Thread {
                                 try {
-                                    android.app.Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+                                    if (code == "BACKSPACE") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DEL)
+                                    else if (code == "ENTER") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
                                 } catch (_: Exception) {}
                             }.start()
                         }
                     }
                 }
-                val hasAcc = svc != null
-                return newFixedLengthResponse(Response.Status.OK, "text/plain", if (hasAcc) "OK" else "NEED_ACCESSIBILITY")
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
             if (uri == "/api/sefim/bgobject" && method == Method.POST) {
@@ -990,6 +979,45 @@ class MainActivity : AppCompatActivity() {
                     File(filesDir, "sefim_backup.json").writeText(postData)
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SAVED")
+            }
+
+            // 200MB+ Büyük Videolar ve APK Dosyaları İçin Sıfır Bellek Tüketen Doğrudan Akış (Raw Stream)
+            if (uri == "/api/upload_raw" && method == Method.POST) {
+                val filename = session.parameters["filename"]?.firstOrNull() ?: "media_${System.currentTimeMillis()}"
+                val isApk = session.parameters["apk"]?.firstOrNull() == "true"
+                val contentLength = session.headers["content-length"]?.toLongOrNull() ?: 0L
+
+                val targetFile = if (isApk) {
+                    File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "remote_pushed_${System.currentTimeMillis()}.apk")
+                } else {
+                    File(filesDir, filename)
+                }
+
+                try {
+                    val input = session.inputStream
+                    FileOutputStream(targetFile).use { output ->
+                        val buffer = ByteArray(65536) // 64 KB hızlı disk tamponu
+                        var remaining = contentLength
+                        while (remaining > 0) {
+                            val toRead = minOf(buffer.size.toLong(), remaining).toInt()
+                            val read = input.read(buffer, 0, toRead)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                            remaining -= read
+                        }
+                        output.flush()
+                    }
+
+                    if (isApk) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "APK alındı, kurulum başlatılıyor...", Toast.LENGTH_LONG).show()
+                            installLocalApkFile(targetFile)
+                        }
+                    }
+                    return newFixedLengthResponse(Response.Status.OK, "text/plain", filename)
+                } catch (e: Exception) {
+                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.localizedMessage ?: "ERR")
+                }
             }
 
             if (uri == "/api/app/install" && method == Method.POST) {
@@ -1031,25 +1059,24 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(appList))
             }
 
-            // Menuboard Arka Plandayken Bile Uygulama Başlatma (Accessibility Service + Context Fallback)
             if (uri == "/api/apps/launch" && method == Method.POST) {
                 val pkg = session.parameters["pkg"]?.firstOrNull() ?: ""
                 if (pkg.isNotEmpty()) {
+                    if (pkg == packageName) {
+                        bringMenuboardToFront()
+                        return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
+                    }
                     val launchedViaService = MenuboardControlService.instance?.launchAppFromService(pkg) ?: false
                     if (!launchedViaService) {
                         val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
                         if (launchIntent != null) {
                             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                             runOnUiThread {
-                                try {
-                                    startActivity(launchIntent)
-                                } catch (_: Exception) {}
+                                try { startActivity(launchIntent) } catch (_: Exception) {}
                             }
-                            return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
                         }
-                    } else {
-                        return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED_BG")
                     }
+                    return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
                 }
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "NOT_FOUND")
             }
@@ -1132,12 +1159,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/ping" && method == Method.GET) {
-                val resObj = mapOf(
-                    "id" to deviceId,
-                    "tag" to deviceTag,
-                    "bgObject" to activeBgObject,
-                    "mouseReady" to (MenuboardControlService.instance != null).toString()
-                )
+                val resObj = mapOf("id" to deviceId, "tag" to deviceTag, "bgObject" to activeBgObject)
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resObj))
             }
 
