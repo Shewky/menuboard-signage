@@ -11,8 +11,8 @@ android {
         applicationId = "com.anypay.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 106
-        versionName = "1.06"
+        versionCode = 107
+        versionName = "1.07"
     }
 
     signingConfigs {
@@ -57,4 +57,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.github.bumptech.glide:glide:4.16.0")
+
+    // Şefim MS SQL Server Veritabanı Bağlantısı İçin JDBC Sürücüsü
+    implementation("net.sourceforge.jtds:jtds:1.3.1")
 }
