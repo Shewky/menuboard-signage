@@ -7,12 +7,12 @@ android {
     namespace = "com.anypay.remote"
     compileSdk = 34
 
-defaultConfig {
+    defaultConfig {
         applicationId = "com.anypay.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 109
-        versionName = "1.09"
+        versionCode = 110
+        versionName = "1.10"
     }
 
     signingConfigs {
