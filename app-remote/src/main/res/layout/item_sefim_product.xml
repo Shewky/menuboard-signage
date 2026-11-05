@@ -6,7 +6,7 @@
     android:layout_marginVertical="3dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="10dp">
+    android:padding="8dp">
 
     <CheckBox
         android:id="@+id/cbProductInclude"
@@ -14,10 +14,31 @@
         android:layout_height="wrap_content"
         android:checked="true" />
 
+    <!-- Ürün Görseli Önizleme / Ekleme -->
+    <FrameLayout
+        android:layout_width="54dp"
+        android:layout_height="54dp"
+        android:layout_marginStart="4dp"
+        android:background="#33888888">
+
+        <ImageView
+            android:id="@+id/imgProductPhoto"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop" />
+
+        <ImageButton
+            android:id="@+id/btnPickProductPhoto"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?selectableItemBackground"
+            android:src="@android:drawable/ic_menu_camera" />
+    </FrameLayout>
+
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="6dp"
+        android:layout_marginStart="8dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -26,25 +47,25 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Ürün Adı"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/txtProductChoices"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="2dp"
             android:text="↳ Seçenekler"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/txtProductPrice"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="6dp"
         android:text="0.00 ₺"
-        android:textSize="16sp"
+        android:textSize="15sp"
         android:textStyle="bold" />
 
 </LinearLayout>
