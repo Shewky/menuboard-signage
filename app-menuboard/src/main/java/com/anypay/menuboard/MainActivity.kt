@@ -471,7 +471,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            txtStatus.text = "Sürüm: v$vName | Kumandadan QR Okutun veya Ağı Tarayın"
+            txtStatus.text = "Sürüm: v$vName (YENİ) | Kumandadan QR Okutun veya Ağı Tarayın"
         } catch (_: Exception) {}
 
         initPlayer()
@@ -492,17 +492,9 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
-    // Arka Plandayken Menuboard'u Zorla En Öne Getiren Çoklu Tetikleyici
     private fun bringMenuboardToFront() {
         runOnUiThread {
             try {
-                // 1. Eğer Erişilebilirlik Servisi açıksa kendi bağlamından başlat
-                val svc = MenuboardControlService.instance
-                if (svc != null) {
-                    svc.launchAppFromService(packageName)
-                }
-
-                // 2. PendingIntent ile tam ekran öncelikli başlatma
                 val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
                     action = Intent.ACTION_MAIN
                     addCategory(Intent.CATEGORY_LAUNCHER)
@@ -682,7 +674,6 @@ class MainActivity : AppCompatActivity() {
 
         if (httpServer == null) {
             httpServer = SignageServer(8080)
-            // Büyük videoların (200MB - 2GB) kopmaması için soket okuma zaman aşımını 10 dakikaya (600.000 ms) çıkarıyoruz!
             httpServer?.start(600000, false)
         }
     }
@@ -843,53 +834,53 @@ class MainActivity : AppCompatActivity() {
 
             if (uri == "/api/input" && method == Method.POST) {
                 val type = session.parameters["type"]?.firstOrNull() ?: ""
-                val svc = MenuboardControlService.instance
-
                 when (type) {
                     "move" -> {
                         val dx = session.parameters["dx"]?.firstOrNull()?.toFloatOrNull() ?: 0f
                         val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
-                        if (svc != null) {
-                            svc.moveCursorBy(dx, dy)
-                        } else {
-                            runOnUiThread {
-                                val dm = resources.displayMetrics
-                                animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(10f, dm.widthPixels - 20f)
-                                animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(10f, dm.heightPixels - 20f)
-                                animatedOverlayView.showCursor = true
-                                animatedOverlayView.bringToFront()
-                                animatedOverlayView.invalidate()
-                                handler.removeCallbacks(hideCursorRunnable)
-                                handler.postDelayed(hideCursorRunnable, 8000L)
-                            }
+                        runOnUiThread {
+                            val dm = resources.displayMetrics
+                            animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(10f, dm.widthPixels - 20f)
+                            animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(10f, dm.heightPixels - 20f)
+                            animatedOverlayView.showCursor = true
+                            animatedOverlayView.bringToFront()
+                            animatedOverlayView.invalidate()
+                            handler.removeCallbacks(hideCursorRunnable)
+                            handler.postDelayed(hideCursorRunnable, 8000L)
                         }
                     }
                     "click" -> {
-                        if (svc != null) {
-                            svc.clickAtCursor()
-                        } else {
-                            val cx = animatedOverlayView.cursorX
-                            val cy = animatedOverlayView.cursorY
-                            runOnUiThread {
-                                val downTime = SystemClock.uptimeMillis()
-                                val evDown = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, cx, cy, 0)
-                                val evUp = MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, cx, cy, 0)
-                                window.decorView.dispatchTouchEvent(evDown)
-                                window.decorView.dispatchTouchEvent(evUp)
-                                evDown.recycle()
-                                evUp.recycle()
-                            }
+                        val cx = animatedOverlayView.cursorX
+                        val cy = animatedOverlayView.cursorY
+                        runOnUiThread {
+                            val downTime = SystemClock.uptimeMillis()
+                            val evDown = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, cx, cy, 0)
+                            val evUp = MotionEvent.obtain(downTime, downTime + 50, MotionEvent.ACTION_UP, cx, cy, 0)
+                            window.decorView.dispatchTouchEvent(evDown)
+                            window.decorView.dispatchTouchEvent(evUp)
+                            evDown.recycle()
+                            evUp.recycle()
                         }
+                        Thread {
+                            try {
+                                Runtime.getRuntime().exec(arrayOf("input", "tap", cx.toInt().toString(), cy.toInt().toString()))
+                            } catch (_: Exception) {}
+                        }.start()
                     }
                     "scroll" -> {
-                        val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
-                        svc?.scrollAtCursor(dy)
+                        val dy = session.parameters["dy"]?.firstOrNull()?.toIntOrNull() ?: 0
+                        val cx = animatedOverlayView.cursorX.toInt()
+                        val cy = animatedOverlayView.cursorY.toInt()
+                        Thread {
+                            try {
+                                Runtime.getRuntime().exec(arrayOf("input", "swipe", cx.toString(), cy.toString(), cx.toString(), (cy + dy).toString(), "200"))
+                            } catch (_: Exception) {}
+                        }.start()
                     }
                     "nav" -> {
-                        when (val act = session.parameters["act"]?.firstOrNull() ?: "") {
+                        when (session.parameters["act"]?.firstOrNull() ?: "") {
                             "MENUBOARD" -> bringMenuboardToFront()
                             "APP_DETAILS" -> {
-                                // Android 13/14/15 Kısıtlanmış Ayarlar (Restricted Settings) kilidini açmak için uygulama bilgi ekranını açar
                                 runOnUiThread {
                                     try {
                                         val detIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -923,14 +914,23 @@ class MainActivity : AppCompatActivity() {
                                     } catch (_: Exception) {}
                                 }
                             }
-                            else -> svc?.performNavAction(act)
+                            "HOME" -> {
+                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_HOME)
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                startActivity(homeIntent)
+                            }
+                            "BACK" -> {
+                                Thread {
+                                    try { Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK) } catch (_: Exception) {}
+                                }.start()
+                            }
                         }
                     }
                     "text" -> {
                         val text = session.parameters["val"]?.firstOrNull() ?: ""
-                        if (svc != null) {
-                            svc.inputKeyboardText(text, isBackspace = false)
-                        } else if (text.isNotEmpty()) {
+                        if (text.isNotEmpty()) {
                             Thread {
                                 try { Instrumentation().sendStringSync(text) } catch (_: Exception) {}
                             }.start()
@@ -938,16 +938,12 @@ class MainActivity : AppCompatActivity() {
                     }
                     "key" -> {
                         val code = session.parameters["code"]?.firstOrNull() ?: ""
-                        if (svc != null && code == "BACKSPACE") {
-                            svc.inputKeyboardText("", isBackspace = true)
-                        } else {
-                            Thread {
-                                try {
-                                    if (code == "BACKSPACE") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DEL)
-                                    else if (code == "ENTER") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
-                                } catch (_: Exception) {}
-                            }.start()
-                        }
+                        Thread {
+                            try {
+                                if (code == "BACKSPACE") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DEL)
+                                else if (code == "ENTER") Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+                            } catch (_: Exception) {}
+                        }.start()
                     }
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
@@ -966,7 +962,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/sefim/backup" && method == Method.GET) {
-                val backupFile = File(filesDir, "sefim_backup.json")
+                val backupFile = File(filesDir, "sefim_backup_v117.json")
                 val content = if (backupFile.exists()) backupFile.readText() else ""
                 return newFixedLengthResponse(Response.Status.OK, "application/json", content)
             }
@@ -976,12 +972,11 @@ class MainActivity : AppCompatActivity() {
                 session.parseBody(files)
                 val postData = files["postData"] ?: ""
                 if (postData.isNotEmpty()) {
-                    File(filesDir, "sefim_backup.json").writeText(postData)
+                    File(filesDir, "sefim_backup_v117.json").writeText(postData)
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SAVED")
             }
 
-            // 200MB+ Büyük Videolar ve APK Dosyaları İçin Sıfır Bellek Tüketen Doğrudan Akış (Raw Stream)
             if (uri == "/api/upload_raw" && method == Method.POST) {
                 val filename = session.parameters["filename"]?.firstOrNull() ?: "media_${System.currentTimeMillis()}"
                 val isApk = session.parameters["apk"]?.firstOrNull() == "true"
@@ -996,7 +991,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val input = session.inputStream
                     FileOutputStream(targetFile).use { output ->
-                        val buffer = ByteArray(65536) // 64 KB hızlı disk tamponu
+                        val buffer = ByteArray(65536)
                         var remaining = contentLength
                         while (remaining > 0) {
                             val toRead = minOf(buffer.size.toLong(), remaining).toInt()
@@ -1066,14 +1061,11 @@ class MainActivity : AppCompatActivity() {
                         bringMenuboardToFront()
                         return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
                     }
-                    val launchedViaService = MenuboardControlService.instance?.launchAppFromService(pkg) ?: false
-                    if (!launchedViaService) {
-                        val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-                        if (launchIntent != null) {
-                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            runOnUiThread {
-                                try { startActivity(launchIntent) } catch (_: Exception) {}
-                            }
+                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        runOnUiThread {
+                            try { startActivity(launchIntent) } catch (_: Exception) {}
                         }
                     }
                     return newFixedLengthResponse(Response.Status.OK, "text/plain", "LAUNCHED")
