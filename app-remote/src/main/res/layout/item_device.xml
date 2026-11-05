@@ -13,13 +13,13 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="10dp">
+        android:padding="8dp">
 
         <View
             android:id="@+id/viewStatusDot"
             android:layout_width="12dp"
             android:layout_height="12dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginEnd="6dp"
             android:background="@android:drawable/presence_busy" />
 
         <LinearLayout
@@ -33,7 +33,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#000000"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -42,13 +42,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:textColor="#666666"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <ImageButton
             android:id="@+id/btnEditTag"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
             android:background="?selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_edit" />
 
@@ -58,25 +58,29 @@
             android:layout_height="36dp"
             android:layout_marginStart="2dp"
             android:backgroundTint="#F57C00"
-            android:minWidth="52dp"
-            android:paddingHorizontal="8dp"
+            android:minWidth="48dp"
+            android:paddingHorizontal="6dp"
             android:text="Bul"
             android:textColor="#FFFFFF"
             android:textSize="11sp" />
 
-        <!-- BUL Butonunun Yanındaki Ayar Butonu (APK Kurma & Uygulama Başlatma) -->
-        <ImageButton
+        <Button
             android:id="@+id/btnDeviceSettings"
-            android:layout_width="36dp"
+            android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:layout_marginStart="4dp"
-            android:background="?selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_preferences" />
+            android:backgroundTint="#1976D2"
+            android:minWidth="56dp"
+            android:paddingHorizontal="8dp"
+            android:text="⚙️ Ayar"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
 
         <ImageButton
             android:id="@+id/btnDeleteDevice"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginStart="2dp"
             android:background="?selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_delete" />
 
