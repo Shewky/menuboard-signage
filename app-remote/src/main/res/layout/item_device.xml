@@ -15,7 +15,6 @@
         android:orientation="horizontal"
         android:padding="10dp">
 
-        <!-- Online (Yeşil) / Offline (Kırmızı) Durum Noktası -->
         <View
             android:id="@+id/viewStatusDot"
             android:layout_width="12dp"
@@ -34,7 +33,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#000000"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -43,31 +42,41 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:textColor="#666666"
-                android:textSize="13sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <ImageButton
             android:id="@+id/btnEditTag"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:background="?selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_edit" />
 
         <Button
             android:id="@+id/btnFindDevice"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:layout_marginStart="4dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="2dp"
             android:backgroundTint="#F57C00"
-            android:paddingHorizontal="10dp"
+            android:minWidth="52dp"
+            android:paddingHorizontal="8dp"
             android:text="Bul"
             android:textColor="#FFFFFF"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
+
+        <!-- BUL Butonunun Yanındaki Ayar Butonu (APK Kurma & Uygulama Başlatma) -->
+        <ImageButton
+            android:id="@+id/btnDeviceSettings"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="4dp"
+            android:background="?selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_preferences" />
 
         <ImageButton
             android:id="@+id/btnDeleteDevice"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:background="?selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_delete" />
 
