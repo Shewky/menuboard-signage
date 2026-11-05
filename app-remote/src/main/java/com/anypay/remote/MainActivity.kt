@@ -12,7 +12,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
@@ -54,7 +53,6 @@ import java.net.DatagramSocket
 import java.sql.DriverManager
 import java.util.Collections
 import java.util.concurrent.TimeUnit
-import kotlin.math.ceil
 
 data class DeviceItem(
     val id: String,
@@ -89,6 +87,9 @@ data class SefimBackupPayload(
     val dbName: String = "",
     val dbUser: String = "",
     val dbPass: String = "",
+    val restaurantName: String = "BALIKÇI ŞÜKRÜ",
+    val headerNote: String = "",
+    val footerNote: String = "Afiyet Olsun • KDV Dahildir",
     val themeIndex: Int = 0,
     val fontSizeIndex: Int = 1,
     val isBold: Boolean = true,
@@ -136,6 +137,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var btnDbConfig: Button
     private lateinit var btnFetchSefim: Button
+    private lateinit var btnLoadDemoProducts: Button
+    private lateinit var edtRestaurantName: EditText
+    private lateinit var edtHeaderNote: EditText
+    private lateinit var edtFooterNote: EditText
     private lateinit var spinnerSefimTheme: Spinner
     private lateinit var spinnerSefimFontSize: Spinner
     private lateinit var spinnerSefimBgObject: Spinner
@@ -145,11 +150,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sefimAdapter: SefimProductAdapter
     private var sefimProducts = mutableListOf<SefimProductItem>()
 
-    // Ürün İsmine Göre Kalıcı Görsel Önbelleği (productName -> Base64 Image)
     private var productImageCache = mutableMapOf<String, String>()
     private var pendingPhotoProductName: String? = null
-
-    // Uzaktan APK Gönderilecek Hedef Cihaz
     private var targetApkDevice: DeviceItem? = null
 
     private lateinit var imgFooterLogo: ImageView
@@ -226,7 +228,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Ürün İçin Görsel Seçici (İsme Göre Önbelleğe Kaydeder)
     private val pickProductPhotoLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val prodName = pendingPhotoProductName
         if (res.resultCode == Activity.RESULT_OK && res.data?.data != null && !prodName.isNullOrEmpty()) {
@@ -256,7 +257,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Uzaktan Menuboard'a Kurulacak APK Dosya Seçici
     private val pickRemoteApkLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val target = targetApkDevice
         if (res.resultCode == Activity.RESULT_OK && res.data?.data != null && target != null) {
@@ -325,6 +325,10 @@ class MainActivity : AppCompatActivity() {
 
         btnDbConfig = findViewById(R.id.btnDbConfig)
         btnFetchSefim = findViewById(R.id.btnFetchSefim)
+        btnLoadDemoProducts = findViewById(R.id.btnLoadDemoProducts)
+        edtRestaurantName = findViewById(R.id.edtRestaurantName)
+        edtHeaderNote = findViewById(R.id.edtHeaderNote)
+        edtFooterNote = findViewById(R.id.edtFooterNote)
         spinnerSefimTheme = findViewById(R.id.spinnerSefimTheme)
         spinnerSefimFontSize = findViewById(R.id.spinnerSefimFontSize)
         spinnerSefimBgObject = findViewById(R.id.spinnerSefimBgObject)
@@ -371,7 +375,6 @@ class MainActivity : AppCompatActivity() {
             saveLocalSefimState()
         }
 
-        // Hareketli Arka Plan Objesi Seçildiğinde Menuboard'a Anında İlet
         spinnerSefimBgObject.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 saveLocalSefimState()
@@ -448,6 +451,7 @@ class MainActivity : AppCompatActivity() {
 
         btnDbConfig.setOnClickListener { showDbConfigDialog() }
         btnFetchSefim.setOnClickListener { fetchSefimProductsFromDb() }
+        btnLoadDemoProducts.setOnClickListener { loadDemoSefimProducts() }
         btnPublishSefimMenu.setOnClickListener { publishSefimMenuToMenuboard() }
 
         imgFooterLogo.setOnClickListener {
@@ -468,7 +472,35 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
-    // --- BUL YANINDAKİ AYAR (⚙️) MENÜSÜ: UZAKTAN APK KURMA & UYGULAMA BAŞLATMA ---
+    // Şefim PC Yanınızda Değilken Görsel Ekleme ve Çoklu Sayfayı Test Etmek İçin Demo Ürün Yükleyici
+    private fun loadDemoSefimProducts() {
+        val sampleItems = listOf(
+            SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Seçenek 1: Roka Salatası | Opsiyon: Mısır Ekmeği"),
+            SefimProductItem("2", "Deniz Çuprası (400-500gr)", "410 ₺", "Seçenek 1: Közlenmiş Soğan | Seçenek 2: Limon Sosu"),
+            SefimProductItem("3", "Tereyağlı Karides Güveç", "340 ₺", "Seçenek 1: Kaşarlı | Opsiyon: Acı Pul Biberli"),
+            SefimProductItem("4", "Kalamar Tava (Özel Soslu)", "320 ₺", "Seçenek 1: Tarator Sos | Seçenek 2: Mevsim Yeşillik"),
+            SefimProductItem("5", "Somon Izgara Menü", "450 ₺", "Seçenek 1: Buharda Sebze | Opsiyon: Soslu Patates"),
+            SefimProductItem("6", "Balık Ekmek Spesiyal", "210 ₺", "Seçenek 1: Bol Yeşillik | Seçenek 2: Turşu Suyu"),
+            SefimProductItem("7", "Hamsi Tava Porsiyon", "260 ₺", "Seçenek 1: Çoban Salata | Opsiyon: Mısır Unlu"),
+            SefimProductItem("8", "Midye Dolma (10 Adet)", "180 ₺", "Seçenek 1: Bol Limonlu"),
+            SefimProductItem("9", "Fırında Tahinli Helva", "140 ₺", "Seçenek 1: Fındıklı | Seçenek 2: Sade"),
+            SefimProductItem("10", "Şalgam & Meşrubat Çeşitleri", "65 ₺", "Seçenek 1: Acılı / Acısız | Opsiyon: Soğuk")
+        )
+
+        val previousSelectionMap = sefimProducts.associate { it.productName to it.isSelected }
+        sefimProducts.clear()
+        for (item in sampleItems) {
+            item.imageBase64 = productImageCache[item.productName]
+            item.isSelected = previousSelectionMap[item.productName] ?: true
+            sefimProducts.add(item)
+        }
+        saveLocalSefimState()
+        pushSefimBackupToMenuboard()
+        sefimAdapter.notifyDataSetChanged()
+        Toast.makeText(this, "10 adet test ürünü yüklendi! Kamera ikonuna basıp görsel ekleyebilirsiniz.", Toast.LENGTH_LONG).show()
+    }
+
+    // --- ⚙️ AYAR BUTONU MENÜSÜ: UZAKTAN APK KURMA & UYGULAMA BAŞLATMA ---
 
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val options = arrayOf(
@@ -476,7 +508,7 @@ class MainActivity : AppCompatActivity() {
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat"
         )
         AlertDialog.Builder(this)
-            .setTitle("${device.nameTag} - Cihaz Yönetimi")
+            .setTitle("${device.nameTag} (${device.host}) Yönetimi")
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> {
@@ -559,7 +591,7 @@ class MainActivity : AppCompatActivity() {
         httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı! Cihazın açık ve aynı ağda olduğundan emin olun.", Toast.LENGTH_LONG).show()
                 }
             }
 
@@ -570,7 +602,7 @@ class MainActivity : AppCompatActivity() {
                     val type = object : TypeToken<List<RemoteAppInfo>>() {}.type
                     val apps: List<RemoteAppInfo> = gson.fromJson(body, type)
                     if (apps.isEmpty()) {
-                        runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi boş döndü.", Toast.LENGTH_SHORT).show() }
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi alınamadı (Menuboard v1.12+ olmalı).", Toast.LENGTH_LONG).show() }
                         return
                     }
                     val labels = apps.map { "${it.appName}\n(${it.packageName})" }.toTypedArray()
@@ -607,7 +639,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // --- ÇİFT YÖNLÜ ŞEFİM YEDEKLEME VE OTOMATİK KURTARMA (TWO-WAY SYNC) ---
+    // --- ÇİFT YÖNLÜ ŞEFİM YEDEKLEME VE OTOMATİK KURTARMA ---
 
     private fun saveLocalSefimState() {
         val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
@@ -616,6 +648,9 @@ class MainActivity : AppCompatActivity() {
             dbName = dbPrefs.getString("db_name", "BALIKCISUKRU") ?: "",
             dbUser = dbPrefs.getString("db_user", "sa") ?: "",
             dbPass = dbPrefs.getString("db_pass", "") ?: "",
+            restaurantName = edtRestaurantName.text.toString().trim(),
+            headerNote = edtHeaderNote.text.toString().trim(),
+            footerNote = edtFooterNote.text.toString().trim(),
             themeIndex = spinnerSefimTheme.selectedItemPosition,
             fontSizeIndex = spinnerSefimFontSize.selectedItemPosition,
             isBold = cbSefimBold.isChecked,
@@ -631,6 +666,10 @@ class MainActivity : AppCompatActivity() {
         val json = dbPrefs.getString("sefim_full_backup_json", null) ?: return
         try {
             val payload = gson.fromJson(json, SefimBackupPayload::class.java)
+            edtRestaurantName.setText(payload.restaurantName)
+            edtHeaderNote.setText(payload.headerNote)
+            edtFooterNote.setText(payload.footerNote)
+
             productImageCache.clear()
             productImageCache.putAll(payload.imageCacheByName)
 
@@ -644,7 +683,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    // Kumandadaki Şefim verilerini Menuboard'a yedekle (Kumanda sıfırlanırsa oradan geri gelsin)
     private fun pushSefimBackupToMenuboard() {
         val host = activeDevice?.host ?: return
         val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
@@ -660,7 +698,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // Bağlantı kurulduğunda: Kumanda boşsa Menuboard'dan çek; Menuboard boşsa Kumanda'dan gönder
     private fun syncSefimBackupWithMenuboard() {
         val host = activeDevice?.host ?: return
         val req = Request.Builder().url("http://$host/api/sefim/backup").build()
@@ -672,7 +709,6 @@ class MainActivity : AppCompatActivity() {
                 response.close()
 
                 if (remoteJson.isNotEmpty() && sefimProducts.isEmpty()) {
-                    // Kumanda sıfırlanmış -> Menuboard'daki yedeği Kumandaya otomatik yükle!
                     try {
                         val payload = gson.fromJson(remoteJson, SefimBackupPayload::class.java)
                         val dbPrefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
@@ -689,15 +725,16 @@ class MainActivity : AppCompatActivity() {
                         sefimProducts.addAll(payload.products)
 
                         runOnUiThread {
+                            edtRestaurantName.setText(payload.restaurantName)
+                            edtHeaderNote.setText(payload.headerNote)
+                            edtFooterNote.setText(payload.footerNote)
                             sefimAdapter.notifyDataSetChanged()
                             Toast.makeText(this@MainActivity, "Şefim ürünleri ve görselleri Menuboard'dan geri yüklendi!", Toast.LENGTH_LONG).show()
                         }
                     } catch (_: Exception) {}
                 } else if (remoteJson.isEmpty() && sefimProducts.isNotEmpty()) {
-                    // Menuboard sıfırlanmış -> Kumandadaki yedeği Menuboard'a gönder!
                     pushSefimBackupToMenuboard()
                 } else if (remoteJson.isNotEmpty() && sefimProducts.isNotEmpty()) {
-                    // Her ikisinde de veri varsa eksik görsel önbelleklerini birleştir
                     try {
                         val payload = gson.fromJson(remoteJson, SefimBackupPayload::class.java)
                         var updated = false
@@ -720,8 +757,6 @@ class MainActivity : AppCompatActivity() {
             }
         })
     }
-
-    // --- ŞEFİM POS VERİTABANI (MS SQL) VE NAMED INSTANCE MOTORU ---
 
     private fun showDbConfigDialog() {
         val prefs = getSharedPreferences("sefim_db_prefs", Context.MODE_PRIVATE)
@@ -801,7 +836,7 @@ class MainActivity : AppCompatActivity() {
         val pass = prefs.getString("db_pass", "") ?: ""
 
         if (server.isEmpty() || dbName.isEmpty()) {
-            Toast.makeText(this, "Lütfen önce ⚙️ DB Ayarları butonundan bilgileri girin!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Lütfen önce ⚙️ DB Ayar butonundan bilgileri girin!", Toast.LENGTH_LONG).show()
             showDbConfigDialog()
             return
         }
@@ -877,7 +912,6 @@ class MainActivity : AppCompatActivity() {
                 val meta = rs.metaData
                 val fetchedList = mutableListOf<SefimProductItem>()
 
-                // Önceki seçim durumlarını koru
                 val previousSelectionMap = sefimProducts.associate { it.productName to it.isSelected }
 
                 while (rs.next()) {
@@ -901,7 +935,6 @@ class MainActivity : AppCompatActivity() {
 
                     if (name.isNotEmpty()) {
                         val formattedPrice = if (rawPrice.isNotEmpty()) "$rawPrice ₺" else ""
-                        // Ürün ismine göre önbellekteki görseli otomatik eşleştir!
                         val cachedImage = productImageCache[name]
                         val keepSelected = previousSelectionMap[name] ?: true
 
@@ -926,13 +959,13 @@ class MainActivity : AppCompatActivity() {
                     saveLocalSefimState()
                     pushSefimBackupToMenuboard()
                     sefimAdapter.notifyDataSetChanged()
-                    Toast.makeText(this, "${fetchedList.size} ürün getirildi (Önbellekteki resimler otomatik eşleştirildi)!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "${fetchedList.size} ürün getirildi!", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     AlertDialog.Builder(this)
                         .setTitle("Veritabanı Bağlantı Hatası")
-                        .setMessage("Hata: ${e.localizedMessage}\n\nLütfen IP\\INSTANCE, SQL Browser servisi ve TCP/IP port izinlerini kontrol edin.")
+                        .setMessage("Hata: ${e.localizedMessage}\n\nŞu an DB bilgisayarınız yanınızda değilse '🧪 Test Ürünleri' butonuna basarak görsel ekleme ve menü yayınlamayı test edebilirsiniz.")
                         .setPositiveButton("Tamam", null)
                         .show()
                 }
@@ -966,7 +999,7 @@ class MainActivity : AppCompatActivity() {
         rvSefimProducts.setBackgroundColor(bgColor)
     }
 
-    // --- ÇOK SAYFALI (MULTI-PAGE) VE GÖRSELLİ MENÜ OLUŞTURUP YAYINLAMA ---
+    // --- RESTORAN ADI, ÜST BİLGİ, ALT BİLGİ VE ÇOK SAYFALI GÖRSELLİ MENÜ ÇİZİMİ ---
 
     private fun publishSefimMenuToMenuboard() {
         val host = activeDevice?.host
@@ -976,14 +1009,17 @@ class MainActivity : AppCompatActivity() {
         }
         val selectedItems = sefimProducts.filter { it.isSelected }
         if (selectedItems.isEmpty()) {
-            Toast.makeText(this, "Yayınlanacak en az 1 ürün seçmelisiniz!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Liste boş! Lütfen önce DB'den çekin veya '🧪 Test Ürünleri' butonuna basın.", Toast.LENGTH_LONG).show()
             return
         }
+
+        val restName = edtRestaurantName.text.toString().trim().ifEmpty { "MENÜ" }
+        val topInfo = edtHeaderNote.text.toString().trim()
+        val bottomInfo = edtFooterNote.text.toString().trim()
 
         saveLocalSefimState()
         pushSefimBackupToMenuboard()
 
-        // Hareketli Arka Plan Objesini de Menuboard'a Bildir
         val bgMode = bgObjectValues[spinnerSefimBgObject.selectedItemPosition]
         httpClient.newCall(
             Request.Builder().url("http://$host/api/sefim/bgobject?mode=$bgMode").post("".toRequestBody(null)).build()
@@ -992,7 +1028,7 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) { response.close() }
         })
 
-        Toast.makeText(this, "Çok sayfalı menü hazırlanıyor, lütfen bekleyin...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Menü sayfaları hazırlanıyor, lütfen bekleyin...", Toast.LENGTH_SHORT).show()
 
         Thread {
             val width = 1080
@@ -1003,23 +1039,25 @@ class MainActivity : AppCompatActivity() {
             val titleSizePx = baseFontPt * 2.1f
             val subSizePx = baseFontPt * 1.35f
 
-            // Ürünleri sayfalara böl (Her sayfaya font boyutuna göre 8 ila 11 ürün sığar)
+            val startTopY = if (topInfo.isNotEmpty()) 250f else 205f
+            val maxBottomY = if (bottomInfo.isNotEmpty()) height - 150f else height - 90f
+
             val pages = mutableListOf<List<SefimProductItem>>()
             var currentPageItems = mutableListOf<SefimProductItem>()
-            var testY = 210f
+            var testY = startTopY
 
             for (item in selectedItems) {
-                val hasImg = !item.imageBase64.isNullOrEmpty()
+                val hasImg = !(item.imageBase64 ?: productImageCache[item.productName]).isNullOrEmpty()
                 val rowHeight = if (hasImg) {
                     145f
                 } else {
                     titleSizePx + (if (item.subDetails.isNotEmpty()) subSizePx + 20f else 0f) + 52f
                 }
 
-                if (testY + rowHeight > height - 110f && currentPageItems.isNotEmpty()) {
+                if (testY + rowHeight > maxBottomY && currentPageItems.isNotEmpty()) {
                     pages.add(currentPageItems)
                     currentPageItems = mutableListOf()
-                    testY = 210f
+                    testY = startTopY
                 }
                 currentPageItems.add(item)
                 testY += rowHeight
@@ -1028,7 +1066,6 @@ class MainActivity : AppCompatActivity() {
                 pages.add(currentPageItems)
             }
 
-            // Eski sefim_menu_ sayfalarını çalma listesinden temizle
             playlist.removeAll { it.fileName.startsWith("sefim_menu_") }
 
             val batchTime = System.currentTimeMillis()
@@ -1039,9 +1076,24 @@ class MainActivity : AppCompatActivity() {
                 val canvas = Canvas(bitmap)
                 canvas.drawColor(bgColor)
 
-                val paintHeader = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                val paintRestName = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
-                    textSize = 58f
+                    textSize = 60f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    textAlign = Paint.Align.CENTER
+                }
+
+                val paintHeaderInfo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = textColor
+                    alpha = 220
+                    textSize = 32f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+                    textAlign = Paint.Align.CENTER
+                }
+
+                val paintFooterInfo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = accentColor
+                    textSize = 32f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = Paint.Align.CENTER
                 }
@@ -1049,7 +1101,7 @@ class MainActivity : AppCompatActivity() {
                 val paintPageBadge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = textColor
                     alpha = 180
-                    textSize = 28f
+                    textSize = 26f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textAlign = Paint.Align.RIGHT
                 }
@@ -1076,17 +1128,25 @@ class MainActivity : AppCompatActivity() {
 
                 val paintLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
-                    alpha = 65
-                    strokeWidth = 2f
+                    alpha = 80
+                    strokeWidth = 2.5f
                 }
 
-                canvas.drawText("MENÜ", width / 2f, 105f, paintHeader)
+                // 1. Restoran Adı ve Üst Bilgi Çizimi
+                canvas.drawText(restName, width / 2f, 95f, paintRestName)
                 if (totalPages > 1) {
-                    canvas.drawText("Sayfa ${pageIdx + 1} / $totalPages", width - 65f, 105f, paintPageBadge)
+                    canvas.drawText("Sayfa ${pageIdx + 1}/$totalPages", width - 60f, 95f, paintPageBadge)
                 }
-                canvas.drawLine(65f, 140f, width - 65f, 140f, paintLine)
 
-                var currentY = 200f
+                var headerLineY = 125f
+                if (topInfo.isNotEmpty()) {
+                    canvas.drawText(topInfo, width / 2f, 145f, paintHeaderInfo)
+                    headerLineY = 172f
+                }
+                canvas.drawLine(60f, headerLineY, width - 60f, headerLineY, paintLine)
+
+                // 2. Ürün Satırları ve Önbellekli Görsellerin Çizimi
+                var currentY = startTopY
                 for (item in pageItems) {
                     var textStartX = 65f
                     val imgB64 = item.imageBase64 ?: productImageCache[item.productName]
@@ -1119,6 +1179,12 @@ class MainActivity : AppCompatActivity() {
                     currentY += stepY - 22f
                     canvas.drawLine(65f, currentY, width - 65f, currentY, paintLine)
                     currentY += 28f
+                }
+
+                // 3. Alt Bilgi (Footer Note) Çizimi
+                if (bottomInfo.isNotEmpty()) {
+                    canvas.drawLine(60f, height - 115f, width - 60f, height - 115f, paintLine)
+                    canvas.drawText(bottomInfo, width / 2f, height - 65f, paintFooterInfo)
                 }
 
                 val stream = ByteArrayOutputStream()
@@ -1620,7 +1686,6 @@ class MainActivity : AppCompatActivity() {
                 saveLocalSefimState()
             }
 
-            // Ürün Görseli Önbellekte Varsa Göster, Yoksa Kamera İkonu Göster
             val cachedB64 = item.imageBase64 ?: productImageCache[item.productName]
             if (!cachedB64.isNullOrEmpty()) {
                 try {
@@ -1698,7 +1763,7 @@ class MainActivity : AppCompatActivity() {
             val txtDeviceIp: TextView = v.findViewById(R.id.txtDeviceIp)
             val btnEditTag: ImageButton = v.findViewById(R.id.btnEditTag)
             val btnFindDevice: Button = v.findViewById(R.id.btnFindDevice)
-            val btnDeviceSettings: ImageButton = v.findViewById(R.id.btnDeviceSettings)
+            val btnDeviceSettings: Button = v.findViewById(R.id.btnDeviceSettings)
             val btnDeleteDevice: ImageButton = v.findViewById(R.id.btnDeleteDevice)
         }
 
