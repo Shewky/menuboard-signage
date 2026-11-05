@@ -70,7 +70,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="10dp"
-            android:text="v1.09"
+            android:text="v1.10"
             android:textColor="#1976D2"
             android:textSize="11sp"
             android:textStyle="bold" />
@@ -340,7 +340,7 @@
         android:background="#FAFAFA"
         android:gravity="center"
         android:orientation="horizontal"
-        print.padding="6dp">
+        android:padding="6dp">
 
         <ImageView
             android:id="@+id/imgFooterLogo"
