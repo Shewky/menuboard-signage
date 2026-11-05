@@ -62,7 +62,6 @@ data class MediaItemModel(
 
 class MainActivity : AppCompatActivity() {
 
-    // GitHub Actions derleme sırasında burayı otomatik olarak gerçek repo adınızla değiştirir:
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var mediaContainer: FrameLayout
@@ -73,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var qrOverlay: View
     private lateinit var imgQrCode: ImageView
     private lateinit var txtIpAddress: TextView
+    private lateinit var txtAppVersion: TextView
     private lateinit var btnSettings: ImageView
     private lateinit var btnCloseQr: Button
     private lateinit var findMeOverlay: View
@@ -118,10 +118,16 @@ class MainActivity : AppCompatActivity() {
         qrOverlay = findViewById(R.id.qrOverlay)
         imgQrCode = findViewById(R.id.imgQrCode)
         txtIpAddress = findViewById(R.id.txtIpAddress)
+        txtAppVersion = findViewById(R.id.txtAppVersion)
         btnSettings = findViewById(R.id.btnSettings)
         btnCloseQr = findViewById(R.id.btnCloseQr)
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
+
+        try {
+            val vName = packageManager.getPackageInfo(packageName, 0).versionName
+            txtAppVersion.text = "Sürüm: v$vName"
+        } catch (_: Exception) {}
 
         initPlayer()
         loadSavedState()
