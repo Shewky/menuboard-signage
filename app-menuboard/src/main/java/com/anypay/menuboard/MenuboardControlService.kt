@@ -3,11 +3,13 @@ package com.anypay.menuboard
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.content.Intent
 import android.graphics.*
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -71,28 +73,50 @@ class MenuboardControlService : AccessibilityService() {
     }
 
     private fun attachGlobalCursorOverlay() {
+        if (cursorView != null) return
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val view = GlobalCursorView(this)
+
+        // Önce TYPE_ACCESSIBILITY_OVERLAY dene, cihaz reddederse TYPE_APPLICATION_OVERLAY kullan
+        val primaryType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY
+        }
+
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
         try {
-            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-            cursorView = GlobalCursorView(this)
-            val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY
-            }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
-                layoutType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                primaryType,
+                flags,
                 PixelFormat.TRANSLUCENT
-            )
-            params.gravity = Gravity.TOP or Gravity.START
-            windowManager?.addView(cursorView, params)
+            ).apply { gravity = Gravity.TOP or Gravity.START }
+            windowManager?.addView(view, params)
+            cursorView = view
             cursorView?.visibility = View.GONE
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Settings.canDrawOverlays(this)) {
+                    val fallbackParams = WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        flags,
+                        PixelFormat.TRANSLUCENT
+                    ).apply { gravity = Gravity.TOP or Gravity.START }
+                    windowManager?.addView(view, fallbackParams)
+                    cursorView = view
+                    cursorView?.visibility = View.GONE
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     fun moveCursorBy(dx: Float, dy: Float) {
@@ -104,6 +128,7 @@ class MenuboardControlService : AccessibilityService() {
             cursorX = (cursorX + dx).coerceIn(5f, screenW - 15f)
             cursorY = (cursorY + dy).coerceIn(5f, screenH - 15f)
             cursorView?.visibility = View.VISIBLE
+            cursorView?.bringToFront()
             cursorView?.invalidate()
             mainHandler.removeCallbacks(hideCursorRunnable)
             mainHandler.postDelayed(hideCursorRunnable, 8000L)
@@ -155,9 +180,9 @@ class MenuboardControlService : AccessibilityService() {
                     val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
                     if (launchIntent != null) {
                         launchIntent.addFlags(
-                            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                            android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                            android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                         )
                         startActivity(launchIntent)
                     }
