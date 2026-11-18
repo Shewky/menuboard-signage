@@ -18,9 +18,11 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.animation.*
 import android.widget.Button
 import android.widget.FrameLayout
@@ -591,6 +593,9 @@ class MainActivity : AppCompatActivity() {
     private var currentKnownIp = ""
     private var activeBgObject = "none"
 
+    // İzinlerin peş peşe (Sequential) açılmasını takip eden bayrak
+    private var awaitingSequentialPermissionChain = false
+
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
     private val hideCursorRunnable = Runnable {
         animatedOverlayView.showCursor = false
@@ -655,6 +660,73 @@ class MainActivity : AppCompatActivity() {
         handler.post(ipCheckRunnable)
 
         checkForUpdate()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Eğer birinci izin (Üstte Gösterme) tamamlanıp geri dönüldüyse, otomatik olarak ikinci izni (Erişilebilirlik) peş peşe aç!
+        if (awaitingSequentialPermissionChain) {
+            val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
+            val hasAcc = isAccessibilityServiceEnabled()
+            if (hasOverlay && !hasAcc) {
+                awaitingSequentialPermissionChain = false
+                Toast.makeText(this, "Şimdi 2. Adım: 'Anypay Uzaktan Mouse ve Kontrol' erişilebilirlik iznini aktif edin.", Toast.LENGTH_LONG).show()
+                try {
+                    val accIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(accIntent)
+                } catch (_: Exception) {}
+            } else if (hasOverlay && hasAcc) {
+                awaitingSequentialPermissionChain = false
+                Toast.makeText(this, "Tüm kontrol izinleri tamamlandı! Mouse & Klavye hazır.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Erişilebilirlik Servisinin hem bellekte hem de Android Sistem Ayarlarında açık olup olmadığını kontrol eder
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        if (MenuboardControlService.instance != null) return true
+        val expectedComponentName = "$packageName/${MenuboardControlService::class.java.canonicalName}"
+        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        return enabledServices.contains(expectedComponentName, ignoreCase = true) ||
+               enabledServices.contains("$packageName/.MenuboardControlService", ignoreCase = true)
+    }
+
+    // Eksik izinleri tespit edip Menuboard ekranında peş peşe (sırayla) açan fonksiyon
+    private fun promptMissingPermissionsSequentially() {
+        val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
+        val hasAcc = isAccessibilityServiceEnabled()
+
+        runOnUiThread {
+            if (!hasOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                awaitingSequentialPermissionChain = true
+                Toast.makeText(
+                    this,
+                    "1. Adım: Lütfen 'Diğer uygulamaların üzerinde göster' iznini açıp geri dönün (Ardından 2. izin otomatik açılacaktır).",
+                    Toast.LENGTH_LONG
+                ).show()
+                try {
+                    val ovIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(ovIntent)
+                } catch (_: Exception) {}
+            } else if (!hasAcc) {
+                awaitingSequentialPermissionChain = false
+                Toast.makeText(
+                    this,
+                    "Lütfen listeden 'Anypay Uzaktan Mouse ve Kontrol' seçeneğini aktif edin.",
+                    Toast.LENGTH_LONG
+                ).show()
+                try {
+                    val accIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(accIntent)
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun bringMenuboardToFront() {
@@ -996,6 +1068,24 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
+            // Kumandadan Mouse/Klavye Seçildiğinde İzinleri Kontrol Et ve Eksikse Menuboard'da Peş Peşe Aç!
+            if (uri == "/api/permissions/check" && method == Method.POST) {
+                val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this@MainActivity) else true
+                val hasAcc = isAccessibilityServiceEnabled()
+                val allReady = hasOverlay && hasAcc
+
+                if (!allReady) {
+                    promptMissingPermissionsSequentially()
+                }
+
+                val resMap = mapOf(
+                    "allGranted" to allReady,
+                    "overlayGranted" to hasOverlay,
+                    "accessibilityGranted" to hasAcc
+                )
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(resMap))
+            }
+
             if (uri == "/api/input" && method == Method.POST) {
                 val type = session.parameters["type"]?.firstOrNull() ?: ""
                 val svc = MenuboardControlService.instance
@@ -1180,6 +1270,27 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.localizedMessage ?: "ERR")
                 }
+            }
+
+            if (uri == "/api/app/install" && method == Method.POST) {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val tempFilePath = files["file"]
+                if (tempFilePath != null) {
+                    val tempFile = File(tempFilePath)
+                    val targetApk = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "remote_pushed_${System.currentTimeMillis()}.apk")
+                    FileInputStream(tempFile).use { input ->
+                        FileOutputStream(targetApk).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Kumandadan APK alındı, kurulum başlatılıyor...", Toast.LENGTH_LONG).show()
+                        installLocalApkFile(targetApk)
+                    }
+                    return newFixedLengthResponse(Response.Status.OK, "text/plain", "INSTALL_STARTED")
+                }
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "NO_FILE")
             }
 
             if (uri == "/api/apps" && method == Method.GET) {
