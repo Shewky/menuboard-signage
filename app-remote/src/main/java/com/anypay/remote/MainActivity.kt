@@ -236,6 +236,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // QR Okutulduğunda Doğrudan Okutulan Cihazı Seçip İçine Giren Güncel QR Alıcısı
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
             try {
@@ -246,8 +247,10 @@ class MainActivity : AppCompatActivity() {
                 val tag = json.optString("tag", "Menuboard ${deviceList.size + 1}")
                 val host = "$ip:$port"
 
-                updateOrAddDevice(id, host, tag, true)
+                val scannedDevice = updateOrAddDevice(id, host, tag, true)
+                selectDevice(scannedDevice)
                 switchTab(1)
+                Toast.makeText(this, "${scannedDevice.nameTag} ($host) seçildi!", Toast.LENGTH_SHORT).show()
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
             }
@@ -351,7 +354,7 @@ class MainActivity : AppCompatActivity() {
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.18" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.20" }
         supportActionBar?.title = "Menuboard Kumanda"
 
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
@@ -446,7 +449,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (deviceList.isNotEmpty()) {
+        if (deviceList.isNotEmpty() && activeDevice == null) {
             selectDevice(deviceList.first())
         }
 
@@ -454,7 +457,6 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
-    // Ferahlatılmış Kaydırılabilir Şefim Sekmesi + Sağ Köşe Yukarı/Aşağı Ok Butonları + Arama + QR Link
     private fun setupDynamicSefimTabAndControls() {
         val topTabsBar = tabDevices.parent as? LinearLayout
         val existingTabSefimId = resources.getIdentifier("tabSefim", "id", packageName)
@@ -481,7 +483,6 @@ class MainActivity : AppCompatActivity() {
             mainRoot?.removeView(oldPanel)
         }
 
-        // Ana Sarmalayıcı FrameLayout (Sağ üst ve sağ alt kaydırma oklarını barındırır)
         val wrapper = FrameLayout(this).apply {
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
@@ -490,7 +491,6 @@ class MainActivity : AppCompatActivity() {
         mainRoot?.addView(wrapper, insertIdx)
         panelTabSefimWrapper = wrapper
 
-        // Dikey Kaydırılabilir Ana Gövde (Hiçbir buton sıkışmaz!)
         sefimScrollView = NestedScrollView(this).apply {
             isFillViewport = true
             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -504,7 +504,6 @@ class MainActivity : AppCompatActivity() {
         sefimScrollView.addView(container)
         wrapper.addView(sefimScrollView)
 
-        // 1. Geniş ve Rahat Üst Aksiyon Butonları
         val topBtnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -541,7 +540,6 @@ class MainActivity : AppCompatActivity() {
         topBtnRow.addView(btnDemo)
         container.addView(topBtnRow)
 
-        // 2. Restoran Adı, Sayfa Süresi, Üst Bilgi, Alt Bilgi ve Web Linki (QR) Kutucukları
         val headerBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#ECEFF1"))
@@ -597,7 +595,6 @@ class MainActivity : AppCompatActivity() {
         headerBox.addView(edtWebsiteLink)
         container.addView(headerBox)
 
-        // 3. Seçenek 1, Seçenek 2, Opsiyon Ayrı Göster/Gizle Kutucukları
         val filterRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -620,7 +617,6 @@ class MainActivity : AppCompatActivity() {
         filterRow.addView(cbShowOptions)
         container.addView(filterRow)
 
-        // 4. Tema, Font Boyutu ve Kalınlık
         val themeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -647,7 +643,6 @@ class MainActivity : AppCompatActivity() {
         themeRow.addView(cbSefimBold)
         container.addView(themeRow)
 
-        // 5. Hareketli Animasyon Objesi Seçici
         val animRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -668,7 +663,6 @@ class MainActivity : AppCompatActivity() {
         animRow.addView(spinnerSefimBgObject)
         container.addView(animRow)
 
-        // 6. Ürün Arama Kutusu (🔍 Ürün Ara)
         val searchRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -700,7 +694,6 @@ class MainActivity : AppCompatActivity() {
         searchRow.addView(btnClearSearch)
         container.addView(searchRow)
 
-        // 7. Yayınla Butonu (Hem üstte hem altta kolay erişim için)
         val btnPub = Button(this).apply {
             text = "📺 Menüyü & Animasyonu Menuboard'da Yayınla"
             isAllCaps = false
@@ -713,7 +706,6 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(btnPub)
 
-        // 8. Ürün Listesi (RecyclerView - NestedScrollView ile uyumlu)
         rvSefimProducts = RecyclerView(this).apply {
             setBackgroundColor(Color.parseColor("#141414"))
             setPadding(10, 10, 10, 10)
@@ -725,7 +717,6 @@ class MainActivity : AppCompatActivity() {
         rvSefimProducts.adapter = sefimAdapter
         container.addView(rvSefimProducts)
 
-        // Sağ Üst Köşe Yukarı (▲) ve Sağ Alt Köşe Aşağı (▼) Yüzen Hızlı Kaydırma Butonları
         val btnScrollUpFloat = Button(this).apply {
             text = "▲"
             textSize = 16f
@@ -736,13 +727,8 @@ class MainActivity : AppCompatActivity() {
                 topMargin = 18
                 rightMargin = 18
             }
-            setOnClickListener {
-                sefimScrollView.smoothScrollBy(0, -650)
-            }
-            setOnLongClickListener {
-                sefimScrollView.fullScroll(View.FOCUS_UP)
-                true
-            }
+            setOnClickListener { sefimScrollView.smoothScrollBy(0, -650) }
+            setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_UP); true }
         }
 
         val btnScrollDownFloat = Button(this).apply {
@@ -755,13 +741,8 @@ class MainActivity : AppCompatActivity() {
                 bottomMargin = 18
                 rightMargin = 18
             }
-            setOnClickListener {
-                sefimScrollView.smoothScrollBy(0, 650)
-            }
-            setOnLongClickListener {
-                sefimScrollView.fullScroll(View.FOCUS_DOWN)
-                true
-            }
+            setOnClickListener { sefimScrollView.smoothScrollBy(0, 650) }
+            setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_DOWN); true }
         }
         wrapper.addView(btnScrollUpFloat)
         wrapper.addView(btnScrollDownFloat)
@@ -921,7 +902,7 @@ class MainActivity : AppCompatActivity() {
                 edtRestaurantName.setText("ROAST & BREW CAFE")
                 edtHeaderNote.setText("3. Nesil Kahve & Artizan Lezzetler")
                 spinnerSefimTheme.setSelection(5)
-                spinnerSefimBgObject.setSelection(4) // Kahve Buharı ve Çekirdekleri
+                spinnerSefimBgObject.setSelection(4)
                 listOf(
                     SefimProductItem("1", "Caramel Macchiato", "135 ₺", "Yulaf Sütü", "Ekstra Espresso", "Sıcak / Buzlu", "", "Espresso, taze süt, karamel sos"),
                     SefimProductItem("2", "Avokado Poşe Yumurta Tost", "240 ₺", "Ekşi Maya Ekmek", "Akdeniz Yeşillik", "Çeçil Peynirli", "", "Ekşi maya ekmek, yumurta, avokado, peynir"),
@@ -1024,14 +1005,14 @@ class MainActivity : AppCompatActivity() {
             "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
             "📦 Uzaktan APK Gönder & Kur",
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
-            "📺 Menuboard Uygulamasını Tekrar Öne Getir",
-            "🔓 Erişilebilirlik & Üstte Gösterme İzin Kilidini Aç"
+            "📺 Menuboard Uygulamasını Tekrar Öne Getir"
         )
         AlertDialog.Builder(this)
             .setTitle("${device.nameTag} (${device.host}) Yönetimi")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> showVirtualTouchpadAndKeyboardDialog(device)
+                    // Mouse & Klavye seçildiği an önce otomatik izin kontrolü yapar!
+                    0 -> verifyPermissionsAndOpenTouchpad(device)
                     1 -> {
                         targetApkDevice = device
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -1045,44 +1026,52 @@ class MainActivity : AppCompatActivity() {
                         sendRemoteInput(device, "type=nav&act=MENUBOARD")
                         Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show()
                     }
-                    4 -> showPermissionUnlockGuideDialog(device)
                 }
             }
             .setNegativeButton("Kapat", null)
             .show()
     }
 
-    private fun showPermissionUnlockGuideDialog(device: DeviceItem) {
-        val msg = "Arka planda Mouse/Klavye ve Öne Getirme özelliklerinin kusursuz çalışması için:\n\n" +
-                  "1. Menuboard v1.18 APK'sını kurduktan sonra 'Erişilebilirlik Ayarlarını Aç' butonuna basın ve 'Anypay Uzaktan Mouse ve Kontrol' servisini KAPATIP TEKRAR AÇIN.\n\n" +
-                  "2. 'Üstte Gösterme İznini Aç' butonuna basıp Anypay Menuboard'a izin verin."
+    // Mouse & Klavye Kontrolüne Tıklandığında Otomatik İzin Denetimi ve Peş Peşe İzin Tetikleyici
+    private fun verifyPermissionsAndOpenTouchpad(device: DeviceItem) {
+        val req = Request.Builder()
+            .url("http://${device.host}/api/permissions/check")
+            .post("".toRequestBody(null))
+            .build()
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(45, 25, 45, 10)
-            addView(TextView(this@MainActivity).apply { text = msg; textSize = 12f })
-            addView(Button(this@MainActivity).apply {
-                text = "1️⃣ Menuboard'da Uygulama Bilgilerini Aç (Kısıtlama Kaldır)"
-                textSize = 10f
-                setOnClickListener { sendRemoteInput(device, "type=nav&act=APP_DETAILS") }
-            })
-            addView(Button(this@MainActivity).apply {
-                text = "2️⃣ Menuboard'da Üstte Gösterme İznini Aç (Öne Getirme İçin)"
-                textSize = 10f
-                setOnClickListener { sendRemoteInput(device, "type=nav&act=OVERLAY_SETTINGS") }
-            })
-            addView(Button(this@MainActivity).apply {
-                text = "3️⃣ Menuboard'da Erişilebilirlik Ayarlarını Aç (Mouse İçin)"
-                textSize = 10f
-                setOnClickListener { sendRemoteInput(device, "type=nav&act=ACCESSIBILITY_SETTINGS") }
-            })
-        }
+        httpClient.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Menuboard cihazına bağlanılamadı!", Toast.LENGTH_SHORT).show()
+                }
+            }
 
-        AlertDialog.Builder(this)
-            .setTitle("🔓 Arka Plan Kontrol İzinleri")
-            .setView(layout)
-            .setPositiveButton("Tamam", null)
-            .show()
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: "{}"
+                response.close()
+                try {
+                    val json = JSONObject(body)
+                    val allGranted = json.optBoolean("allGranted", false)
+
+                    runOnUiThread {
+                        if (!allGranted) {
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("⚠️ İzin Gerekli")
+                                .setMessage("Gösterim izni yok, menuboardda ekrana gelen izinleri sağlayınız.\n\n(Menuboard ekranında izin pencereleri otomatik olarak peş peşe açılmıştır.)")
+                                .setPositiveButton("Yine de Touchpad'i Aç") { _, _ ->
+                                    showVirtualTouchpadAndKeyboardDialog(device)
+                                }
+                                .setNegativeButton("Tamam", null)
+                                .show()
+                        } else {
+                            showVirtualTouchpadAndKeyboardDialog(device)
+                        }
+                    }
+                } catch (_: Exception) {
+                    runOnUiThread { showVirtualTouchpadAndKeyboardDialog(device) }
+                }
+            }
+        })
     }
 
     private fun showVirtualTouchpadAndKeyboardDialog(device: DeviceItem) {
@@ -1687,7 +1676,6 @@ class MainActivity : AppCompatActivity() {
         rvSefimProducts.setBackgroundColor(bgColor)
     }
 
-    // Sağ Alt Köşede Otomatik Müşteri QR Kodu, Üst/Alt Bilgi ve Çoklu Sayfa İle Menü Çizimi
     private fun publishSefimMenuToMenuboard() {
         val host = activeDevice?.host
         if (host.isNullOrEmpty()) {
@@ -1728,7 +1716,6 @@ class MainActivity : AppCompatActivity() {
             val titleSizePx = baseFontPt * 2.0f
             val subSizePx = baseFontPt * 1.25f
 
-            // Eğer Web Linki girildiyse Sağ Alt Köşe İçin QR Kod Bitmap'i Üret
             var linkQrBitmap: Bitmap? = null
             if (rawWebLink.isNotEmpty()) {
                 val formattedUrl = if (rawWebLink.startsWith("http://") || rawWebLink.startsWith("https://")) {
@@ -1913,7 +1900,6 @@ class MainActivity : AppCompatActivity() {
                     currentY += 32f
                 }
 
-                // Alt Bilgi (Footer) ve Sağ Alt Köşe Müşteri QR Kodu Çizimi
                 if (bottomInfo.isNotEmpty() || linkQrBitmap != null) {
                     val footerTopLineY = if (linkQrBitmap != null) height - 205f else height - 115f
                     canvas.drawLine(60f, footerTopLineY, width - 60f, footerTopLineY, paintLine)
@@ -2125,15 +2111,17 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean) {
+    // Cihazı Ekler/Günceller ve Doğrudan O Cihaz Nesnesini Döndürür
+    private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean): DeviceItem {
         val now = System.currentTimeMillis()
-        val existing = deviceList.find { it.id == id }
+        var existing = deviceList.find { it.id == id }
         if (existing != null) {
             existing.host = host
             existing.isOnline = online
             if (online) existing.lastSeenMs = now
         } else {
-            deviceList.add(DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L))
+            existing = DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L)
+            deviceList.add(existing)
         }
         saveDevices()
         deviceAdapter.notifyDataSetChanged()
@@ -2144,6 +2132,7 @@ class MainActivity : AppCompatActivity() {
             txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"
             updateConnectionUi(online)
         }
+        return existing
     }
 
     private fun switchTab(tabIndex: Int) {
