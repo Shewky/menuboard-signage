@@ -2,7 +2,11 @@ package com.anypay.menuboard
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.ActivityManager
+import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.*
 import android.os.Build
 import android.os.Bundle
@@ -77,7 +81,6 @@ class MenuboardControlService : AccessibilityService() {
             windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
             val view = GlobalCursorView(this)
 
-            // Önce TYPE_ACCESSIBILITY_OVERLAY dene, eğer cihaz desteklemiyorsa TYPE_APPLICATION_OVERLAY kullan
             val primaryType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             } else {
@@ -170,22 +173,76 @@ class MenuboardControlService : AccessibilityService() {
         }
     }
 
+    // Android 10-15 Arka Plan Kısıtlamasını (BAL) Aşan Çok Katmanlı Öne Getirme Motoru
     fun bringPackageToFront(pkg: String) {
         mainHandler.post {
-            performGlobalAction(GLOBAL_ACTION_HOME)
-            mainHandler.postDelayed({
-                try {
-                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(
-                            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                            android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                            android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                        )
-                        startActivity(launchIntent)
+            try {
+                if (cursorView == null) attachGlobalCursorOverlay()
+                // 1. Sistem Üstü Katmanı (Overlay) Görünür Yap (Android bu sayede servisi ön planda kabul eder)
+                cursorView?.visibility = View.VISIBLE
+                cursorView?.invalidate()
+
+                // 2. Eğer istenen paket Menuboard'un kendisiyse ve açık bir Task ID'si varsa doğrudan öne çek
+                if (pkg == packageName) {
+                    val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    val myTaskId = MainActivity.currentTaskId
+                    if (myTaskId != -1) {
+                        am?.moveTaskToFront(myTaskId, ActivityManager.MOVE_TASK_WITH_HOME)
                     }
-                } catch (_: Exception) {}
-            }, 140L)
+                }
+
+                // 3. Hedef Uygulama Intent'ini Oluştur
+                val launchIntent = if (pkg == packageName) {
+                    Intent(this, MainActivity::class.java).apply {
+                        action = Intent.ACTION_MAIN
+                        addCategory(Intent.CATEGORY_LAUNCHER)
+                    }
+                } else {
+                    packageManager.getLaunchIntentForPackage(pkg)
+                }
+
+                if (launchIntent != null) {
+                    launchIntent.addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                    )
+
+                    // Android 14+ (API 34) Arka Plan Başlatma İzin Bayrağı
+                    val optionsBundle: Bundle? = if (Build.VERSION.SDK_INT >= 34) {
+                        try {
+                            val opts = ActivityOptions.makeBasic()
+                            val method = ActivityOptions::class.java.getMethod(
+                                "setPendingIntentBackgroundActivityStartMode",
+                                Int::class.javaPrimitiveType
+                            )
+                            method.invoke(opts, 1) // MODE_BACKGROUND_ACTIVITY_START_ALLOWED = 1
+                            opts.toBundle()
+                        } catch (_: Exception) { null }
+                    } else null
+
+                    // 4. Hem PendingIntent hem de doğrudan Servis Context'i üzerinden tetikle
+                    val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    } else {
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                    }
+                    val pi = PendingIntent.getActivity(this, (System.currentTimeMillis() % 10000).toInt(), launchIntent, piFlags)
+                    try {
+                        if (optionsBundle != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                            pi.send(this, 0, null, null, null, null, optionsBundle)
+                        } else {
+                            pi.send()
+                        }
+                    } catch (_: Exception) {}
+
+                    startActivity(launchIntent)
+                }
+
+                mainHandler.removeCallbacks(hideCursorRunnable)
+                mainHandler.postDelayed(hideCursorRunnable, 3000L)
+            } catch (_: Exception) {}
         }
     }
 
