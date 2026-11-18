@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Menuboard | APK İndirme</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    padding: 24px 16px;
+    color: #172642;
+    background: radial-gradient(ellipse at 20% 0%, #dceaff, transparent 62%),
+                radial-gradient(ellipse at 100% 100%, #d9f5ef, transparent 58%), #f5f8fc;
+    font: 16px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  main {
+    width: min(100%, 625px);
+    padding: clamp(22px, 6vw, 48px);
+    background: #fff;
+    border: 1px solid #dbe6f3;
+    border-radius: 30px;
+    box-shadow: 0 22px 70px #24436e20;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: clamp(32px, 7vw, 52px);
+    line-height: 1.12;
+    letter-spacing: -.045em;
+  }
+  header { margin-bottom: 28px; }
+  p { margin: 0; color: #4a5b72; }
+  nav { display: grid; gap: 12px; }
+  a {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-height: 76px;
+    padding: 13px clamp(12px, 3vw, 19px);
+    border-radius: 16px;
+    background: #f4f7fd;
+    border: 1px solid #d7e2f1;
+    text-decoration: none;
+    color: inherit;
+    transition: background-color .18s, border-color .18s;
+  }
+  a:hover { background: #e8f1ff; border-color: #8ca9d5; }
+  a:focus-visible { outline: 3px solid #224dc4; outline-offset: 3px; }
+  strong, small { display: block; }
+  strong { font-size: 1.05rem; line-height: 1.25; }
+  small { margin-top: 4px; color: #4a5b72; font-size: .875rem; }
+  .action {
+    padding: 7px 12px;
+    border-radius: 9px;
+    background: #234bbe;
+    color: white;
+    font-size: .875rem;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+  a:nth-child(2) .action { background: #5040a5; }
+  a:nth-child(3) .action { background: #116963; }
+  @media (prefers-reduced-motion: reduce) { a { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>APK İndirme</h1>
+    <p>Android cihazınız için uygulamanızı seçin.</p>
+  </header>
+  <nav aria-label="APK indirme bağlantıları">
+    <a href="https://github.com/Shewky/menuboard-signage/releases/download/v1.21/app-menuboard-v1.21.apk">
+      <span><strong>Menuboard Medya Oynatıcı</strong><small>Menuboard ekranınızda medya oynatın.</small></span>
+      <span class="action">APK indir</span>
+    </a>
+    <a href="https://github.com/Shewky/menuboard-signage/releases/download/v1.21/app-remote-v1.21.apk">
+      <span><strong>Menuboard Kumanda</strong><small>Menuboard ekranlarınızı yönetin.</small></span>
+      <span class="action">APK indir</span>
+    </a>
+    <a href="https://github.com/Shewky/menuboard-signage/releases/download/QR_Slider_Apk/base.apk">
+      <span><strong>Skor QR Menu Slider</strong></span>
+      <span class="action">APK indir</span>
+    </a>
+  </nav>
+</main>
+</body>
+</html>
