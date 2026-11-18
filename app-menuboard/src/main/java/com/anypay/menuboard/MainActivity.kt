@@ -1,8 +1,12 @@
 package com.anypay.menuboard
 
+import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.app.Instrumentation
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -30,6 +34,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -561,6 +566,10 @@ class AnimatedOverlayView(context: Context) : View(context) {
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        var currentTaskId: Int = -1
+    }
+
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var mediaContainer: FrameLayout
@@ -593,7 +602,6 @@ class MainActivity : AppCompatActivity() {
     private var currentKnownIp = ""
     private var activeBgObject = "none"
 
-    // İzinlerin peş peşe (Sequential) açılmasını takip eden bayrak
     private var awaitingSequentialPermissionChain = false
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
@@ -617,6 +625,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        currentTaskId = taskId
 
         mediaContainer = findViewById(R.id.mediaContainer)
         playerView = findViewById(R.id.playerView)
@@ -664,7 +673,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Eğer birinci izin (Üstte Gösterme) tamamlanıp geri dönüldüyse, otomatik olarak ikinci izni (Erişilebilirlik) peş peşe aç!
+        currentTaskId = taskId
         if (awaitingSequentialPermissionChain) {
             val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
             val hasAcc = isAccessibilityServiceEnabled()
@@ -684,7 +693,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Erişilebilirlik Servisinin hem bellekte hem de Android Sistem Ayarlarında açık olup olmadığını kontrol eder
     private fun isAccessibilityServiceEnabled(): Boolean {
         if (MenuboardControlService.instance != null) return true
         val expectedComponentName = "$packageName/${MenuboardControlService::class.java.canonicalName}"
@@ -693,7 +701,6 @@ class MainActivity : AppCompatActivity() {
                enabledServices.contains("$packageName/.MenuboardControlService", ignoreCase = true)
     }
 
-    // Eksik izinleri tespit edip Menuboard ekranında peş peşe (sırayla) açan fonksiyon
     private fun promptMissingPermissionsSequentially() {
         val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
         val hasAcc = isAccessibilityServiceEnabled()
@@ -729,14 +736,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Arka Plandayken Menuboard'u %100 Garantili Olarak En Öne Getiren 4 Katmanlı Motor
     private fun bringMenuboardToFront() {
-        val svc = MenuboardControlService.instance
-        if (svc != null) {
-            svc.bringPackageToFront(packageName)
-        }
+        // Katman 1: Erişilebilirlik Servisi Açıksa (HOME çağrısı yapmadan!) doğrudan görünür Overlay üzerinden öne çek
+        MenuboardControlService.instance?.bringPackageToFront(packageName)
 
         runOnUiThread {
             try {
+                // Katman 2: ActivityManager.moveTaskToFront ile mevcut açık görevi en üste taşı
+                val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                if (am != null) {
+                    am.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        for (appTask in am.appTasks) {
+                            appTask.moveToFront()
+                        }
+                    }
+                }
+
+                // Katman 3: SYSTEM_ALERT_WINDOW (Üstte Gösterme) izni varsa 1x1 geçici görünmez sistem penceresi açarak BAL engelini bypass et
+                var tempBridgeView: View? = null
+                val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this) && wm != null) {
+                    try {
+                        tempBridgeView = View(applicationContext)
+                        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        } else {
+                            @Suppress("DEPRECATION")
+                            WindowManager.LayoutParams.TYPE_PHONE
+                        }
+                        val lp = WindowManager.LayoutParams(
+                            1, 1, overlayType,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT
+                        )
+                        wm.addView(tempBridgeView, lp)
+                    } catch (_: Exception) {}
+                }
+
                 val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
                     action = Intent.ACTION_MAIN
                     addCategory(Intent.CATEGORY_LAUNCHER)
@@ -747,13 +785,62 @@ class MainActivity : AppCompatActivity() {
                         Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
                     )
                 }
+
+                val optionsBundle: Bundle? = if (Build.VERSION.SDK_INT >= 34) {
+                    try {
+                        val opts = ActivityOptions.makeBasic()
+                        val method = ActivityOptions::class.java.getMethod(
+                            "setPendingIntentBackgroundActivityStartMode",
+                            Int::class.javaPrimitiveType
+                        )
+                        method.invoke(opts, 1) // MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                        opts.toBundle()
+                    } catch (_: Exception) { null }
+                } else null
+
                 val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 } else {
                     PendingIntent.FLAG_UPDATE_CURRENT
                 }
-                PendingIntent.getActivity(applicationContext, 999, frontIntent, flags).send()
+                val pi = PendingIntent.getActivity(applicationContext, 999, frontIntent, flags)
+                try {
+                    if (optionsBundle != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                        pi.send(applicationContext, 0, null, null, null, null, optionsBundle)
+                    } else {
+                        pi.send()
+                    }
+                } catch (_: Exception) {}
+
                 startActivity(frontIntent)
+
+                // Katman 4: Yüksek Öncelikli Full-Screen Intent Bildirimi (Son Çare Yedeği)
+                try {
+                    val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    val chId = "menuboard_front_ch"
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val ch = NotificationChannel(chId, "Menuboard Öne Getirme", NotificationManager.IMPORTANCE_HIGH)
+                        nm.createNotificationChannel(ch)
+                    }
+                    val notif = NotificationCompat.Builder(applicationContext, chId)
+                        .setSmallIcon(android.R.drawable.ic_media_play)
+                        .setContentTitle("Anypay Menuboard")
+                        .setContentText("Menuboard ekranı öne getiriliyor...")
+                        .setPriority(NotificationCompat.PRIORITY_MAX)
+                        .setCategory(NotificationCompat.CATEGORY_CALL)
+                        .setFullScreenIntent(pi, true)
+                        .setAutoCancel(true)
+                        .build()
+                    nm.notify(777, notif)
+                    handler.postDelayed({ nm.cancel(777) }, 1200L)
+                } catch (_: Exception) {}
+
+                if (tempBridgeView != null && wm != null) {
+                    val viewToRemove = tempBridgeView
+                    handler.postDelayed({
+                        try { wm.removeView(viewToRemove) } catch (_: Exception) {}
+                    }, 500L)
+                }
             } catch (_: Exception) {}
         }
     }
@@ -1068,7 +1155,6 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Kumandadan Mouse/Klavye Seçildiğinde İzinleri Kontrol Et ve Eksikse Menuboard'da Peş Peşe Aç!
             if (uri == "/api/permissions/check" && method == Method.POST) {
                 val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this@MainActivity) else true
                 val hasAcc = isAccessibilityServiceEnabled()
