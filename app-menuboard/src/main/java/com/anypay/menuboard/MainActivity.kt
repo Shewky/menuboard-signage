@@ -91,6 +91,9 @@ data class MediaItemModel(
     val webBoldHeaders: Boolean = false,
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8
+    val igMediaFilter: String? = "all",
+    val igSlideSec: Int = 8,
+    val igAudioEnabled: Boolean = false
 )
 
 data class InstalledAppInfo(
