@@ -423,6 +423,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var imgWebQr: ImageView
     private var activeWebItem: MediaItemModel? = null
     private var webScrollActive = false
+    private var igPostUrls = mutableListOf<String>()
+    private var igPostIndex = 0
+    private val igSafetyRunnable = Runnable { playNextInstagramPost() }
 
     private var exoPlayer: ExoPlayer? = null
     private var httpServer: SignageServer? = null
@@ -546,11 +549,25 @@ class MainActivity : AppCompatActivity() {
 
             addJavascriptInterface(object {
                 @JavascriptInterface
-                fun onInstagramFinished() {
+                fun onPostLinks(jsonArrayStr: String) {
                     runOnUiThread {
-                        if (activeWebItem?.type == "instagram" && activeWebItem?.scrollUntilEnd == true) {
-                            handler.removeCallbacks(mediaEndRunnable)
-                            scheduleNextMedia()
+                        if (activeWebItem?.type != "instagram") return@runOnUiThread
+                        try {
+                            val type = object : TypeToken<List<String>>() {}.type
+                            val links: List<String> = gson.fromJson(jsonArrayStr, type)
+                            igPostUrls.clear()
+                            igPostUrls.addAll(links.distinct())
+                            igPostIndex = 0
+                            playNextInstagramPost()
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                @JavascriptInterface
+                fun nextPost() {
+                    runOnUiThread {
+                        if (activeWebItem?.type == "instagram") {
+                            playNextInstagramPost()
                         }
                     }
                 }
@@ -562,7 +579,12 @@ class MainActivity : AppCompatActivity() {
                     val item = activeWebItem ?: return
                     if (view?.visibility == View.VISIBLE) {
                         if (item.type == "instagram") {
-                            injectInstagramSlideshowJs(view, item)
+                            val u = url ?: ""
+                            if (u.contains("/p/") || u.contains("/reel/")) {
+                                injectInstagramPostPlayerJs(view, item)
+                            } else {
+                                injectInstagramProfileCollectorJs(view)
+                            }
                         } else {
                             injectWebCustomStyles(view, item)
                             if (item.autoScroll || item.scrollUntilEnd) {
@@ -574,7 +596,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-        }
         mediaContainer.addView(
             webView,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
@@ -595,188 +616,131 @@ class MainActivity : AppCompatActivity() {
         mediaContainer.addView(webQrContainer)
     }
 
-    private fun injectInstagramSlideshowJs(view: WebView, item: MediaItemModel) {
+private fun playNextInstagramPost() {
+        handler.removeCallbacks(igSafetyRunnable)
+        val item = activeWebItem ?: return
+        if (item.type != "instagram") return
+
+        if (igPostUrls.isEmpty()) {
+            if (item.scrollUntilEnd) {
+                handler.removeCallbacks(mediaEndRunnable)
+                scheduleNextMedia()
+            }
+            return
+        }
+
+        if (igPostIndex >= igPostUrls.size) {
+            if (item.scrollUntilEnd) {
+                handler.removeCallbacks(mediaEndRunnable)
+                scheduleNextMedia()
+                return
+            } else {
+                igPostIndex = 0
+            }
+        }
+
+        val nextUrl = igPostUrls[igPostIndex++]
+        webView.loadUrl(nextUrl)
+        // Bir gönderi takılırsa 65 saniye sonra otomatik sıradakine geç
+        handler.postDelayed(igSafetyRunnable, 65000L)
+    }
+
+    private fun injectInstagramProfileCollectorJs(view: WebView) {
+        val js = """
+            (function() {
+                if (window._anypayIgCollected) return;
+                window._anypayIgCollected = true;
+                setTimeout(function() {
+                    var anchors = document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]');
+                    var urls = [];
+                    anchors.forEach(function(a) {
+                        if (a.href && urls.indexOf(a.href) === -1) {
+                            urls.push(a.href);
+                        }
+                    });
+                    if (window.AnypayIg) {
+                        window.AnypayIg.onPostLinks(JSON.stringify(urls.slice(0, 20)));
+                    }
+                }, 2500);
+            })();
+        """.trimIndent()
+        view.evaluateJavascript(js, null)
+    }
+
+    private fun injectInstagramPostPlayerJs(view: WebView, item: MediaItemModel) {
         val filter = item.igMediaFilter ?: "all"
         val slideMs = (if (item.igSlideSec > 0) item.igSlideSec else 8) * 1000
-        val stopAtEnd = item.scrollUntilEnd
+        val audioEnabled = item.igAudioEnabled
 
         val js = """
             (function() {
-                if (window._anypayIgRunning) return;
-                window._anypayIgRunning = true;
+                if (window._anypayPostPlaying) return;
+                window._anypayPostPlaying = true;
                 var filter = '$filter';
                 var slideMs = $slideMs;
-                var stopAtEnd = $stopAtEnd;
+                var audioEnabled = $audioEnabled;
 
-                var pathParts = window.location.pathname.split('/').filter(Boolean);
-                var username = pathParts[0] || '';
-                if (!username) return;
-
-                function getCookie(name) {
-                    var m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-                    return m ? m[2] : '';
-                }
-
-                async function fetchFeedItems() {
-                    var items = [];
-                    var csrf = getCookie('csrftoken');
-                    var headers = {
-                        'x-ig-app-id': '936619743392459',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    };
-                    if (csrf) headers['x-csrftoken'] = csrf;
-
-                    // 1. Öncelik: Güncel Instagram Feed v1 API
-                    try {
-                        var r1 = await fetch('/api/v1/feed/user/' + encodeURIComponent(username) + '/username/?count=20', {
-                            headers: headers,
-                            credentials: 'include'
-                        });
-                        if (r1.ok) {
-                            var j1 = await r1.json();
-                            var list = (j1 && j1.items) || [];
-                            for (var i = 0; i < list.length; i++) {
-                                var it = list[i];
-                                if (!it) continue;
-                                if (it.media_type === 8 && it.carousel_media) {
-                                    for (var c = 0; c < it.carousel_media.length; c++) {
-                                        var cm = it.carousel_media[c];
-                                        if (cm.media_type === 2 && cm.video_versions && cm.video_versions[0]) {
-                                            if (filter === 'all' || filter === 'video') items.push({ type: 'video', src: cm.video_versions[0].url });
-                                        } else if (cm.media_type === 1 && cm.image_versions2 && cm.image_versions2.candidates && cm.image_versions2.candidates[0]) {
-                                            if (filter === 'all' || filter === 'photo') items.push({ type: 'photo', src: cm.image_versions2.candidates[0].url });
-                                        }
-                                    }
-                                } else if (it.media_type === 2 && it.video_versions && it.video_versions[0]) {
-                                    if (filter === 'all' || filter === 'video') items.push({ type: 'video', src: it.video_versions[0].url });
-                                } else if (it.media_type === 1 && it.image_versions2 && it.image_versions2.candidates && it.image_versions2.candidates[0]) {
-                                    if (filter === 'all' || filter === 'photo') items.push({ type: 'photo', src: it.image_versions2.candidates[0].url });
-                                }
-                            }
-                        }
-                    } catch (e) {}
-
-                    if (items.length > 0) return items;
-
-                    // 2. Yedek: web_profile_info API (CSRF ile)
-                    try {
-                        var r2 = await fetch('/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username), {
-                            headers: headers,
-                            credentials: 'include'
-                        });
-                        if (r2.ok) {
-                            var j2 = await r2.json();
-                            var user = j2 && j2.data && j2.data.user;
-                            var edges = (user && user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
-                            for (var k = 0; k < edges.length; k++) {
-                                var node = edges[k].node;
-                                if (!node) continue;
-                                if (node.is_video && node.video_url) {
-                                    if (filter === 'all' || filter === 'video') items.push({ type: 'video', src: node.video_url });
-                                } else if (!node.is_video && node.display_url) {
-                                    if (filter === 'all' || filter === 'photo') items.push({ type: 'photo', src: node.display_url });
-                                }
-                            }
-                        }
-                    } catch (e) {}
-
-                    return items;
-                }
-
-                // 3. Yedek: API yanıt vermezse profildeki gönderilere gerçek tıklama ile gezin
-                function startDomModalFallback() {
-                    var selector = (filter === 'video') ? 'a[href*="/reel/"]' : 'a[href*="/p/"], a[href*="/reel/"]';
-                    var firstPost = document.querySelector(selector);
-                    if (!firstPost) firstPost = document.querySelector('a[href*="/p/"], a[href*="/reel/"]');
-                    if (!firstPost) return;
-
-                    firstPost.click();
-                    var stepCount = 0;
-
-                    function advanceModal() {
-                        stepCount++;
-                        if (stepCount > 15 && stopAtEnd) {
-                            if (window.AnypayIg) window.AnypayIg.onInstagramFinished();
+                setTimeout(function() {
+                    var vid = document.querySelector('video');
+                    if (vid) {
+                        if (filter === 'photo') {
+                            if (window.AnypayIg) window.AnypayIg.nextPost();
                             return;
                         }
-                        var vid = document.querySelector('div[role="dialog"] video, article video');
-                        if (vid) {
+                        var bg = document.createElement('div');
+                        bg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483646;';
+                        document.body.appendChild(bg);
+
+                        vid.style.cssText = 'position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;object-fit:contain !important;background:#000 !important;z-index:2147483647 !important;';
+                        vid.loop = false;
+                        vid.muted = !audioEnabled;
+                        vid.volume = 1.0;
+                        vid.onended = function() {
+                            if (window.AnypayIg) window.AnypayIg.nextPost();
+                        };
+                        vid.onerror = function() {
+                            if (window.AnypayIg) window.AnypayIg.nextPost();
+                        };
+                        vid.play().catch(function() {
                             vid.muted = true;
-                            vid.play().catch(function(){});
-                            vid.onended = function() { goNextPost(); };
-                            setTimeout(function() { if (vid.paused || vid.ended) goNextPost(); }, 45000);
-                        } else {
-                            setTimeout(goNextPost, slideMs);
-                        }
-                    }
-
-                    function goNextPost() {
-                        var nextBtn = document.querySelector('button svg[aria-label="Next"], button svg[aria-label="İleri"]');
-                        if (nextBtn && nextBtn.closest('button')) {
-                            nextBtn.closest('button').click();
-                            setTimeout(advanceModal, 2000);
-                        } else {
-                            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', keyCode: 39, bubbles: true }));
-                            setTimeout(advanceModal, 2000);
-                        }
-                    }
-
-                    setTimeout(advanceModal, 2500);
-                }
-
-                async function loadAndPlay() {
-                    var items = await fetchFeedItems();
-                    if (items.length === 0) {
-                        startDomModalFallback();
+                            vid.play().catch(function() {
+                                if (window.AnypayIg) window.AnypayIg.nextPost();
+                            });
+                        });
                         return;
                     }
 
-                    var overlay = document.createElement('div');
-                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:999999;display:flex;align-items:center;justify-content:center;overflow:hidden;';
-                    document.body.appendChild(overlay);
-
-                    var idx = 0;
-                    var safetyTimer = null;
-
-                    function showNext() {
-                        if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
-                        if (idx >= items.length) {
-                            if (stopAtEnd) {
-                                if (window.AnypayIg) window.AnypayIg.onInstagramFinished();
-                                return;
-                            }
-                            idx = 0;
-                        }
-                        var cur = items[idx++];
-                        overlay.innerHTML = '';
-
-                        if (cur.type === 'video') {
-                            var v = document.createElement('video');
-                            v.src = cur.src;
-                            v.autoplay = true;
-                            v.muted = true;
-                            v.playsInline = true;
-                            v.setAttribute('playsinline', '');
-                            v.setAttribute('webkit-playsinline', '');
-                            v.style.cssText = 'width:100vw;height:100vh;object-fit:contain;background:#000;';
-                            v.onended = showNext;
-                            v.onerror = showNext;
-                            overlay.appendChild(v);
-                            v.play().catch(function() { showNext(); });
-                            safetyTimer = setTimeout(showNext, 90000);
-                        } else {
-                            var im = document.createElement('img');
-                            im.src = cur.src;
-                            im.style.cssText = 'width:100vw;height:100vh;object-fit:contain;background:#000;';
-                            im.onerror = showNext;
-                            overlay.appendChild(im);
-                            safetyTimer = setTimeout(showNext, slideMs);
-                        }
+                    if (filter === 'video') {
+                        if (window.AnypayIg) window.AnypayIg.nextPost();
+                        return;
                     }
-                    showNext();
-                }
 
-                setTimeout(loadAndPlay, 2000);
+                    var imgs = document.querySelectorAll('article img, main img');
+                    var bestImg = null;
+                    var maxArea = 0;
+                    imgs.forEach(function(im) {
+                        var area = (im.naturalWidth || 0) * (im.naturalHeight || 0);
+                        if (im.naturalWidth > 200 && area > maxArea) {
+                            maxArea = area;
+                            bestImg = im;
+                        }
+                    });
+
+                    if (bestImg && bestImg.src) {
+                        var ov = document.createElement('div');
+                        ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+                        var el = document.createElement('img');
+                        el.src = bestImg.src;
+                        el.style.cssText = 'width:100vw;height:100vh;object-fit:contain;';
+                        ov.appendChild(el);
+                        document.body.appendChild(ov);
+                        setTimeout(function() {
+                            if (window.AnypayIg) window.AnypayIg.nextPost();
+                        }, slideMs);
+                    } else {
+                        if (window.AnypayIg) window.AnypayIg.nextPost();
+                    }
+                }, 1800);
             })();
         """.trimIndent()
         view.evaluateJavascript(js, null)
@@ -1048,6 +1012,8 @@ class MainActivity : AppCompatActivity() {
         imgLiveStream.visibility = View.GONE
         webView.stopLoading(); webView.visibility = View.GONE
         webQrContainer.visibility = View.GONE
+        handler.removeCallbacks(igSafetyRunnable)
+        igPostUrls.clear()
     }
 
     private fun startPlayback() {
