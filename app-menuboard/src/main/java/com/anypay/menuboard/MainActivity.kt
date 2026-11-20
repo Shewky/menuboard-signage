@@ -609,60 +609,122 @@ class MainActivity : AppCompatActivity() {
                 var username = pathParts[0] || '';
                 if (!username) return;
 
-                async function loadAndPlay() {
+                function getCookie(name) {
+                    var m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+                    return m ? m[2] : '';
+                }
+
+                async function fetchFeedItems() {
                     var items = [];
+                    var csrf = getCookie('csrftoken');
+                    var headers = {
+                        'x-ig-app-id': '936619743392459',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    };
+                    if (csrf) headers['x-csrftoken'] = csrf;
+
+                    // 1. Öncelik: Güncel Instagram Feed v1 API
                     try {
-                        var resp = await fetch('/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username), {
-                            headers: {
-                                'x-ig-app-id': '936619743392459',
-                                'X-Requested-With': 'XMLHttpRequest'
-                            },
+                        var r1 = await fetch('/api/v1/feed/user/' + encodeURIComponent(username) + '/username/?count=20', {
+                            headers: headers,
                             credentials: 'include'
                         });
-                        if (resp.ok) {
-                            var json = await resp.json();
-                            var user = json && json.data && json.data.user;
-                            var edges = (user && user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
-
-                            for (var i = 0; i < edges.length; i++) {
-                                var node = edges[i].node;
-                                if (!node) continue;
-
-                                // Çoklu gönderi (Carousel) ise içindeki her medyayı ayrı kontrol et
-                                var sidecar = node.edge_sidecar_to_children && node.edge_sidecar_to_children.edges;
-                                if (sidecar && sidecar.length > 0) {
-                                    for (var j = 0; j < sidecar.length; j++) {
-                                        var child = sidecar[j].node;
-                                        if (!child) continue;
-                                        if (child.is_video && child.video_url) {
-                                            if (filter === 'all' || filter === 'video') {
-                                                items.push({ type: 'video', src: child.video_url });
-                                            }
-                                        } else if (!child.is_video && child.display_url) {
-                                            if (filter === 'all' || filter === 'photo') {
-                                                items.push({ type: 'photo', src: child.display_url });
-                                            }
+                        if (r1.ok) {
+                            var j1 = await r1.json();
+                            var list = (j1 && j1.items) || [];
+                            for (var i = 0; i < list.length; i++) {
+                                var it = list[i];
+                                if (!it) continue;
+                                if (it.media_type === 8 && it.carousel_media) {
+                                    for (var c = 0; c < it.carousel_media.length; c++) {
+                                        var cm = it.carousel_media[c];
+                                        if (cm.media_type === 2 && cm.video_versions && cm.video_versions[0]) {
+                                            if (filter === 'all' || filter === 'video') items.push({ type: 'video', src: cm.video_versions[0].url });
+                                        } else if (cm.media_type === 1 && cm.image_versions2 && cm.image_versions2.candidates && cm.image_versions2.candidates[0]) {
+                                            if (filter === 'all' || filter === 'photo') items.push({ type: 'photo', src: cm.image_versions2.candidates[0].url });
                                         }
                                     }
-                                } else {
-                                    if (node.is_video && node.video_url) {
-                                        if (filter === 'all' || filter === 'video') {
-                                            items.push({ type: 'video', src: node.video_url });
-                                        }
-                                    } else if (!node.is_video && node.display_url) {
-                                        if (filter === 'all' || filter === 'photo') {
-                                            items.push({ type: 'photo', src: node.display_url });
-                                        }
-                                    }
+                                } else if (it.media_type === 2 && it.video_versions && it.video_versions[0]) {
+                                    if (filter === 'all' || filter === 'video') items.push({ type: 'video', src: it.video_versions[0].url });
+                                } else if (it.media_type === 1 && it.image_versions2 && it.image_versions2.candidates && it.image_versions2.candidates[0]) {
+                                    if (filter === 'all' || filter === 'photo') items.push({ type: 'photo', src: it.image_versions2.candidates[0].url });
                                 }
                             }
                         }
                     } catch (e) {}
 
-                    if (items.length === 0) {
-                        if (stopAtEnd && window.AnypayIg) {
-                            window.AnypayIg.onInstagramFinished();
+                    if (items.length > 0) return items;
+
+                    // 2. Yedek: web_profile_info API (CSRF ile)
+                    try {
+                        var r2 = await fetch('/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username), {
+                            headers: headers,
+                            credentials: 'include'
+                        });
+                        if (r2.ok) {
+                            var j2 = await r2.json();
+                            var user = j2 && j2.data && j2.data.user;
+                            var edges = (user && user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
+                            for (var k = 0; k < edges.length; k++) {
+                                var node = edges[k].node;
+                                if (!node) continue;
+                                if (node.is_video && node.video_url) {
+                                    if (filter === 'all' || filter === 'video') items.push({ type: 'video', src: node.video_url });
+                                } else if (!node.is_video && node.display_url) {
+                                    if (filter === 'all' || filter === 'photo') items.push({ type: 'photo', src: node.display_url });
+                                }
+                            }
                         }
+                    } catch (e) {}
+
+                    return items;
+                }
+
+                // 3. Yedek: API yanıt vermezse profildeki gönderilere gerçek tıklama ile gezin
+                function startDomModalFallback() {
+                    var selector = (filter === 'video') ? 'a[href*="/reel/"]' : 'a[href*="/p/"], a[href*="/reel/"]';
+                    var firstPost = document.querySelector(selector);
+                    if (!firstPost) firstPost = document.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+                    if (!firstPost) return;
+
+                    firstPost.click();
+                    var stepCount = 0;
+
+                    function advanceModal() {
+                        stepCount++;
+                        if (stepCount > 15 && stopAtEnd) {
+                            if (window.AnypayIg) window.AnypayIg.onInstagramFinished();
+                            return;
+                        }
+                        var vid = document.querySelector('div[role="dialog"] video, article video');
+                        if (vid) {
+                            vid.muted = true;
+                            vid.play().catch(function(){});
+                            vid.onended = function() { goNextPost(); };
+                            setTimeout(function() { if (vid.paused || vid.ended) goNextPost(); }, 45000);
+                        } else {
+                            setTimeout(goNextPost, slideMs);
+                        }
+                    }
+
+                    function goNextPost() {
+                        var nextBtn = document.querySelector('button svg[aria-label="Next"], button svg[aria-label="İleri"]');
+                        if (nextBtn && nextBtn.closest('button')) {
+                            nextBtn.closest('button').click();
+                            setTimeout(advanceModal, 2000);
+                        } else {
+                            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', keyCode: 39, bubbles: true }));
+                            setTimeout(advanceModal, 2000);
+                        }
+                    }
+
+                    setTimeout(advanceModal, 2500);
+                }
+
+                async function loadAndPlay() {
+                    var items = await fetchFeedItems();
+                    if (items.length === 0) {
+                        startDomModalFallback();
                         return;
                     }
 
@@ -698,7 +760,6 @@ class MainActivity : AppCompatActivity() {
                             v.onerror = showNext;
                             overlay.appendChild(v);
                             v.play().catch(function() { showNext(); });
-                            // Video takılırsa 90 saniye sonra sıradakine geç
                             safetyTimer = setTimeout(showNext, 90000);
                         } else {
                             var im = document.createElement('img');
@@ -712,7 +773,7 @@ class MainActivity : AppCompatActivity() {
                     showNext();
                 }
 
-                setTimeout(loadAndPlay, 1500);
+                setTimeout(loadAndPlay, 2000);
             })();
         """.trimIndent()
         view.evaluateJavascript(js, null)
