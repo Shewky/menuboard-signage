@@ -68,13 +68,19 @@ data class DeviceItem(
 )
 
 data class MediaItemModel(
-    val id: String,
-    var fileName: String,
-    val type: String,
-    var durationSec: Int,
-    var waitAfterSec: Int,
+    val id: String = "",
+    var fileName: String = "",
+    val type: String = "image", // "image", "video", "web"
+    var durationSec: Int = 10,
+    var waitAfterSec: Int = 0,
     var animation: String = "fade",
-    var fileDurationSec: Int = 0
+    var fileDurationSec: Int = 0,
+    var autoScroll: Boolean = false,
+    var scrollUntilEnd: Boolean = false,
+    var showQr: Boolean = false,
+    var qrCorner: String = "bottom_right",
+    var qrSizeDp: Int = 150,
+    var webZoomPercent: Int = 100
 )
 
 data class SefimProductItem(
@@ -134,6 +140,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var panelTabMedia: View
     private var panelTabSefimWrapper: FrameLayout? = null
     private lateinit var sefimScrollView: NestedScrollView
+
+    // Şefim Menü PIN Koruması (5 tıklama -> PIN: 2228)
+    private var isSefimUnlocked = false
+    private var sefimTapCount = 0
+    private var lastSefimTapMs = 0L
 
     private lateinit var txtActiveDeviceName: TextView
     private lateinit var txtConnectionStatus: TextView
@@ -201,6 +212,15 @@ class MainActivity : AppCompatActivity() {
         "Aşağıdan Kay", "Yakınlaş (Zoom In)", "Uzaklaş (Zoom Out)", "Animasyonsuz"
     )
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
+
+    private val qrCornerLabels = arrayOf("Sağ Alt Köşe", "Sol Alt Köşe", "Sağ Üst Köşe", "Sol Üst Köşe")
+    private val qrCornerValues = arrayOf("bottom_right", "bottom_left", "top_right", "top_left")
+
+    private val qrSizeLabels = arrayOf("Küçük (110dp)", "Orta (150dp)", "Büyük (190dp)", "Dev (240dp)")
+    private val qrSizeValues = arrayOf(110, 150, 190, 240)
+
+    private val webZoomLabels = arrayOf("%50 (Çok Uzak)", "%75 (Uzak)", "%100 (Normal)", "%125 (Büyük)", "%150 (Daha Büyük)", "%175 (Çok Büyük)", "%200 (Dev)")
+    private val webZoomValues = arrayOf(50, 75, 100, 125, 150, 175, 200)
 
     private val themeNames = arrayOf(
         "🖤 Koyu Lüks (Gold & Siyah)",
@@ -353,13 +373,16 @@ class MainActivity : AppCompatActivity() {
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.22" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.23" }
         supportActionBar?.title = "Menuboard Kumanda"
 
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) {
             findViewById<TextView>(resIdVer)?.text = "v$vName"
         }
+
+        // "+ Medya Yükle" butonunun hemen altına "🌐 URL EKLE" butonunu yerleştir
+        injectAddUrlButton()
 
         setupDynamicSefimTabAndControls()
 
@@ -394,7 +417,7 @@ class MainActivity : AppCompatActivity() {
 
         tabDevices.setOnClickListener { switchTab(0) }
         tabMedia.setOnClickListener { switchTab(1) }
-        tabSefim?.setOnClickListener { switchTab(2) }
+        tabSefim?.setOnClickListener { handleLockedSefimTabClick() }
 
         btnScanQr.setOnClickListener {
             val options = ScanOptions().apply {
@@ -456,18 +479,265 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
+    // --- ŞEFİM MENÜ GİZLİ ERİŞİM (5 TIKLAMA -> PIN: 2228) ---
+
+    private fun handleLockedSefimTabClick() {
+        if (isSefimUnlocked) {
+            switchTab(2)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastSefimTapMs > 3000L) {
+            sefimTapCount = 0
+        }
+        sefimTapCount++
+        lastSefimTapMs = now
+
+        if (sefimTapCount >= 5) {
+            sefimTapCount = 0
+            showSefimPinDialog()
+        } else {
+            Toast.makeText(this, "Geliştirme aşamasında", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showSefimPinDialog() {
+        val edtPin = EditText(this).apply {
+            hint = "PIN Kodu"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            gravity = Gravity.CENTER
+            textSize = 18f
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(60, 30, 60, 10)
+            addView(edtPin)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("🔒 Geliştirici Erişimi")
+            .setMessage("Devam etmek için PIN kodunu giriniz:")
+            .setView(container)
+            .setPositiveButton("Giriş") { _, _ ->
+                if (edtPin.text.toString().trim() == "2228") {
+                    isSefimUnlocked = true
+                    tabSefim?.text = "🍽️ 🔓"
+                    switchTab(2)
+                    Toast.makeText(this, "Erişim açıldı!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Hatalı PIN!", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    // --- MEDYA YÜKLE ALTINA "URL EKLE" BUTONU VE URL AYAR PENCERESİ ---
+
+    private fun injectAddUrlButton() {
+        val parentLayout = btnPickMedia.parent as? LinearLayout ?: return
+        val pickIdx = parentLayout.indexOfChild(btnPickMedia)
+
+        val btnAddUrl = Button(this).apply {
+            text = "🌐 URL EKLE"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#00897B"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 10
+            }
+            setOnClickListener {
+                if (activeDevice == null) {
+                    Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                showUrlConfigDialog(existingItem = null)
+            }
+        }
+        parentLayout.addView(btnAddUrl, (pickIdx + 1).coerceAtMost(parentLayout.childCount))
+    }
+
+    // Hem Yeni URL Ekleme hem de Kalem (Düzenle) Butonu İçin Ortak URL Yapılandırma Penceresi
+    private fun showUrlConfigDialog(existingItem: MediaItemModel?) {
+        val isEdit = existingItem != null
+
+        val scrollView = ScrollView(this)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(45, 30, 45, 15)
+        }
+        scrollView.addView(layout)
+
+        val edtUrl = EditText(this).apply {
+            hint = "Örn: https://www.ornekmenu.com"
+            inputType = InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+            setText(existingItem?.fileName ?: "")
+        }
+
+        val edtDur = EditText(this).apply {
+            hint = "Ekranda Kalma Süresi (sn)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText((existingItem?.durationSec ?: 20).toString())
+        }
+
+        val edtWait = EditText(this).apply {
+            hint = "Sonraki Medyaya Geçmeden Bekleme (sn)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText((existingItem?.waitAfterSec ?: 0).toString())
+        }
+
+        val spAnim = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
+            val idx = animValues.indexOf(existingItem?.animation ?: "fade")
+            if (idx >= 0) setSelection(idx)
+        }
+
+        val cbAutoScroll = CheckBox(this).apply {
+            text = "Otomatik Aşağı Kaydır"
+            isChecked = existingItem?.autoScroll ?: true
+        }
+
+        val cbScrollEnd = CheckBox(this).apply {
+            text = "Sayfa Bitimine Kadar Aşağı Kaydır (Süre yerine sayfa sonunu bekle)"
+            isChecked = existingItem?.scrollUntilEnd ?: false
+            setOnCheckedChangeListener { _, checked ->
+                if (checked) cbAutoScroll.isChecked = true
+            }
+        }
+
+        val spZoom = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels)
+            val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100)
+            setSelection(if (idx >= 0) idx else 2)
+        }
+
+        val cbShowQr = CheckBox(this).apply {
+            text = "Sayfa Linkini QR Kod Olarak Göster"
+            isChecked = existingItem?.showQr ?: false
+        }
+
+        val spQrCorner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrCornerLabels)
+            val idx = qrCornerValues.indexOf(existingItem?.qrCorner ?: "bottom_right")
+            if (idx >= 0) setSelection(idx)
+        }
+
+        val spQrSize = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrSizeLabels)
+            val idx = qrSizeValues.indexOf(existingItem?.qrSizeDp ?: 150)
+            setSelection(if (idx >= 0) idx else 1)
+        }
+
+        val qrOptionsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (cbShowQr.isChecked) View.VISIBLE else View.GONE
+            setPadding(24, 6, 0, 6)
+            addView(TextView(this@MainActivity).apply { text = "QR Kod Köşesi:"; textSize = 12f })
+            addView(spQrCorner)
+            addView(TextView(this@MainActivity).apply { text = "QR Kod Boyutu:"; textSize = 12f; setPadding(0, 8, 0, 0) })
+            addView(spQrSize)
+        }
+
+        cbShowQr.setOnCheckedChangeListener { _, isChecked ->
+            qrOptionsContainer.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        layout.addView(TextView(this).apply { text = "Web Sayfası URL Adresi:"; typeface = Typeface.DEFAULT_BOLD })
+        layout.addView(edtUrl)
+
+        layout.addView(TextView(this).apply { text = "Gösterim Süresi (saniye):"; setPadding(0, 12, 0, 0) })
+        layout.addView(edtDur)
+
+        layout.addView(TextView(this).apply { text = "İki Medya Arası Bekleme (saniye):"; setPadding(0, 10, 0, 0) })
+        layout.addView(edtWait)
+
+        layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) })
+        layout.addView(spAnim)
+
+        layout.addView(TextView(this).apply { text = "Sayfa Boyutu (Ölçek / Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD })
+        layout.addView(spZoom)
+
+        layout.addView(cbAutoScroll)
+        layout.addView(cbScrollEnd)
+        layout.addView(cbShowQr)
+        layout.addView(qrOptionsContainer)
+
+        AlertDialog.Builder(this)
+            .setTitle(if (isEdit) "🌐 URL Ayarlarını Düzenle" else "🌐 Yeni URL Ekle")
+            .setView(scrollView)
+            .setPositiveButton(if (isEdit) "Kaydet" else "Ekle ve Yayınla") { _, _ ->
+                var rawUrl = edtUrl.text.toString().trim()
+                if (rawUrl.isEmpty()) {
+                    Toast.makeText(this, "Lütfen geçerli bir URL girin!", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+                    rawUrl = "https://$rawUrl"
+                }
+
+                val dur = edtDur.text.toString().toIntOrNull() ?: 20
+                val wait = edtWait.text.toString().toIntOrNull() ?: 0
+                val anim = animValues[spAnim.selectedItemPosition]
+                val autoScroll = cbAutoScroll.isChecked || cbScrollEnd.isChecked
+                val scrollEnd = cbScrollEnd.isChecked
+                val zoomPct = webZoomValues[spZoom.selectedItemPosition]
+                val showQr = cbShowQr.isChecked
+                val qrCorner = qrCornerValues[spQrCorner.selectedItemPosition]
+                val qrSize = qrSizeValues[spQrSize.selectedItemPosition]
+
+                if (isEdit && existingItem != null) {
+                    existingItem.fileName = rawUrl
+                    existingItem.durationSec = dur
+                    existingItem.waitAfterSec = wait
+                    existingItem.animation = anim
+                    existingItem.autoScroll = autoScroll
+                    existingItem.scrollUntilEnd = scrollEnd
+                    existingItem.webZoomPercent = zoomPct
+                    existingItem.showQr = showQr
+                    existingItem.qrCorner = qrCorner
+                    existingItem.qrSizeDp = qrSize
+                } else {
+                    val newItem = MediaItemModel(
+                        id = System.currentTimeMillis().toString(),
+                        fileName = rawUrl,
+                        type = "web",
+                        durationSec = dur,
+                        waitAfterSec = wait,
+                        animation = anim,
+                        autoScroll = autoScroll,
+                        scrollUntilEnd = scrollEnd,
+                        showQr = showQr,
+                        qrCorner = qrCorner,
+                        qrSizeDp = qrSize,
+                        webZoomPercent = zoomPct
+                    )
+                    playlist.add(newItem)
+                }
+                syncPlaylistToMenuboard()
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
     private fun setupDynamicSefimTabAndControls() {
         val topTabsBar = tabDevices.parent as? LinearLayout
         val existingTabSefimId = resources.getIdentifier("tabSefim", "id", packageName)
         tabSefim = if (existingTabSefimId != 0) {
             findViewById<Button>(existingTabSefimId)?.apply {
-                text = "🍽️ Şefim Menu"
+                text = "🍽️ 🔒"
             }
         } else {
             Button(this).apply {
-                text = "🍽️ Şefim Menu"
+                text = "🍽️ 🔒"
                 setTextColor(0xFF888888.toInt())
-                textSize = 12f
+                textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
                 setBackgroundResource(android.R.drawable.list_selector_background)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
@@ -1071,7 +1341,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // Ferahlatılmış 2x2 Buton Düzenine Sahip Sanal Touchpad & Klavye Penceresi (Hiçbir buton yarım görünmez)
     private fun showVirtualTouchpadAndKeyboardDialog(device: DeviceItem) {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1128,7 +1397,6 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(touchpad)
 
-        // 1. Satır Navigasyon: Geri, Ana Ekran, Menuboard Öne Getir (Tam görünür yükseklik ve sıfır iç boşluk)
         val navRow1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 10, 0, 4)
@@ -1161,7 +1429,6 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(navRow1)
 
-        // 2. Satır Kaydırma: Yukarı Kaydır & Aşağı Kaydır
         val navRow2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 4, 0, 8)
@@ -1184,7 +1451,6 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(navRow2)
 
-        // Klavye Gönderim Satırı
         val kbRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2725,72 +2991,97 @@ class MainActivity : AppCompatActivity() {
             val host = activeDevice?.host ?: ""
 
             holder.txtFileName.text = item.fileName
-            holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
-            holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
 
-            if (item.type == "video") {
-                val totalStr = if (item.fileDurationSec > 0) "${item.fileDurationSec}sn" else "Bilinmiyor"
-                val playStr = if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı ($totalStr)"
-                holder.txtDetails.text = "Video: $playStr | +${item.waitAfterSec}s ara"
+            if (item.type == "web") {
+                holder.txtTypeBadge.text = "URL"
+                holder.txtTypeBadge.setBackgroundColor(0xCC00897B.toInt())
+
+                val scrollStr = when {
+                    item.scrollUntilEnd -> "Sayfa Sonuna Kadar"
+                    item.autoScroll -> "${item.durationSec}sn Kaydır"
+                    else -> "${item.durationSec}sn Sabit"
+                }
+                val qrStr = if (item.showQr) " | QR Aktif" else ""
+                holder.txtDetails.text = "$scrollStr | Zoom: %${item.webZoomPercent}$qrStr"
+
+                val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
+                holder.txtAnimBadge.text = "Animasyon: $animName"
+
+                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_compass)
+                holder.imgThumb.setBackgroundColor(Color.parseColor("#E0F2F1"))
+
+                holder.btnEdit.setOnClickListener {
+                    showUrlConfigDialog(existingItem = item)
+                }
             } else {
-                val dur = if (item.durationSec > 0) item.durationSec else 10
-                holder.txtDetails.text = "Resim: ${dur}s süre | +${item.waitAfterSec}s ara"
-            }
+                holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
+                holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
 
-            val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
-            holder.txtAnimBadge.text = "Animasyon: $animName"
-
-            val thumbUrl = "http://$host/api/thumbnail?filename=${item.fileName}"
-            Glide.with(holder.itemView.context)
-                .load(thumbUrl)
-                .diskCacheStrategy(DiskCacheStrategy.ALL)
-                .centerCrop()
-                .into(holder.imgThumb)
-
-            holder.btnEdit.setOnClickListener {
-                val edtDur = EditText(this@MainActivity).apply {
-                    hint = "Süre (0=tamamı)"
-                    inputType = InputType.TYPE_CLASS_NUMBER
-                    setText(item.durationSec.toString())
-                }
-                val edtWait = EditText(this@MainActivity).apply {
-                    hint = "Ara Bekleme (sn)"
-                    inputType = InputType.TYPE_CLASS_NUMBER
-                    setText(item.waitAfterSec.toString())
-                }
-                val spAnim = Spinner(this@MainActivity).apply {
-                    adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
-                    val idx = animValues.indexOf(item.animation)
-                    if (idx >= 0) setSelection(idx)
+                if (item.type == "video") {
+                    val totalStr = if (item.fileDurationSec > 0) "${item.fileDurationSec}sn" else "Bilinmiyor"
+                    val playStr = if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı ($totalStr)"
+                    holder.txtDetails.text = "Video: $playStr | +${item.waitAfterSec}s ara"
+                } else {
+                    val dur = if (item.durationSec > 0) item.durationSec else 10
+                    holder.txtDetails.text = "Resim: ${dur}s süre | +${item.waitAfterSec}s ara"
                 }
 
-                val layout = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(50, 40, 50, 10)
-                    addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" })
-                    addView(edtDur)
-                    addView(TextView(this@MainActivity).apply { text = "İki Medya Arası Bekleme (sn):" })
-                    addView(edtWait)
-                    addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" })
-                    addView(spAnim)
-                }
+                val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
+                holder.txtAnimBadge.text = "Animasyon: $animName"
 
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Medya Ayarları")
-                    .setView(layout)
-                    .setPositiveButton("Kaydet") { _, _ ->
-                        item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
-                        item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
-                        item.animation = animValues[spAnim.selectedItemPosition]
-                        syncPlaylistToMenuboard()
+                holder.imgThumb.setBackgroundColor(Color.TRANSPARENT)
+                val thumbUrl = "http://$host/api/thumbnail?filename=${item.fileName}"
+                Glide.with(holder.itemView.context)
+                    .load(thumbUrl)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .centerCrop()
+                    .into(holder.imgThumb)
+
+                holder.btnEdit.setOnClickListener {
+                    val edtDur = EditText(this@MainActivity).apply {
+                        hint = "Süre (0=tamamı)"
+                        inputType = InputType.TYPE_CLASS_NUMBER
+                        setText(item.durationSec.toString())
                     }
-                    .setNegativeButton("İptal", null)
-                    .show()
+                    val edtWait = EditText(this@MainActivity).apply {
+                        hint = "Ara Bekleme (sn)"
+                        inputType = InputType.TYPE_CLASS_NUMBER
+                        setText(item.waitAfterSec.toString())
+                    }
+                    val spAnim = Spinner(this@MainActivity).apply {
+                        adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
+                        val idx = animValues.indexOf(item.animation)
+                        if (idx >= 0) setSelection(idx)
+                    }
+
+                    val layout = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(50, 40, 50, 10)
+                        addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" })
+                        addView(edtDur)
+                        addView(TextView(this@MainActivity).apply { text = "İki Medya Arası Bekleme (sn):" })
+                        addView(edtWait)
+                        addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" })
+                        addView(spAnim)
+                    }
+
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Medya Ayarları")
+                        .setView(layout)
+                        .setPositiveButton("Kaydet") { _, _ ->
+                            item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
+                            item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
+                            item.animation = animValues[spAnim.selectedItemPosition]
+                            syncPlaylistToMenuboard()
+                        }
+                        .setNegativeButton("İptal", null)
+                        .show()
+                }
             }
 
             holder.btnDelete.setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Medyayı Sil")
+                    .setTitle("Öğeyi Sil")
                     .setMessage("${item.fileName} silinsin mi?")
                     .setPositiveButton("Sil") { _, _ ->
                         playlist.removeAt(holder.adapterPosition)
