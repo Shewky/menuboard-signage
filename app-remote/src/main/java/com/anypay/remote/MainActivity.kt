@@ -236,7 +236,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // QR Okutulduğunda Doğrudan Okutulan Cihazı Seçip İçine Giren Güncel QR Alıcısı
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents != null) {
             try {
@@ -354,7 +353,7 @@ class MainActivity : AppCompatActivity() {
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.20" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.22" }
         supportActionBar?.title = "Menuboard Kumanda"
 
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
@@ -1011,7 +1010,6 @@ class MainActivity : AppCompatActivity() {
             .setTitle("${device.nameTag} (${device.host}) Yönetimi")
             .setItems(options) { _, which ->
                 when (which) {
-                    // Mouse & Klavye seçildiği an önce otomatik izin kontrolü yapar!
                     0 -> verifyPermissionsAndOpenTouchpad(device)
                     1 -> {
                         targetApkDevice = device
@@ -1032,7 +1030,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // Mouse & Klavye Kontrolüne Tıklandığında Otomatik İzin Denetimi ve Peş Peşe İzin Tetikleyici
     private fun verifyPermissionsAndOpenTouchpad(device: DeviceItem) {
         val req = Request.Builder()
             .url("http://${device.host}/api/permissions/check")
@@ -1074,14 +1071,15 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // Ferahlatılmış 2x2 Buton Düzenine Sahip Sanal Touchpad & Klavye Penceresi (Hiçbir buton yarım görünmez)
     private fun showVirtualTouchpadAndKeyboardDialog(device: DeviceItem) {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(30, 24, 30, 16)
+            setPadding(28, 20, 28, 14)
         }
 
         val touchpad = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 440)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 400)
             setBackgroundColor(Color.parseColor("#263238"))
         }
         val padHint = TextView(this).apply {
@@ -1130,32 +1128,63 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(touchpad)
 
-        val navRow = LinearLayout(this).apply {
+        // 1. Satır Navigasyon: Geri, Ana Ekran, Menuboard Öne Getir (Tam görünür yükseklik ve sıfır iç boşluk)
+        val navRow1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 12, 0, 8)
+            setPadding(0, 10, 0, 4)
         }
-        navRow.addView(Button(this).apply {
-            text = "◀ Geri"; textSize = 10f
-            layoutParams = LinearLayout.LayoutParams(0, 92, 1f)
+        navRow1.addView(Button(this).apply {
+            text = "◀ Geri"
+            textSize = 12f
+            isAllCaps = false
+            setPadding(4, 16, 4, 16)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }
             setOnClickListener { sendRemoteInput(device, "type=nav&act=BACK") }
         })
-        navRow.addView(Button(this).apply {
-            text = "⏺ Ana Ekran"; textSize = 10f
-            layoutParams = LinearLayout.LayoutParams(0, 92, 1.1f)
+        navRow1.addView(Button(this).apply {
+            text = "⏺ Ana Ekran"
+            textSize = 12f
+            isAllCaps = false
+            setPadding(4, 16, 4, 16)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f).apply { rightMargin = 6 }
             setOnClickListener { sendRemoteInput(device, "type=nav&act=HOME") }
         })
-        navRow.addView(Button(this).apply {
-            text = "📺 Öne Getir"; textSize = 10f
-            layoutParams = LinearLayout.LayoutParams(0, 92, 1.1f)
+        navRow1.addView(Button(this).apply {
+            text = "📺 Öne Getir"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#E65100"))
+            setPadding(4, 16, 4, 16)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f)
             setOnClickListener { sendRemoteInput(device, "type=nav&act=MENUBOARD") }
         })
-        navRow.addView(Button(this).apply {
-            text = "▼ Kaydır"; textSize = 10f
-            layoutParams = LinearLayout.LayoutParams(0, 92, 1f)
+        root.addView(navRow1)
+
+        // 2. Satır Kaydırma: Yukarı Kaydır & Aşağı Kaydır
+        val navRow2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 4, 0, 8)
+        }
+        navRow2.addView(Button(this).apply {
+            text = "▲ Yukarı Kaydır"
+            textSize = 12f
+            isAllCaps = false
+            setPadding(4, 14, 4, 14)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }
+            setOnClickListener { sendRemoteInput(device, "type=scroll&dy=-350") }
+        })
+        navRow2.addView(Button(this).apply {
+            text = "▼ Aşağı Kaydır"
+            textSize = 12f
+            isAllCaps = false
+            setPadding(4, 14, 4, 14)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener { sendRemoteInput(device, "type=scroll&dy=350") }
         })
-        root.addView(navRow)
+        root.addView(navRow2)
 
+        // Klavye Gönderim Satırı
         val kbRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1168,7 +1197,10 @@ class MainActivity : AppCompatActivity() {
         }
         val btnSendText = Button(this).apply {
             text = "⌨️ Gönder"
-            textSize = 11f
+            textSize = 12f
+            isAllCaps = false
+            setPadding(16, 14, 16, 14)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 6 }
             setOnClickListener {
                 val txt = edtRemoteKb.text.toString()
                 if (txt.isNotEmpty()) {
@@ -1183,7 +1215,9 @@ class MainActivity : AppCompatActivity() {
         }
         val btnBackspace = Button(this).apply {
             text = "⌫"
-            textSize = 13f
+            textSize = 14f
+            setPadding(12, 14, 12, 14)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 6 }
             setOnClickListener { sendRemoteInput(device, "type=key&code=BACKSPACE") }
         }
         kbRow.addView(edtRemoteKb)
@@ -2111,7 +2145,6 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // Cihazı Ekler/Günceller ve Doğrudan O Cihaz Nesnesini Döndürür
     private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean): DeviceItem {
         val now = System.currentTimeMillis()
         var existing = deviceList.find { it.id == id }
