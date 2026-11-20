@@ -91,6 +91,9 @@ data class MediaItemModel(
     var webBoldHeaders: Boolean = false,
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8
+    var igMediaFilter: String? = "all",
+    var igSlideSec: Int = 8,
+    var igAudioEnabled: Boolean = false
 )
 
 data class SefimProductItem(
@@ -613,6 +616,10 @@ class MainActivity : AppCompatActivity() {
             if (idx >= 0) setSelection(idx)
         }
         val cbUntilEnd = CheckBox(this).apply { text = "Tüm medyalar bitene kadar oynatmaya devam et"; isChecked = existingItem?.scrollUntilEnd ?: true }
+        val cbAudio = CheckBox(this).apply {
+            text = "🔊 Videoları Sesli Oynat"
+            isChecked = existingItem?.igAudioEnabled ?: false
+        }
         val edtDur = EditText(this).apply { hint = "Oynatma Süresi (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.durationSec ?: 60).toString()) }
         val edtSlideSec = EditText(this).apply { hint = "Fotoğraf Başına Süre (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.igSlideSec ?: 8).toString()) }
         val spAnim = Spinner(this).apply {
@@ -628,6 +635,7 @@ class MainActivity : AppCompatActivity() {
             addView(TextView(this@MainActivity).apply { text = "Medya Filtresi:"; setPadding(0, 10, 0, 0) })
             addView(spFilter)
             addView(cbUntilEnd)
+            addView(cbAudio)
             addView(TextView(this@MainActivity).apply { text = "Şu Kadar Saniye Oynat (Yukarıdaki seçili değilse):"; setPadding(0, 8, 0, 0) })
             addView(edtDur)
             addView(TextView(this@MainActivity).apply { text = "Fotoğraf Başına Bekleme Süresi (sn):"; setPadding(0, 8, 0, 0) })
@@ -672,6 +680,15 @@ class MainActivity : AppCompatActivity() {
                 val filter = igFilterValues[spFilter.selectedItemPosition]
                 val untilEnd = cbUntilEnd.isChecked
                 val anim = animValues[spAnim.selectedItemPosition]
+                val audioOn = cbAudio.isChecked
+
+                if (isEdit && existingItem != null) {
+                    existingItem.fileName = user; existingItem.durationSec = dur; existingItem.scrollUntilEnd = untilEnd
+                    existingItem.igMediaFilter = filter; existingItem.igSlideSec = slideSec; existingItem.animation = anim
+                    existingItem.igAudioEnabled = audioOn
+                } else {
+                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = user, type = "instagram", durationSec = dur, waitAfterSec = 0, animation = anim, scrollUntilEnd = untilEnd, igMediaFilter = filter, igSlideSec = slideSec, igAudioEnabled = audioOn))
+                }
 
                 if (isEdit && existingItem != null) {
                     existingItem.fileName = user; existingItem.durationSec = dur; existingItem.scrollUntilEnd = untilEnd
