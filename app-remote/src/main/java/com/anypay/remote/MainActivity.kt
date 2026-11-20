@@ -27,6 +27,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -70,14 +73,14 @@ data class DeviceItem(
 data class MediaItemModel(
     val id: String = "",
     var fileName: String = "",
-    val type: String = "image", // "image", "video", "web"
+    val type: String = "image", // "image", "video", "web", "instagram"
     var durationSec: Int = 10,
     var waitAfterSec: Int = 0,
     var animation: String = "fade",
     var fileDurationSec: Int = 0,
     var autoScroll: Boolean = false,
     var scrollUntilEnd: Boolean = false,
-    var webScrollSpeed: String? = "medium", // "slow", "medium", "fast"
+    var webScrollSpeed: String? = "medium",
     var showQr: Boolean = false,
     var qrCorner: String? = "bottom_right",
     var qrSizeDp: Int = 150,
@@ -85,7 +88,9 @@ data class MediaItemModel(
     var webZoomPercent: Int = 100,
     var webFontFamily: String? = "default",
     var webFontSizePercent: Int = 0,
-    var webBoldHeaders: Boolean = false
+    var webBoldHeaders: Boolean = false,
+    var igMediaFilter: String? = "all",
+    var igSlideSec: Int = 8
 )
 
 data class SefimProductItem(
@@ -170,7 +175,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mediaAdapter: MediaAdapter
     private var playlist = mutableListOf<MediaItemModel>()
 
-    // URL Ekle/Düzenle penceresindeki aktif URL kutusu (QR tarama sonrası doğrudan doldurmak için)
     private var activeUrlInputField: EditText? = null
 
     private lateinit var edtRestaurantName: EditText
@@ -239,35 +243,19 @@ class MainActivity : AppCompatActivity() {
     private val webZoomValues = arrayOf(30, 40, 50, 60, 70, 75, 80, 90, 100, 110, 125, 140, 150, 175, 200, 225, 250)
 
     private val webFontFamilyLabels = arrayOf(
-        "Site Varsayılanı",
-        "Modern (Sans-Serif)",
-        "Klasik (Serif)",
-        "Daktilo (Monospace)",
-        "El Yazısı (Cursive)"
+        "Site Varsayılanı", "Modern (Sans-Serif)", "Klasik (Serif)", "Daktilo (Monospace)", "El Yazısı (Cursive)"
     )
     private val webFontFamilyValues = arrayOf("default", "sans-serif", "serif", "monospace", "cursive")
 
     private val webFontSizeLabels = arrayOf(
-        "Site Varsayılanı",
-        "%85 (Küçük)",
-        "%100 (Normal)",
-        "%115 (Orta)",
-        "%130 (Büyük)",
-        "%150 (Çok Büyük)",
-        "%175 (Dev)"
+        "Site Varsayılanı", "%85 (Küçük)", "%100 (Normal)", "%115 (Orta)", "%130 (Büyük)", "%150 (Çok Büyük)", "%175 (Dev)"
     )
     private val webFontSizeValues = arrayOf(0, 85, 100, 115, 130, 150, 175)
 
     private val themeNames = arrayOf(
-        "🖤 Koyu Lüks (Gold & Siyah)",
-        "🤍 Modern Beyaz (Ferah)",
-        "🔥 Restoran Ateşi (Kırmızı & Kömür)",
-        "🌌 Neon Cyberpunk (Gece & Cyan)",
-        "🌊 Okyanus Derinliği (Balık & Deniz)",
-        "🌿 Zümrüt Bahçesi (Doğal & Vegan)",
-        "👑 Osmanlı Kehribar (Bordo & Altın)",
-        "🧁 Paris Pastanesi (Tatlı & Cafe)",
-        "🍕 İtalyan Trattoria (Sıcak Terracotta)",
+        "🖤 Koyu Lüks (Gold & Siyah)", "🤍 Modern Beyaz (Ferah)", "🔥 Restoran Ateşi (Kırmızı & Kömür)",
+        "🌌 Neon Cyberpunk (Gece & Cyan)", "🌊 Okyanus Derinliği (Balık & Deniz)", "🌿 Zümrüt Bahçesi (Doğal & Vegan)",
+        "👑 Osmanlı Kehribar (Bordo & Altın)", "🧁 Paris Pastanesi (Tatlı & Cafe)", "🍕 İtalyan Trattoria (Sıcak Terracotta)",
         "💎 Minimalist Slate (Modern Gri)"
     )
 
@@ -275,13 +263,8 @@ class MainActivity : AppCompatActivity() {
     private val fontSizeValues = arrayOf(14f, 18f, 22f, 26f)
 
     private val bgObjectNames = arrayOf(
-        "Yok (Sade Arka Plan)",
-        "🐟 Deniz Akvaryumu (Balık, Ahtapot, Yengeç)",
-        "🥙 Gerçekçi Döner & Kor Ateş Buharı",
-        "💨 Gerçekçi Nargile & Duman Halkaları",
-        "☕ Sıcak Kahve Buharı & Çekirdekleri",
-        "✨ Altın Işıltı (Luxury Bokeh)",
-        "❄️ Kış Kar Yağışı"
+        "Yok (Sade Arka Plan)", "🐟 Deniz Akvaryumu (Balık, Ahtapot, Yengeç)", "🥙 Gerçekçi Döner & Kor Ateş Buharı",
+        "💨 Gerçekçi Nargile & Duman Halkaları", "☕ Sıcak Kahve Buharı & Çekirdekleri", "✨ Altın Işıltı (Luxury Bokeh)", "❄️ Kış Kar Yağışı"
     )
     private val bgObjectValues = arrayOf("none", "fish", "doner", "hookah", "coffee", "gold", "snow")
 
@@ -312,7 +295,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // URL Ekle / Düzenle Penceresi İçin Özel QR Kod Okuyucu
     private val urlQrLauncher = registerForActivityResult(ScanContract()) { result ->
         val scanned = result.contents?.trim()
         if (!scanned.isNullOrEmpty()) {
@@ -419,7 +401,7 @@ class MainActivity : AppCompatActivity() {
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.24" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.25" }
         supportActionBar?.title = "Menuboard Kumanda"
 
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
@@ -524,18 +506,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleLockedSefimTabClick() {
-        if (isSefimUnlocked) {
-            switchTab(2)
-            return
-        }
-
+        if (isSefimUnlocked) { switchTab(2); return }
         val now = System.currentTimeMillis()
-        if (now - lastSefimTapMs > 3000L) {
-            sefimTapCount = 0
-        }
+        if (now - lastSefimTapMs > 3000L) sefimTapCount = 0
         sefimTapCount++
         lastSefimTapMs = now
-
         if (sefimTapCount >= 5) {
             sefimTapCount = 0
             showSefimPinDialog()
@@ -551,13 +526,11 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             textSize = 18f
         }
-
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(60, 30, 60, 10)
             addView(edtPin)
         }
-
         AlertDialog.Builder(this)
             .setTitle("🔒 Geliştirici Erişimi")
             .setMessage("Devam etmek için PIN kodunu giriniz:")
@@ -586,39 +559,190 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#00897B"))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 10
-            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
             setOnClickListener {
-                if (activeDevice == null) {
-                    Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
+                if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 showUrlConfigDialog(existingItem = null)
             }
         }
         parentLayout.addView(btnAddUrl, (pickIdx + 1).coerceAtMost(parentLayout.childCount))
+
+        val btnAddInstagram = Button(this).apply {
+            text = "📸 INSTAGRAM EKLE"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#E1306C"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
+            setOnClickListener {
+                if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                checkInstagramStatusAndOpenDialog(existingItem = null)
+            }
+        }
+        parentLayout.addView(btnAddInstagram, (pickIdx + 2).coerceAtMost(parentLayout.childCount))
     }
 
-    // Gelişmiş URL Yapılandırma Penceresi (QR Okutma, Kaydırma Hızı, 15x Zoom, QR Çerçeve & Web Tipografi)
-    private fun showUrlConfigDialog(existingItem: MediaItemModel?) {
+    private fun checkInstagramStatusAndOpenDialog(existingItem: MediaItemModel?) {
+        val host = activeDevice?.host ?: return
+        val req = Request.Builder().url("http://$host/api/instagram/status").build()
+        httpClient.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { showInstagramConfigDialog(existingItem, false) } }
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string() ?: "{}"
+                response.close()
+                val active = try { JSONObject(body).optBoolean("active", false) } catch (_: Exception) { false }
+                runOnUiThread { showInstagramConfigDialog(existingItem, active) }
+            }
+        })
+    }
+
+    private fun showInstagramConfigDialog(existingItem: MediaItemModel?, initialSessionActive: Boolean) {
         val isEdit = existingItem != null
+        val igFilterLabels = arrayOf("Tümü (Fotoğraf + Video)", "Sadece Fotoğraflar", "Sadece Videolar")
+        val igFilterValues = arrayOf("all", "photo", "video")
 
         val scrollView = ScrollView(this)
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(45, 30, 45, 15)
-        }
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(45, 30, 45, 15) }
         scrollView.addView(layout)
 
-        // URL Satırı + Kamera İle QR Okutma Butonu
-        val urlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val txtSessionStatus = TextView(this).apply { textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, 12) }
+        val edtUsername = EditText(this).apply { hint = "Instagram Kullanıcı Adı (Örn: ornekrestoran)"; setSingleLine(true); setText(existingItem?.fileName ?: "") }
+        val spFilter = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, igFilterLabels)
+            val idx = igFilterValues.indexOf(existingItem?.igMediaFilter ?: "all")
+            if (idx >= 0) setSelection(idx)
         }
+        val cbUntilEnd = CheckBox(this).apply { text = "Tüm medyalar bitene kadar oynatmaya devam et"; isChecked = existingItem?.scrollUntilEnd ?: true }
+        val edtDur = EditText(this).apply { hint = "Oynatma Süresi (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.durationSec ?: 60).toString()) }
+        val edtSlideSec = EditText(this).apply { hint = "Fotoğraf Başına Süre (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.igSlideSec ?: 8).toString()) }
+        val spAnim = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
+            val idx = animValues.indexOf(existingItem?.animation ?: "fade")
+            if (idx >= 0) setSelection(idx)
+        }
+
+        val formContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply { text = "Instagram Kullanıcı Adı:"; typeface = Typeface.DEFAULT_BOLD; setPadding(0, 12, 0, 0) })
+            addView(edtUsername)
+            addView(TextView(this@MainActivity).apply { text = "Medya Filtresi:"; setPadding(0, 10, 0, 0) })
+            addView(spFilter)
+            addView(cbUntilEnd)
+            addView(TextView(this@MainActivity).apply { text = "Şu Kadar Saniye Oynat (Yukarıdaki seçili değilse):"; setPadding(0, 8, 0, 0) })
+            addView(edtDur)
+            addView(TextView(this@MainActivity).apply { text = "Fotoğraf Başına Bekleme Süresi (sn):"; setPadding(0, 8, 0, 0) })
+            addView(edtSlideSec)
+            addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:"; setPadding(0, 8, 0, 0) })
+            addView(spAnim)
+        }
+
+        fun updateSessionUi(active: Boolean) {
+            if (active) {
+                txtSessionStatus.text = "🟢 Menuboard Instagram Oturumu: AKTİF"
+                txtSessionStatus.setTextColor(Color.parseColor("#2E7D32"))
+                formContainer.visibility = View.VISIBLE
+            } else {
+                txtSessionStatus.text = "🔴 Menuboard Instagram Oturumu: YOK (Önce oturum açın)"
+                txtSessionStatus.setTextColor(Color.parseColor("#D32F2F"))
+                formContainer.visibility = View.GONE
+            }
+        }
+        updateSessionUi(initialSessionActive)
+
+        val btnLoginIg = Button(this).apply {
+            text = if (initialSessionActive) "🔄 Instagram Oturumunu Yenile" else "🔑 Instagram Oturumu Aç"
+            isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#E1306C"))
+            setOnClickListener {
+                openInstagramLoginAndSyncCookie { success ->
+                    if (success) { text = "🔄 Instagram Oturumunu Yenile"; updateSessionUi(true) }
+                }
+            }
+        }
+
+        layout.addView(txtSessionStatus); layout.addView(btnLoginIg); layout.addView(formContainer)
+
+        AlertDialog.Builder(this)
+            .setTitle(if (isEdit) "📸 Instagram Ayarlarını Düzenle" else "📸 Instagram Ekle")
+            .setView(scrollView)
+            .setPositiveButton(if (isEdit) "Kaydet" else "Ekle ve Yayınla") { _, _ ->
+                val user = edtUsername.text.toString().trim()
+                if (user.isEmpty()) { Toast.makeText(this, "Lütfen kullanıcı adı girin!", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
+                val dur = edtDur.text.toString().toIntOrNull() ?: 60
+                val slideSec = edtSlideSec.text.toString().toIntOrNull() ?: 8
+                val filter = igFilterValues[spFilter.selectedItemPosition]
+                val untilEnd = cbUntilEnd.isChecked
+                val anim = animValues[spAnim.selectedItemPosition]
+
+                if (isEdit && existingItem != null) {
+                    existingItem.fileName = user; existingItem.durationSec = dur; existingItem.scrollUntilEnd = untilEnd
+                    existingItem.igMediaFilter = filter; existingItem.igSlideSec = slideSec; existingItem.animation = anim
+                } else {
+                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = user, type = "instagram", durationSec = dur, waitAfterSec = 0, animation = anim, scrollUntilEnd = untilEnd, igMediaFilter = filter, igSlideSec = slideSec))
+                }
+                syncPlaylistToMenuboard()
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun openInstagramLoginAndSyncCookie(onResult: (Boolean) -> Unit) {
+        val host = activeDevice?.host ?: return
+        var loginDialog: AlertDialog? = null
+        var synced = false
+
+        val webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            val cm = CookieManager.getInstance()
+            cm.setAcceptCookie(true)
+            cm.setAcceptThirdPartyCookies(this, true)
+
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    if (synced) return
+                    val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com") ?: ""
+                    if (cookies.contains("sessionid=")) {
+                        synced = true
+                        val payload = JSONObject().apply {
+                            put("cookie", cookies)
+                            put("userAgent", settings.userAgentString ?: "")
+                        }.toString()
+                        val req = Request.Builder().url("http://$host/api/instagram/cookie").post(payload.toRequestBody("application/json".toMediaTypeOrNull())).build()
+                        httpClient.newCall(req).enqueue(object : Callback {
+                            override fun onFailure(call: Call, e: IOException) {
+                                runOnUiThread { Toast.makeText(this@MainActivity, "Oturum Menuboard'a aktarılamadı!", Toast.LENGTH_LONG).show(); onResult(false) }
+                            }
+                            override fun onResponse(call: Call, response: Response) {
+                                val ok = response.isSuccessful; response.close()
+                                runOnUiThread {
+                                    loginDialog?.dismiss()
+                                    Toast.makeText(this@MainActivity, "Instagram oturumu Menuboard'a başarıyla aktarıldı!", Toast.LENGTH_LONG).show()
+                                    onResult(ok)
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+            loadUrl("https://www.instagram.com/accounts/login/")
+        }
+
+        val container = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200)
+            addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200))
+        }
+        loginDialog = AlertDialog.Builder(this).setTitle("🔑 Instagram Giriş").setView(container).setNegativeButton("Kapat", null).create()
+        loginDialog.show()
+    }
+
+private fun showUrlConfigDialog(existingItem: MediaItemModel?) {
+        val isEdit = existingItem != null
+        val scrollView = ScrollView(this)
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(45, 30, 45, 15) }
+        scrollView.addView(layout)
+
+        val urlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val edtUrl = EditText(this).apply {
             hint = "Örn: https://www.ornekmenu.com"
             inputType = InputType.TYPE_TEXT_VARIATION_URI
@@ -629,169 +753,86 @@ class MainActivity : AppCompatActivity() {
         activeUrlInputField = edtUrl
 
         val btnScanUrlQr = Button(this).apply {
-            text = "📷 QR"
-            textSize = 11f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0288D1"))
-            setPadding(16, 10, 16, 10)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                leftMargin = 8
-            }
+            text = "📷 QR"; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0288D1")); setPadding(16, 10, 16, 10)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 8 }
             setOnClickListener {
-                val options = ScanOptions().apply {
-                    setPrompt("URL içeren QR kodu kameraya gösterin")
-                    setBeepEnabled(true)
-                    setOrientationLocked(false)
-                }
-                urlQrLauncher.launch(options)
+                urlQrLauncher.launch(ScanOptions().apply { setPrompt("URL içeren QR kodu kameraya gösterin"); setBeepEnabled(true); setOrientationLocked(false) })
             }
         }
-        urlRow.addView(edtUrl)
-        urlRow.addView(btnScanUrlQr)
+        urlRow.addView(edtUrl); urlRow.addView(btnScanUrlQr)
 
-        val edtDur = EditText(this).apply {
-            hint = "Ekranda Kalma Süresi (sn)"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText((existingItem?.durationSec ?: 20).toString())
-        }
-
-        val edtWait = EditText(this).apply {
-            hint = "Sonraki Medyaya Geçmeden Bekleme (sn)"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText((existingItem?.waitAfterSec ?: 0).toString())
-        }
-
+        val edtDur = EditText(this).apply { hint = "Ekranda Kalma Süresi (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.durationSec ?: 20).toString()) }
+        val edtWait = EditText(this).apply { hint = "Sonraki Medyaya Geçmeden Bekleme (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.waitAfterSec ?: 0).toString()) }
         val spAnim = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
-            val idx = animValues.indexOf(existingItem?.animation ?: "fade")
-            if (idx >= 0) setSelection(idx)
+            val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx)
         }
-
-        val cbAutoScroll = CheckBox(this).apply {
-            text = "Otomatik Aşağı Kaydır"
-            isChecked = existingItem?.autoScroll ?: true
-        }
-
+        val cbAutoScroll = CheckBox(this).apply { text = "Otomatik Aşağı Kaydır"; isChecked = existingItem?.autoScroll ?: true }
         val cbScrollEnd = CheckBox(this).apply {
             text = "Sayfa Bitimine Kadar Aşağı Kaydır (Süre yerine sayfa sonunu bekle)"
             isChecked = existingItem?.scrollUntilEnd ?: false
-            setOnCheckedChangeListener { _, checked ->
-                if (checked) cbAutoScroll.isChecked = true
-            }
+            setOnCheckedChangeListener { _, checked -> if (checked) cbAutoScroll.isChecked = true }
         }
-
         val spScrollSpeed = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels)
-            val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium")
-            setSelection(if (idx >= 0) idx else 1)
+            val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium"); setSelection(if (idx >= 0) idx else 1)
         }
-
         val spZoom = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels)
-            val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100)
-            setSelection(if (idx >= 0) idx else 8) // %100
+            val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100); setSelection(if (idx >= 0) idx else 8)
         }
-
         val spFontFamily = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontFamilyLabels)
-            val idx = webFontFamilyValues.indexOf(existingItem?.webFontFamily ?: "default")
-            setSelection(if (idx >= 0) idx else 0)
+            val idx = webFontFamilyValues.indexOf(existingItem?.webFontFamily ?: "default"); setSelection(if (idx >= 0) idx else 0)
         }
-
         val spFontSize = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontSizeLabels)
-            val idx = webFontSizeValues.indexOf(existingItem?.webFontSizePercent ?: 0)
-            setSelection(if (idx >= 0) idx else 0)
+            val idx = webFontSizeValues.indexOf(existingItem?.webFontSizePercent ?: 0); setSelection(if (idx >= 0) idx else 0)
         }
-
-        val cbBoldHeaders = CheckBox(this).apply {
-            text = "Sayfadaki Başlıkları Kalın (Bold) Yap"
-            isChecked = existingItem?.webBoldHeaders ?: false
-        }
-
-        val cbShowQr = CheckBox(this).apply {
-            text = "Sayfa Linkini QR Kod Olarak Göster"
-            isChecked = existingItem?.showQr ?: false
-        }
-
+        val cbBoldHeaders = CheckBox(this).apply { text = "Sayfadaki Başlıkları Kalın (Bold) Yap"; isChecked = existingItem?.webBoldHeaders ?: false }
+        val cbShowQr = CheckBox(this).apply { text = "Sayfa Linkini QR Kod Olarak Göster"; isChecked = existingItem?.showQr ?: false }
         val spQrCorner = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrCornerLabels)
-            val idx = qrCornerValues.indexOf(existingItem?.qrCorner ?: "bottom_right")
-            if (idx >= 0) setSelection(idx)
+            val idx = qrCornerValues.indexOf(existingItem?.qrCorner ?: "bottom_right"); if (idx >= 0) setSelection(idx)
         }
-
         val spQrSize = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrSizeLabels)
-            val idx = qrSizeValues.indexOf(existingItem?.qrSizeDp ?: 150)
-            setSelection(if (idx >= 0) idx else 1)
+            val idx = qrSizeValues.indexOf(existingItem?.qrSizeDp ?: 150); setSelection(if (idx >= 0) idx else 1)
         }
-
         val spQrBorder = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrBorderLabels)
-            val idx = qrBorderValues.indexOf(existingItem?.qrBorderDp ?: 8)
-            setSelection(if (idx >= 0) idx else 2)
+            val idx = qrBorderValues.indexOf(existingItem?.qrBorderDp ?: 8); setSelection(if (idx >= 0) idx else 2)
         }
 
         val qrOptionsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = if (cbShowQr.isChecked) View.VISIBLE else View.GONE
             setPadding(24, 6, 0, 6)
-            addView(TextView(this@MainActivity).apply { text = "QR Kod Köşesi:"; textSize = 12f })
-            addView(spQrCorner)
-            addView(TextView(this@MainActivity).apply { text = "QR Kod Boyutu:"; textSize = 12f; setPadding(0, 8, 0, 0) })
-            addView(spQrSize)
-            addView(TextView(this@MainActivity).apply { text = "QR Beyaz Çerçeve Genişliği:"; textSize = 12f; setPadding(0, 8, 0, 0) })
-            addView(spQrBorder)
+            addView(TextView(this@MainActivity).apply { text = "QR Kod Köşesi:"; textSize = 12f }); addView(spQrCorner)
+            addView(TextView(this@MainActivity).apply { text = "QR Kod Boyutu:"; textSize = 12f; setPadding(0, 8, 0, 0) }); addView(spQrSize)
+            addView(TextView(this@MainActivity).apply { text = "QR Beyaz Çerçeve Genişliği:"; textSize = 12f; setPadding(0, 8, 0, 0) }); addView(spQrBorder)
         }
+        cbShowQr.setOnCheckedChangeListener { _, isChecked -> qrOptionsContainer.visibility = if (isChecked) View.VISIBLE else View.GONE }
 
-        cbShowQr.setOnCheckedChangeListener { _, isChecked ->
-            qrOptionsContainer.visibility = if (isChecked) View.VISIBLE else View.GONE
-        }
-
-        layout.addView(TextView(this).apply { text = "Web Sayfası URL Adresi:"; typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(urlRow)
-
-        layout.addView(TextView(this).apply { text = "Gösterim Süresi (saniye):"; setPadding(0, 12, 0, 0) })
-        layout.addView(edtDur)
-
-        layout.addView(TextView(this).apply { text = "İki Medya Arası Bekleme (saniye):"; setPadding(0, 10, 0, 0) })
-        layout.addView(edtWait)
-
-        layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) })
-        layout.addView(spAnim)
-
-        layout.addView(cbAutoScroll)
-        layout.addView(cbScrollEnd)
-
-        layout.addView(TextView(this).apply { text = "Aşağı Kaydırma Hızı:"; setPadding(0, 8, 0, 0); typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(spScrollSpeed)
-
-        layout.addView(TextView(this).apply { text = "Sayfa Ölçeklendirme (Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(spZoom)
-
-        layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Font):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(spFontFamily)
-
-        layout.addView(TextView(this).apply { text = "Web Yazı Boyutu:"; setPadding(0, 10, 0, 0); typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(spFontSize)
-
-        layout.addView(cbBoldHeaders)
-        layout.addView(cbShowQr)
-        layout.addView(qrOptionsContainer)
+        layout.addView(TextView(this).apply { text = "Web Sayfası URL Adresi:"; typeface = Typeface.DEFAULT_BOLD }); layout.addView(urlRow)
+        layout.addView(TextView(this).apply { text = "Gösterim Süresi (saniye):"; setPadding(0, 12, 0, 0) }); layout.addView(edtDur)
+        layout.addView(TextView(this).apply { text = "İki Medya Arası Bekleme (saniye):"; setPadding(0, 10, 0, 0) }); layout.addView(edtWait)
+        layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) }); layout.addView(spAnim)
+        layout.addView(cbAutoScroll); layout.addView(cbScrollEnd)
+        layout.addView(TextView(this).apply { text = "Aşağı Kaydırma Hızı:"; setPadding(0, 8, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spScrollSpeed)
+        layout.addView(TextView(this).apply { text = "Sayfa Ölçeklendirme (Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spZoom)
+        layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Font):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontFamily)
+        layout.addView(TextView(this).apply { text = "Web Yazı Boyutu:"; setPadding(0, 10, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontSize)
+        layout.addView(cbBoldHeaders); layout.addView(cbShowQr); layout.addView(qrOptionsContainer)
 
         AlertDialog.Builder(this)
             .setTitle(if (isEdit) "🌐 URL Ayarlarını Düzenle" else "🌐 Yeni URL Ekle")
             .setView(scrollView)
             .setPositiveButton(if (isEdit) "Kaydet" else "Ekle ve Yayınla") { _, _ ->
                 var rawUrl = edtUrl.text.toString().trim()
-                if (rawUrl.isEmpty()) {
-                    Toast.makeText(this, "Lütfen geçerli bir URL girin!", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-                    rawUrl = "https://$rawUrl"
-                }
+                if (rawUrl.isEmpty()) { Toast.makeText(this, "Lütfen geçerli bir URL girin!", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
+                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) rawUrl = "https://$rawUrl"
 
                 val dur = edtDur.text.toString().toIntOrNull() ?: 20
                 val wait = edtWait.text.toString().toIntOrNull() ?: 0
@@ -809,42 +850,19 @@ class MainActivity : AppCompatActivity() {
                 val qrBorder = qrBorderValues[spQrBorder.selectedItemPosition]
 
                 if (isEdit && existingItem != null) {
-                    existingItem.fileName = rawUrl
-                    existingItem.durationSec = dur
-                    existingItem.waitAfterSec = wait
-                    existingItem.animation = anim
-                    existingItem.autoScroll = autoScroll
-                    existingItem.scrollUntilEnd = scrollEnd
-                    existingItem.webScrollSpeed = scrollSpeed
-                    existingItem.webZoomPercent = zoomPct
-                    existingItem.webFontFamily = fontFam
-                    existingItem.webFontSizePercent = fontSz
-                    existingItem.webBoldHeaders = boldHdr
-                    existingItem.showQr = showQr
-                    existingItem.qrCorner = qrCorner
-                    existingItem.qrSizeDp = qrSize
-                    existingItem.qrBorderDp = qrBorder
+                    existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait
+                    existingItem.animation = anim; existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd
+                    existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
+                    existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz; existingItem.webBoldHeaders = boldHdr
+                    existingItem.showQr = showQr; existingItem.qrCorner = qrCorner; existingItem.qrSizeDp = qrSize; existingItem.qrBorderDp = qrBorder
                 } else {
-                    val newItem = MediaItemModel(
-                        id = System.currentTimeMillis().toString(),
-                        fileName = rawUrl,
-                        type = "web",
-                        durationSec = dur,
-                        waitAfterSec = wait,
-                        animation = anim,
-                        autoScroll = autoScroll,
-                        scrollUntilEnd = scrollEnd,
-                        webScrollSpeed = scrollSpeed,
-                        showQr = showQr,
-                        qrCorner = qrCorner,
-                        qrSizeDp = qrSize,
-                        qrBorderDp = qrBorder,
-                        webZoomPercent = zoomPct,
-                        webFontFamily = fontFam,
-                        webFontSizePercent = fontSz,
-                        webBoldHeaders = boldHdr
-                    )
-                    playlist.add(newItem)
+                    playlist.add(MediaItemModel(
+                        id = System.currentTimeMillis().toString(), fileName = rawUrl, type = "web",
+                        durationSec = dur, waitAfterSec = wait, animation = anim, autoScroll = autoScroll,
+                        scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr,
+                        qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct,
+                        webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr
+                    ))
                 }
                 activeUrlInputField = null
                 syncPlaylistToMenuboard()
@@ -858,15 +876,10 @@ class MainActivity : AppCompatActivity() {
         val topTabsBar = tabDevices.parent as? LinearLayout
         val existingTabSefimId = resources.getIdentifier("tabSefim", "id", packageName)
         tabSefim = if (existingTabSefimId != 0) {
-            findViewById<Button>(existingTabSefimId)?.apply {
-                text = "🍽️ 🔒"
-            }
+            findViewById<Button>(existingTabSefimId)?.apply { text = "🍽️ 🔒" }
         } else {
             Button(this).apply {
-                text = "🍽️ 🔒"
-                setTextColor(0xFF888888.toInt())
-                textSize = 14f
-                typeface = Typeface.DEFAULT_BOLD
+                text = "🍽️ 🔒"; setTextColor(0xFF888888.toInt()); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
                 setBackgroundResource(android.R.drawable.list_selector_background)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
                 topTabsBar?.addView(this)
@@ -875,297 +888,103 @@ class MainActivity : AppCompatActivity() {
 
         val mainRoot = panelTabDevices.parent as? LinearLayout
         val existingPanelSefimId = resources.getIdentifier("panelTabSefim", "id", packageName)
-        val oldPanel = if (existingPanelSefimId != 0) findViewById<View>(existingPanelSefimId) else null
-        if (oldPanel != null) {
-            mainRoot?.removeView(oldPanel)
-        }
+        if (existingPanelSefimId != 0) findViewById<View>(existingPanelSefimId)?.let { mainRoot?.removeView(it) }
 
-        val wrapper = FrameLayout(this).apply {
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        }
-        val insertIdx = ((mainRoot?.childCount ?: 1) - 1).coerceAtLeast(2)
-        mainRoot?.addView(wrapper, insertIdx)
+        val wrapper = FrameLayout(this).apply { visibility = View.GONE; layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f) }
+        mainRoot?.addView(wrapper, ((mainRoot.childCount) - 1).coerceAtLeast(2))
         panelTabSefimWrapper = wrapper
 
-        sefimScrollView = NestedScrollView(this).apply {
-            isFillViewport = true
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
+        sefimScrollView = NestedScrollView(this).apply { isFillViewport = true; layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 16, 20, 30); layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
+        sefimScrollView.addView(container); wrapper.addView(sefimScrollView)
 
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(20, 16, 20, 30)
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        sefimScrollView.addView(container)
-        wrapper.addView(sefimScrollView)
-
-        val topBtnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        val btnDb = Button(this).apply {
-            text = "⚙️ DB Ayarları"
-            textSize = 12f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#455A64"))
-            layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }
-            setOnClickListener { showDbConfigDialog() }
-        }
-        val btnFetch = Button(this).apply {
-            text = "🔄 DB'den Çek"
-            textSize = 12f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0288D1"))
-            layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }
-            setOnClickListener { fetchSefimProductsFromDb() }
-        }
-        val btnDemo = Button(this).apply {
-            text = "🧪 Test Menüleri"
-            textSize = 12f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#7B1FA2"))
-            layoutParams = LinearLayout.LayoutParams(0, 115, 1.1f)
-            setOnClickListener { showDemoMenuSelectorDialog() }
-        }
-        topBtnRow.addView(btnDb)
-        topBtnRow.addView(btnFetch)
-        topBtnRow.addView(btnDemo)
+        val topBtnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
+        topBtnRow.addView(Button(this).apply { text = "⚙️ DB Ayarları"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#455A64")); layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }; setOnClickListener { showDbConfigDialog() } })
+        topBtnRow.addView(Button(this).apply { text = "🔄 DB'den Çek"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#0288D1")); layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }; setOnClickListener { fetchSefimProductsFromDb() } })
+        topBtnRow.addView(Button(this).apply { text = "🧪 Test Menüleri"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#7B1FA2")); layoutParams = LinearLayout.LayoutParams(0, 115, 1.1f); setOnClickListener { showDemoMenuSelectorDialog() } })
         container.addView(topBtnRow)
 
-        val headerBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#ECEFF1"))
-            setPadding(16, 12, 16, 12)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 12 }
-        }
-
+        val headerBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#ECEFF1")); setPadding(16, 12, 16, 12); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 12 } }
         val rowRest = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        edtRestaurantName = EditText(this).apply {
-            hint = "Restoran Adı (Örn: BALIKÇI ŞÜKRÜ)"
-            setText("BALIKÇI ŞÜKRÜ")
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            setSingleLine(true)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        edtMenuPageDuration = EditText(this).apply {
-            hint = "Süre(sn)"
-            setText("12")
-            textSize = 13f
-            inputType = InputType.TYPE_CLASS_NUMBER
-            gravity = Gravity.CENTER
-            setSingleLine(true)
-            layoutParams = LinearLayout.LayoutParams(170, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 10 }
-        }
-        rowRest.addView(edtRestaurantName)
-        rowRest.addView(edtMenuPageDuration)
-        headerBox.addView(rowRest)
+        edtRestaurantName = EditText(this).apply { hint = "Restoran Adı"; setText("BALIKÇI ŞÜKRÜ"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) }
+        edtMenuPageDuration = EditText(this).apply { hint = "Süre(sn)"; setText("12"); textSize = 13f; inputType = InputType.TYPE_CLASS_NUMBER; gravity = Gravity.CENTER; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(170, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 10 } }
+        rowRest.addView(edtRestaurantName); rowRest.addView(edtMenuPageDuration); headerBox.addView(rowRest)
 
-        edtHeaderNote = EditText(this).apply {
-            hint = "Üst Bilgi / Slogan (Örn: Günlük Taze Deniz Ürünleri)"
-            textSize = 13f
-            setSingleLine(true)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 }
-        }
-        headerBox.addView(edtHeaderNote)
+        edtHeaderNote = EditText(this).apply { hint = "Üst Bilgi / Slogan"; textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 } }
+        edtFooterNote = EditText(this).apply { hint = "Alt Bilgi"; setText("Afiyet Olsun • KDV Dahildir"); textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 } }
+        edtWebsiteLink = EditText(this).apply { hint = "🔗 QR Kod Linki (Örn: www.orneklink.com)"; textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 } }
+        headerBox.addView(edtHeaderNote); headerBox.addView(edtFooterNote); headerBox.addView(edtWebsiteLink); container.addView(headerBox)
 
-        edtFooterNote = EditText(this).apply {
-            hint = "Alt Bilgi (Örn: Afiyet Olsun • Fiyatlarımıza KDV Dahildir)"
-            setText("Afiyet Olsun • KDV Dahildir")
-            textSize = 13f
-            setSingleLine(true)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 }
-        }
-        headerBox.addView(edtFooterNote)
-
-        edtWebsiteLink = EditText(this).apply {
-            hint = "🔗 QR Kod Linki (Örn: www.orneklink.com - Sağ altta QR olur)"
-            textSize = 13f
-            setSingleLine(true)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 }
-        }
-        headerBox.addView(edtWebsiteLink)
-        container.addView(headerBox)
-
-        val filterRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#E0F2F1"))
-            setPadding(12, 8, 12, 8)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
-        }
+        val filterRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Color.parseColor("#E0F2F1")); setPadding(12, 8, 12, 8); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 } }
         cbShowChoice1 = CheckBox(this).apply { text = "Seçenek 1"; isChecked = true; textSize = 12f }
         cbShowChoice2 = CheckBox(this).apply { text = "Seçenek 2"; isChecked = true; textSize = 12f }
         cbShowOptions = CheckBox(this).apply { text = "Opsiyon"; isChecked = true; textSize = 12f }
-        val filterWatcher = CompoundButton.OnCheckedChangeListener { _, _ ->
-            sefimAdapter.notifyDataSetChanged()
-            saveLocalSefimState()
-        }
-        cbShowChoice1.setOnCheckedChangeListener(filterWatcher)
-        cbShowChoice2.setOnCheckedChangeListener(filterWatcher)
-        cbShowOptions.setOnCheckedChangeListener(filterWatcher)
-        filterRow.addView(cbShowChoice1)
-        filterRow.addView(cbShowChoice2)
-        filterRow.addView(cbShowOptions)
-        container.addView(filterRow)
+        val filterWatcher = CompoundButton.OnCheckedChangeListener { _, _ -> sefimAdapter.notifyDataSetChanged(); saveLocalSefimState() }
+        cbShowChoice1.setOnCheckedChangeListener(filterWatcher); cbShowChoice2.setOnCheckedChangeListener(filterWatcher); cbShowOptions.setOnCheckedChangeListener(filterWatcher)
+        filterRow.addView(cbShowChoice1); filterRow.addView(cbShowChoice2); filterRow.addView(cbShowOptions); container.addView(filterRow)
 
-        val themeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#F5F5F5"))
-            setPadding(8, 6, 8, 6)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
-        }
-        spinnerSefimTheme = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, themeNames)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f)
-        }
-        spinnerSefimFontSize = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, fontSizes)
-            setSelection(1)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        cbSefimBold = CheckBox(this).apply {
-            text = "Kalın"
-            isChecked = true
-            textSize = 12f
-        }
-        themeRow.addView(spinnerSefimTheme)
-        themeRow.addView(spinnerSefimFontSize)
-        themeRow.addView(cbSefimBold)
-        container.addView(themeRow)
+        val themeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Color.parseColor("#F5F5F5")); setPadding(8, 6, 8, 6); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 } }
+        spinnerSefimTheme = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, themeNames); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f) }
+        spinnerSefimFontSize = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, fontSizes); setSelection(1); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) }
+        cbSefimBold = CheckBox(this).apply { text = "Kalın"; isChecked = true; textSize = 12f }
+        themeRow.addView(spinnerSefimTheme); themeRow.addView(spinnerSefimFontSize); themeRow.addView(cbSefimBold); container.addView(themeRow)
 
-        val animRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#FFF3E0"))
-            setPadding(14, 8, 14, 8)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
-        }
-        animRow.addView(TextView(this).apply {
-            text = "✨ Animasyon:"
-            setTextColor(Color.parseColor("#E65100"))
-            typeface = Typeface.DEFAULT_BOLD
-            textSize = 13f
-        })
-        spinnerSefimBgObject = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, bgObjectNames)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 10 }
-        }
-        animRow.addView(spinnerSefimBgObject)
-        container.addView(animRow)
+        val animRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Color.parseColor("#FFF3E0")); setPadding(14, 8, 14, 8); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 } }
+        animRow.addView(TextView(this).apply { text = "✨ Animasyon:"; setTextColor(Color.parseColor("#E65100")); typeface = Typeface.DEFAULT_BOLD; textSize = 13f })
+        spinnerSefimBgObject = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, bgObjectNames); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 10 } }
+        animRow.addView(spinnerSefimBgObject); container.addView(animRow)
 
-        val searchRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#E8EAF6"))
-            setPadding(14, 6, 14, 6)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
-        }
+        val searchRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Color.parseColor("#E8EAF6")); setPadding(14, 6, 14, 6); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 } }
         edtProductSearch = EditText(this).apply {
-            hint = "🔍 Ürün Ara (İsim veya içerik yazın)..."
-            textSize = 14f
-            setSingleLine(true)
+            hint = "🔍 Ürün Ara (İsim veya içerik yazın)..."; textSize = 14f; setSingleLine(true)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    currentSearchQuery = s?.toString()?.trim() ?: ""
-                    filterSefimProductList(currentSearchQuery)
-                }
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { currentSearchQuery = s?.toString()?.trim() ?: ""; filterSefimProductList(currentSearchQuery) }
                 override fun afterTextChanged(s: Editable?) {}
             })
         }
-        val btnClearSearch = Button(this).apply {
-            text = "✖"
-            textSize = 12f
-            layoutParams = LinearLayout.LayoutParams(100, 90)
-            setOnClickListener { edtProductSearch.setText("") }
-        }
         searchRow.addView(edtProductSearch)
-        searchRow.addView(btnClearSearch)
+        searchRow.addView(Button(this).apply { text = "✖"; textSize = 12f; layoutParams = LinearLayout.LayoutParams(100, 90); setOnClickListener { edtProductSearch.setText("") } })
         container.addView(searchRow)
 
-        val btnPub = Button(this).apply {
-            text = "📺 Menüyü & Animasyonu Menuboard'da Yayınla"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            textSize = 14f
-            setBackgroundColor(Color.parseColor("#E65100"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120).apply { topMargin = 10 }
+        container.addView(Button(this).apply {
+            text = "📺 Menüyü & Animasyonu Menuboard'da Yayınla"; isAllCaps = false; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; textSize = 14f
+            setBackgroundColor(Color.parseColor("#E65100")); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120).apply { topMargin = 10 }
             setOnClickListener { publishSefimMenuToMenuboard() }
-        }
-        container.addView(btnPub)
+        })
 
         rvSefimProducts = RecyclerView(this).apply {
-            setBackgroundColor(Color.parseColor("#141414"))
-            setPadding(10, 10, 10, 10)
-            isNestedScrollingEnabled = false
+            setBackgroundColor(Color.parseColor("#141414")); setPadding(10, 10, 10, 10); isNestedScrollingEnabled = false
             layoutManager = LinearLayoutManager(this@MainActivity)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
         }
-        sefimAdapter = SefimProductAdapter()
-        rvSefimProducts.adapter = sefimAdapter
-        container.addView(rvSefimProducts)
+        sefimAdapter = SefimProductAdapter(); rvSefimProducts.adapter = sefimAdapter; container.addView(rvSefimProducts)
 
-        val btnScrollUpFloat = Button(this).apply {
-            text = "▲"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.argb(210, 25, 118, 210))
-            layoutParams = FrameLayout.LayoutParams(110, 110).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = 18
-                rightMargin = 18
-            }
+        wrapper.addView(Button(this).apply {
+            text = "▲"; textSize = 16f; setTextColor(Color.WHITE); setBackgroundColor(Color.argb(210, 25, 118, 210))
+            layoutParams = FrameLayout.LayoutParams(110, 110).apply { gravity = Gravity.TOP or Gravity.END; topMargin = 18; rightMargin = 18 }
             setOnClickListener { sefimScrollView.smoothScrollBy(0, -650) }
             setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_UP); true }
-        }
-
-        val btnScrollDownFloat = Button(this).apply {
-            text = "▼"
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.argb(210, 25, 118, 210))
-            layoutParams = FrameLayout.LayoutParams(110, 110).apply {
-                gravity = Gravity.BOTTOM or Gravity.END
-                bottomMargin = 18
-                rightMargin = 18
-            }
+        })
+        wrapper.addView(Button(this).apply {
+            text = "▼"; textSize = 16f; setTextColor(Color.WHITE); setBackgroundColor(Color.argb(210, 25, 118, 210))
+            layoutParams = FrameLayout.LayoutParams(110, 110).apply { gravity = Gravity.BOTTOM or Gravity.END; bottomMargin = 18; rightMargin = 18 }
             setOnClickListener { sefimScrollView.smoothScrollBy(0, 650) }
             setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_DOWN); true }
-        }
-        wrapper.addView(btnScrollUpFloat)
-        wrapper.addView(btnScrollDownFloat)
+        })
 
         val styleListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                applySefimPreviewBackground()
-                sefimAdapter.notifyDataSetChanged()
-                saveLocalSefimState()
-            }
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { applySefimPreviewBackground(); sefimAdapter.notifyDataSetChanged(); saveLocalSefimState() }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
-        spinnerSefimTheme.onItemSelectedListener = styleListener
-        spinnerSefimFontSize.onItemSelectedListener = styleListener
-        cbSefimBold.setOnCheckedChangeListener { _, _ ->
-            sefimAdapter.notifyDataSetChanged()
-            saveLocalSefimState()
-        }
-
+        spinnerSefimTheme.onItemSelectedListener = styleListener; spinnerSefimFontSize.onItemSelectedListener = styleListener
+        cbSefimBold.setOnCheckedChangeListener { _, _ -> sefimAdapter.notifyDataSetChanged(); saveLocalSefimState() }
         spinnerSefimBgObject.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 saveLocalSefimState()
-                val mode = bgObjectValues[position]
                 val host = activeDevice?.host ?: return
-                val req = Request.Builder().url("http://$host/api/sefim/bgobject?mode=$mode").post("".toRequestBody(null)).build()
-                httpClient.newCall(req).enqueue(object : Callback {
+                httpClient.newCall(Request.Builder().url("http://$host/api/sefim/bgobject?mode=${bgObjectValues[position]}").post("".toRequestBody(null)).build()).enqueue(object : Callback {
                     override fun onFailure(call: Call, e: IOException) {}
                     override fun onResponse(call: Call, response: Response) { response.close() }
                 })
@@ -1176,29 +995,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun filterSefimProductList(query: String) {
         filteredSefimProducts.clear()
-        if (query.isEmpty()) {
-            filteredSefimProducts.addAll(sefimProducts)
-        } else {
+        if (query.isEmpty()) filteredSefimProducts.addAll(sefimProducts)
+        else {
             val q = query.lowercase()
             for (item in sefimProducts) {
-                val matchName = (item.productName ?: "").lowercase().contains(q)
-                val matchRec = (item.recipeContent ?: "").lowercase().contains(q)
-                val matchSub = buildFilteredChoicesString(item).lowercase().contains(q)
-                if (matchName || matchRec || matchSub) {
+                if ((item.productName ?: "").lowercase().contains(q) || (item.recipeContent ?: "").lowercase().contains(q) || buildFilteredChoicesString(item).lowercase().contains(q)) {
                     filteredSefimProducts.add(item)
                 }
             }
         }
-        if (::sefimAdapter.isInitialized) {
-            sefimAdapter.notifyDataSetChanged()
-        }
+        if (::sefimAdapter.isInitialized) sefimAdapter.notifyDataSetChanged()
     }
 
     private fun computeAllergenWarning(item: SefimProductItem?): String {
         if (item == null) return ""
         val detected = mutableListOf<String>()
         val text = (item.recipeContent ?: "").lowercase()
-
         val rules = listOf(
             "Gluten" to listOf("un", "buğday", "ekmek", "lavaş", "pide", "makarna", "bulgur", "irmik", "galeta", "hamur", "kadayıf", "baklava", "yufka", "bisküvi", "gluten"),
             "Süt Ürünü" to listOf("süt", "peynir", "kaşar", "tereyağ", "krema", "yoğurt", "kaymak", "dondurma", "mozzarella", "labne", "laktoz"),
@@ -1206,70 +1018,38 @@ class MainActivity : AppCompatActivity() {
             "Kuruyemiş" to listOf("fıstık", "fındık", "ceviz", "badem", "kaju", "antep"),
             "Susam" to listOf("susam", "tahin", "helva"),
             "Deniz Ürünü" to listOf("balık", "levrek", "çupra", "somon", "hamsi", "karides", "kalamar", "midye", "ahtapot", "yengeç"),
-            "Soya" to listOf("soya"),
-            "Hardal" to listOf("hardal")
+            "Soya" to listOf("soya"), "Hardal" to listOf("hardal")
         )
-
-        for ((allergenName, keywords) in rules) {
-            if (keywords.any { text.contains(it) }) {
-                detected.add(allergenName)
-            }
-        }
-        val manual = (item.manualAllergen ?: "").trim()
-        if (manual.isNotEmpty()) {
-            detected.add(manual)
-        }
+        for ((allergenName, keywords) in rules) if (keywords.any { text.contains(it) }) detected.add(allergenName)
+        val manual = (item.manualAllergen ?: "").trim(); if (manual.isNotEmpty()) detected.add(manual)
         return detected.distinct().joinToString(", ")
     }
 
     private fun buildFilteredChoicesString(item: SefimProductItem?): String {
         if (item == null) return ""
         return try {
-            val c1 = (item.choice1Text ?: "").trim()
-            val c2 = (item.choice2Text ?: "").trim()
-            val opt = (item.optionsText ?: "").trim()
-            val legacySub = (item.subDetails ?: "").trim()
-
-            val show1 = if (::cbShowChoice1.isInitialized) cbShowChoice1.isChecked else true
-            val show2 = if (::cbShowChoice2.isInitialized) cbShowChoice2.isChecked else true
-            val showOpt = if (::cbShowOptions.isInitialized) cbShowOptions.isChecked else true
-
+            val c1 = (item.choice1Text ?: "").trim(); val c2 = (item.choice2Text ?: "").trim()
+            val opt = (item.optionsText ?: "").trim(); val legacySub = (item.subDetails ?: "").trim()
+            val s1 = if (::cbShowChoice1.isInitialized) cbShowChoice1.isChecked else true
+            val s2 = if (::cbShowChoice2.isInitialized) cbShowChoice2.isChecked else true
+            val sO = if (::cbShowOptions.isInitialized) cbShowOptions.isChecked else true
             val parts = mutableListOf<String>()
-            if (show1 && c1.isNotEmpty()) parts.add("Seçenek 1: $c1")
-            if (show2 && c2.isNotEmpty()) parts.add("Seçenek 2: $c2")
-            if (showOpt && opt.isNotEmpty()) parts.add("Opsiyon: $opt")
-
-            if (parts.isEmpty() && legacySub.isNotEmpty() && (show1 || show2 || showOpt)) {
-                legacySub
-            } else {
-                parts.joinToString(" | ")
-            }
-        } catch (_: Exception) {
-            ""
-        }
+            if (s1 && c1.isNotEmpty()) parts.add("Seçenek 1: $c1")
+            if (s2 && c2.isNotEmpty()) parts.add("Seçenek 2: $c2")
+            if (sO && opt.isNotEmpty()) parts.add("Opsiyon: $opt")
+            if (parts.isEmpty() && legacySub.isNotEmpty() && (s1 || s2 || sO)) legacySub else parts.joinToString(" | ")
+        } catch (_: Exception) { "" }
     }
 
     private fun showDemoMenuSelectorDialog() {
-        val categories = arrayOf(
-            "🐟 Örnek Balık Restoranı Menüsü",
-            "🥙 Örnek Döner & Kebap Menüsü",
-            "☕ Örnek Cafe & Bistro Menüsü",
-            "🍰 Örnek Tatlıcı & Pastane Menüsü"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("🧪 Test Menüsü Seçin")
-            .setItems(categories) { _, which -> loadDemoCategory(which) }
-            .setNegativeButton("İptal", null)
-            .show()
+        val categories = arrayOf("🐟 Örnek Balık Restoranı Menüsü", "🥙 Örnek Döner & Kebap Menüsü", "☕ Örnek Cafe & Bistro Menüsü", "🍰 Örnek Tatlıcı & Pastane Menüsü")
+        AlertDialog.Builder(this).setTitle("🧪 Test Menüsü Seçin").setItems(categories) { _, which -> loadDemoCategory(which) }.setNegativeButton("İptal", null).show()
     }
 
     private fun loadDemoCategory(catIndex: Int) {
         val items: List<SefimProductItem> = when (catIndex) {
             0 -> {
-                edtRestaurantName.setText("BALIKÇI ŞÜKRÜ")
-                edtHeaderNote.setText("Günlük Taze Deniz Ürünleri & Izgara")
-                spinnerSefimTheme.setSelection(4)
-                spinnerSefimBgObject.setSelection(1)
+                edtRestaurantName.setText("BALIKÇI ŞÜKRÜ"); edtHeaderNote.setText("Günlük Taze Deniz Ürünleri & Izgara"); spinnerSefimTheme.setSelection(4); spinnerSefimBgObject.setSelection(1)
                 listOf(
                     SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Roka Salatası", "Köz Soğan", "Mısır Ekmeği", "", "Taze deniz levreği, zeytinyağı, limon"),
                     SefimProductItem("2", "Deniz Çuprası (450gr)", "410 ₺", "Mevsim Salata", "Limon Sos", "Fırın Patates", "", "Çupra balığı, defne yaprağı"),
@@ -1282,10 +1062,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             1 -> {
-                edtRestaurantName.setText("USTA DÖNER & KEBAP")
-                edtHeaderNote.setText("%100 Yaprak Et Döner & Odun Ateşi")
-                spinnerSefimTheme.setSelection(2)
-                spinnerSefimBgObject.setSelection(2)
+                edtRestaurantName.setText("USTA DÖNER & KEBAP"); edtHeaderNote.setText("%100 Yaprak Et Döner & Odun Ateşi"); spinnerSefimTheme.setSelection(2); spinnerSefimBgObject.setSelection(2)
                 listOf(
                     SefimProductItem("1", "İskender Kebap (Yaprak)", "390 ₺", "Ekstra Tereyağ", "Tava Yoğurdu", "Köz Biber & Domates", "", "Yaprak döner, tırnak pide, tereyağ, yoğurt, domates sos"),
                     SefimProductItem("2", "Et Döner Dürüm (150gr)", "270 ₺", "Çift Lavaş", "Patates Kızartması", "Soğanlı / Soğansız", "", "Yaprak et döner, lavaş ekmeği, turşu"),
@@ -1296,10 +1073,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             2 -> {
-                edtRestaurantName.setText("ROAST & BREW CAFE")
-                edtHeaderNote.setText("3. Nesil Kahve & Artizan Lezzetler")
-                spinnerSefimTheme.setSelection(5)
-                spinnerSefimBgObject.setSelection(4)
+                edtRestaurantName.setText("ROAST & BREW CAFE"); edtHeaderNote.setText("3. Nesil Kahve & Artizan Lezzetler"); spinnerSefimTheme.setSelection(5); spinnerSefimBgObject.setSelection(4)
                 listOf(
                     SefimProductItem("1", "Caramel Macchiato", "135 ₺", "Yulaf Sütü", "Ekstra Espresso", "Sıcak / Buzlu", "", "Espresso, taze süt, karamel sos"),
                     SefimProductItem("2", "Avokado Poşe Yumurta Tost", "240 ₺", "Ekşi Maya Ekmek", "Akdeniz Yeşillik", "Çeçil Peynirli", "", "Ekşi maya ekmek, yumurta, avokado, peynir"),
@@ -1309,10 +1083,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             else -> {
-                edtRestaurantName.setText("SARAY PASTANESİ")
-                edtHeaderNote.setText("Günlük Taze Pasta, Baklava & Sütlü Tatlılar")
-                spinnerSefimTheme.setSelection(7)
-                spinnerSefimBgObject.setSelection(5)
+                edtRestaurantName.setText("SARAY PASTANESİ"); edtHeaderNote.setText("Günlük Taze Pasta, Baklava & Sütlü Tatlılar"); spinnerSefimTheme.setSelection(7); spinnerSefimBgObject.setSelection(5)
                 listOf(
                     SefimProductItem("1", "San Sebastian Cheesecake", "210 ₺", "Belçika Çikolatalı", "Taze Çilekli", "Ekstra Sos", "", "Krema, labne peynir, yumurta, un"),
                     SefimProductItem("2", "Fıstıklı Soğuk Baklava", "250 ₺", "Gaziantep Boz Fıstık", "Süt Şerbetli", "4 Dilim", "", "Baklava yufkası, un, süt, tereyağ, antep fıstık"),
@@ -1322,11 +1093,9 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
-
         sefimProducts.clear()
         for (prod in items) {
-            val pName = prod.productName ?: ""
-            val cached = productMetaCache[pName]
+            val cached = productMetaCache[prod.productName ?: ""]
             if (cached != null) {
                 if (!cached.imageBase64.isNullOrEmpty()) prod.imageBase64 = cached.imageBase64
                 if (!cached.recipeContent.isNullOrEmpty()) prod.recipeContent = cached.recipeContent
@@ -1334,304 +1103,121 @@ class MainActivity : AppCompatActivity() {
             }
             sefimProducts.add(prod)
         }
-        saveLocalSefimState()
-        pushSefimBackupToMenuboard()
-        filterSefimProductList(currentSearchQuery)
+        saveLocalSefimState(); pushSefimBackupToMenuboard(); filterSefimProductList(currentSearchQuery)
     }
 
     private fun showEditRecipeAndAllergenDialog(item: SefimProductItem) {
         val pName = item.productName ?: ""
-        val edtRecipe = EditText(this).apply {
-            hint = "Reçete / İçerik (Örn: Un, tereyağ, süt, karides, ceviz...)"
-            setText(item.recipeContent ?: "")
-            minLines = 2
-        }
-        val edtManualAllergen = EditText(this).apply {
-            hint = "Manuel Alerjen Ekle (Opsiyonel)"
-            setText(item.manualAllergen ?: "")
-        }
+        val edtRecipe = EditText(this).apply { hint = "Reçete / İçerik"; setText(item.recipeContent ?: ""); minLines = 2 }
+        val edtManualAllergen = EditText(this).apply { hint = "Manuel Alerjen Ekle (Opsiyonel)"; setText(item.manualAllergen ?: "") }
         val txtPreview = TextView(this).apply {
-            setPadding(0, 16, 0, 8)
-            setTextColor(Color.parseColor("#D32F2F"))
-            typeface = Typeface.DEFAULT_BOLD
-            val currentWarn = computeAllergenWarning(item)
-            text = if (currentWarn.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $currentWarn" else "✓ Alerjen tespit edilmedi (Uyarı yazılmaz)"
+            setPadding(0, 16, 0, 8); setTextColor(Color.parseColor("#D32F2F")); typeface = Typeface.DEFAULT_BOLD
+            val w = computeAllergenWarning(item); text = if (w.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $w" else "✓ Alerjen tespit edilmedi"
         }
-
         val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val temp = item.copy(recipeContent = edtRecipe.text.toString(), manualAllergen = edtManualAllergen.text.toString())
-                val warn = computeAllergenWarning(temp)
-                txtPreview.text = if (warn.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $warn" else "✓ Alerjen tespit edilmedi (Uyarı yazılmaz)"
+                val w = computeAllergenWarning(item.copy(recipeContent = edtRecipe.text.toString(), manualAllergen = edtManualAllergen.text.toString()))
+                txtPreview.text = if (w.isNotEmpty()) "⚠️ Tespit Edilen Alerjen: $w" else "✓ Alerjen tespit edilmedi"
             }
             override fun afterTextChanged(s: Editable?) {}
         }
-        edtRecipe.addTextChangedListener(watcher)
-        edtManualAllergen.addTextChangedListener(watcher)
-
+        edtRecipe.addTextChangedListener(watcher); edtManualAllergen.addTextChangedListener(watcher)
         val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(50, 30, 50, 10)
-            addView(TextView(this@MainActivity).apply { text = "Ürün İçeriği / Reçete Malzemeleri:" })
-            addView(edtRecipe)
-            addView(TextView(this@MainActivity).apply { text = "Ek Manuel Alerjen Uyarısı:"; setPadding(0, 14, 0, 0) })
-            addView(edtManualAllergen)
-            addView(txtPreview)
+            orientation = LinearLayout.VERTICAL; setPadding(50, 30, 50, 10)
+            addView(TextView(this@MainActivity).apply { text = "Ürün İçeriği / Reçete:" }); addView(edtRecipe)
+            addView(TextView(this@MainActivity).apply { text = "Ek Manuel Alerjen:"; setPadding(0, 14, 0, 0) }); addView(edtManualAllergen); addView(txtPreview)
         }
-
-        AlertDialog.Builder(this)
-            .setTitle("$pName - İçerik & Alerjen")
-            .setView(layout)
+        AlertDialog.Builder(this).setTitle("$pName - İçerik & Alerjen").setView(layout)
             .setPositiveButton("Kaydet") { _, _ ->
-                item.recipeContent = edtRecipe.text.toString().trim()
-                item.manualAllergen = edtManualAllergen.text.toString().trim()
+                item.recipeContent = edtRecipe.text.toString().trim(); item.manualAllergen = edtManualAllergen.text.toString().trim()
                 val meta = productMetaCache.getOrPut(pName) { ProductMetaCache() }
-                meta.recipeContent = item.recipeContent
-                meta.manualAllergen = item.manualAllergen
-                saveLocalSefimState()
-                pushSefimBackupToMenuboard()
-                filterSefimProductList(currentSearchQuery)
-            }
-            .setNegativeButton("İptal", null)
-            .show()
+                meta.recipeContent = item.recipeContent; meta.manualAllergen = item.manualAllergen
+                saveLocalSefimState(); pushSefimBackupToMenuboard(); filterSefimProductList(currentSearchQuery)
+            }.setNegativeButton("İptal", null).show()
     }
 
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
-        val options = arrayOf(
-            "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
-            "📦 Uzaktan APK Gönder & Kur",
-            "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
-            "📺 Menuboard Uygulamasını Tekrar Öne Getir"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("${device.nameTag} (${device.host}) Yönetimi")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> verifyPermissionsAndOpenTouchpad(device)
-                    1 -> {
-                        targetApkDevice = device
-                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "*/*"
-                        }
-                        pickRemoteApkLauncher.launch(intent)
-                    }
-                    2 -> fetchAndShowInstalledApps(device)
-                    3 -> {
-                        sendRemoteInput(device, "type=nav&act=MENUBOARD")
-                        Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show()
-                    }
-                }
+        val options = arrayOf("🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)", "📦 Uzaktan APK Gönder & Kur", "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat", "📺 Menuboard Uygulamasını Tekrar Öne Getir")
+        AlertDialog.Builder(this).setTitle("${device.nameTag} (${device.host}) Yönetimi").setItems(options) { _, which ->
+            when (which) {
+                0 -> verifyPermissionsAndOpenTouchpad(device)
+                1 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
+                2 -> fetchAndShowInstalledApps(device)
+                3 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
             }
-            .setNegativeButton("Kapat", null)
-            .show()
+        }.setNegativeButton("Kapat", null).show()
     }
 
     private fun verifyPermissionsAndOpenTouchpad(device: DeviceItem) {
-        val req = Request.Builder()
-            .url("http://${device.host}/api/permissions/check")
-            .post("".toRequestBody(null))
-            .build()
-
-        httpClient.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Menuboard cihazına bağlanılamadı!", Toast.LENGTH_SHORT).show()
-                }
-            }
-
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/permissions/check").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Menuboard cihazına bağlanılamadı!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
-                val body = response.body?.string() ?: "{}"
-                response.close()
+                val body = response.body?.string() ?: "{}"; response.close()
                 try {
-                    val json = JSONObject(body)
-                    val allGranted = json.optBoolean("allGranted", false)
-
+                    val allGranted = JSONObject(body).optBoolean("allGranted", false)
                     runOnUiThread {
                         if (!allGranted) {
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("⚠️ İzin Gerekli")
+                            AlertDialog.Builder(this@MainActivity).setTitle("⚠️ İzin Gerekli")
                                 .setMessage("Gösterim izni yok, menuboardda ekrana gelen izinleri sağlayınız.\n\n(Menuboard ekranında izin pencereleri otomatik olarak peş peşe açılmıştır.)")
-                                .setPositiveButton("Yine de Touchpad'i Aç") { _, _ ->
-                                    showVirtualTouchpadAndKeyboardDialog(device)
-                                }
-                                .setNegativeButton("Tamam", null)
-                                .show()
-                        } else {
-                            showVirtualTouchpadAndKeyboardDialog(device)
-                        }
+                                .setPositiveButton("Yine de Touchpad'i Aç") { _, _ -> showVirtualTouchpadAndKeyboardDialog(device) }
+                                .setNegativeButton("Tamam", null).show()
+                        } else showVirtualTouchpadAndKeyboardDialog(device)
                     }
-                } catch (_: Exception) {
-                    runOnUiThread { showVirtualTouchpadAndKeyboardDialog(device) }
-                }
+                } catch (_: Exception) { runOnUiThread { showVirtualTouchpadAndKeyboardDialog(device) } }
             }
         })
     }
 
     private fun showVirtualTouchpadAndKeyboardDialog(device: DeviceItem) {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(28, 20, 28, 14)
-        }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(28, 20, 28, 14) }
+        val touchpad = FrameLayout(this).apply { layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 400); setBackgroundColor(Color.parseColor("#263238")) }
+        touchpad.addView(TextView(this).apply { text = "🖱️ SANAL TOUCHPAD\n(Parmağınızı Gezdirin: İmleç | Dokunun: Sol Tık)"; setTextColor(Color.parseColor("#80CBC4")); gravity = Gravity.CENTER; textSize = 13f }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        val touchpad = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 400)
-            setBackgroundColor(Color.parseColor("#263238"))
-        }
-        val padHint = TextView(this).apply {
-            text = "🖱️ SANAL TOUCHPAD\n(Parmağınızı Gezdirin: İmleç | Dokunun: Sol Tık)"
-            setTextColor(Color.parseColor("#80CBC4"))
-            gravity = Gravity.CENTER
-            textSize = 13f
-        }
-        touchpad.addView(padHint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        var lastX = 0f
-        var lastY = 0f
-        var downX = 0f
-        var downY = 0f
-        var downTime = 0L
-        var lastSendTime = 0L
-
+        var lastX = 0f; var lastY = 0f; var downX = 0f; var downY = 0f; var downTime = 0L; var lastSendTime = 0L
         touchpad.setOnTouchListener { _, ev ->
             when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    lastX = ev.x
-                    lastY = ev.y
-                    downX = ev.x
-                    downY = ev.y
-                    downTime = System.currentTimeMillis()
-                }
+                MotionEvent.ACTION_DOWN -> { lastX = ev.x; lastY = ev.y; downX = ev.x; downY = ev.y; downTime = System.currentTimeMillis() }
                 MotionEvent.ACTION_MOVE -> {
-                    val now = System.currentTimeMillis()
-                    val dx = (ev.x - lastX) * 1.9f
-                    val dy = (ev.y - lastY) * 1.9f
-                    if (now - lastSendTime > 28L && (kotlin.math.abs(dx) > 1.5f || kotlin.math.abs(dy) > 1.5f)) {
-                        lastX = ev.x
-                        lastY = ev.y
-                        lastSendTime = now
-                        sendRemoteInput(device, "type=move&dx=${dx.toInt()}&dy=${dy.toInt()}")
-                    }
+                    val now = System.currentTimeMillis(); val dx = (ev.x - lastX) * 1.9f; val dy = (ev.y - lastY) * 1.9f
+                    if (now - lastSendTime > 28L && (kotlin.math.abs(dx) > 1.5f || kotlin.math.abs(dy) > 1.5f)) { lastX = ev.x; lastY = ev.y; lastSendTime = now; sendRemoteInput(device, "type=move&dx=${dx.toInt()}&dy=${dy.toInt()}") }
                 }
-                MotionEvent.ACTION_UP -> {
-                    val dist = hypot((ev.x - downX).toDouble(), (ev.y - downY).toDouble())
-                    if (System.currentTimeMillis() - downTime < 260L && dist < 18.0) {
-                        sendRemoteInput(device, "type=click")
-                    }
-                }
+                MotionEvent.ACTION_UP -> { if (System.currentTimeMillis() - downTime < 260L && hypot((ev.x - downX).toDouble(), (ev.y - downY).toDouble()) < 18.0) sendRemoteInput(device, "type=click") }
             }
             true
         }
         root.addView(touchpad)
 
-        val navRow1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 10, 0, 4)
-        }
-        navRow1.addView(Button(this).apply {
-            text = "◀ Geri"
-            textSize = 12f
-            isAllCaps = false
-            setPadding(4, 16, 4, 16)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }
-            setOnClickListener { sendRemoteInput(device, "type=nav&act=BACK") }
-        })
-        navRow1.addView(Button(this).apply {
-            text = "⏺ Ana Ekran"
-            textSize = 12f
-            isAllCaps = false
-            setPadding(4, 16, 4, 16)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f).apply { rightMargin = 6 }
-            setOnClickListener { sendRemoteInput(device, "type=nav&act=HOME") }
-        })
-        navRow1.addView(Button(this).apply {
-            text = "📺 Öne Getir"
-            textSize = 12f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#E65100"))
-            setPadding(4, 16, 4, 16)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f)
-            setOnClickListener { sendRemoteInput(device, "type=nav&act=MENUBOARD") }
-        })
+        val navRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 10, 0, 4) }
+        navRow1.addView(Button(this).apply { text = "◀ Geri"; textSize = 12f; isAllCaps = false; setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }; setOnClickListener { sendRemoteInput(device, "type=nav&act=BACK") } })
+        navRow1.addView(Button(this).apply { text = "⏺ Ana Ekran"; textSize = 12f; isAllCaps = false; setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f).apply { rightMargin = 6 }; setOnClickListener { sendRemoteInput(device, "type=nav&act=HOME") } })
+        navRow1.addView(Button(this).apply { text = "📺 Öne Getir"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#E65100")); setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f); setOnClickListener { sendRemoteInput(device, "type=nav&act=MENUBOARD") } })
         root.addView(navRow1)
 
-        val navRow2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 4, 0, 8)
-        }
-        navRow2.addView(Button(this).apply {
-            text = "▲ Yukarı Kaydır"
-            textSize = 12f
-            isAllCaps = false
-            setPadding(4, 14, 4, 14)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }
-            setOnClickListener { sendRemoteInput(device, "type=scroll&dy=-350") }
-        })
-        navRow2.addView(Button(this).apply {
-            text = "▼ Aşağı Kaydır"
-            textSize = 12f
-            isAllCaps = false
-            setPadding(4, 14, 4, 14)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener { sendRemoteInput(device, "type=scroll&dy=350") }
-        })
+        val navRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 4, 0, 8) }
+        navRow2.addView(Button(this).apply { text = "▲ Yukarı Kaydır"; textSize = 12f; isAllCaps = false; setPadding(4, 14, 4, 14); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }; setOnClickListener { sendRemoteInput(device, "type=scroll&dy=-350") } })
+        navRow2.addView(Button(this).apply { text = "▼ Aşağı Kaydır"; textSize = 12f; isAllCaps = false; setPadding(4, 14, 4, 14); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { sendRemoteInput(device, "type=scroll&dy=350") } })
         root.addView(navRow2)
 
-        val kbRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val edtRemoteKb = EditText(this).apply {
-            hint = "Menuboard'a yazılacak metin..."
-            textSize = 13f
-            setSingleLine(true)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val btnSendText = Button(this).apply {
-            text = "⌨️ Gönder"
-            textSize = 12f
-            isAllCaps = false
-            setPadding(16, 14, 16, 14)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 6 }
+        val kbRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val edtRemoteKb = EditText(this).apply { hint = "Menuboard'a yazılacak metin..."; textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) }
+        kbRow.addView(edtRemoteKb)
+        kbRow.addView(Button(this).apply {
+            text = "⌨️ Gönder"; textSize = 12f; isAllCaps = false; setPadding(16, 14, 16, 14); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 6 }
             setOnClickListener {
                 val txt = edtRemoteKb.text.toString()
-                if (txt.isNotEmpty()) {
-                    sendRemoteInput(device, "type=text&val=${Uri.encode(txt)}")
-                    edtRemoteKb.setText("")
-                } else {
-                    edtRemoteKb.requestFocus()
-                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.showSoftInput(edtRemoteKb, InputMethodManager.SHOW_IMPLICIT)
-                }
+                if (txt.isNotEmpty()) { sendRemoteInput(device, "type=text&val=${Uri.encode(txt)}"); edtRemoteKb.setText("") }
+                else { edtRemoteKb.requestFocus(); (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(edtRemoteKb, InputMethodManager.SHOW_IMPLICIT) }
             }
-        }
-        val btnBackspace = Button(this).apply {
-            text = "⌫"
-            textSize = 14f
-            setPadding(12, 14, 12, 14)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 6 }
-            setOnClickListener { sendRemoteInput(device, "type=key&code=BACKSPACE") }
-        }
-        kbRow.addView(edtRemoteKb)
-        kbRow.addView(btnSendText)
-        kbRow.addView(btnBackspace)
+        })
+        kbRow.addView(Button(this).apply { text = "⌫"; textSize = 14f; setPadding(12, 14, 12, 14); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 6 }; setOnClickListener { sendRemoteInput(device, "type=key&code=BACKSPACE") } })
         root.addView(kbRow)
 
-        AlertDialog.Builder(this)
-            .setTitle("🖱️ ${device.nameTag} - Mouse & Klavye")
-            .setView(root)
-            .setPositiveButton("Kapat", null)
-            .show()
+        AlertDialog.Builder(this).setTitle("🖱️ ${device.nameTag} - Mouse & Klavye").setView(root).setPositiveButton("Kapat", null).show()
     }
 
     private fun sendRemoteInput(device: DeviceItem, queryParams: String) {
-        val req = Request.Builder()
-            .url("http://${device.host}/api/input?$queryParams")
-            .post("".toRequestBody(null))
-            .build()
-        httpClient.newCall(req).enqueue(object : Callback {
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/input?$queryParams").post("".toRequestBody(null)).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) { response.close() }
         })
@@ -1639,158 +1225,83 @@ class MainActivity : AppCompatActivity() {
 
     private fun uploadAndInstallApkOnMenuboard(device: DeviceItem, uri: Uri) {
         val contentResolver = applicationContext.contentResolver
-        val totalLength = try {
-            contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-        } catch (_: Exception) { -1L }
-
+        val totalLength = try { contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L } catch (_: Exception) { -1L }
         Toast.makeText(this, "APK ${device.nameTag} cihazına gönderiliyor...", Toast.LENGTH_LONG).show()
-        uploadProgressBar?.visibility = View.VISIBLE
-        uploadProgressBar?.progress = 0
+        uploadProgressBar?.visibility = View.VISIBLE; uploadProgressBar?.progress = 0
 
         val customBody = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaTypeOrNull()
             override fun contentLength(): Long = totalLength
-
             override fun writeTo(sink: okio.BufferedSink) {
                 contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val buffer = ByteArray(65536)
-                    var read: Int
-                    var uploaded: Long = 0
-                    var lastReportedPct = -1
+                    val buffer = ByteArray(65536); var read: Int; var uploaded = 0L; var lastPct = -1
                     while (inputStream.read(buffer).also { read = it } != -1) {
                         sink.write(buffer, 0, read)
                         if (totalLength > 0) {
-                            uploaded += read
-                            val p = ((uploaded * 100) / totalLength).toInt()
-                            if (p != lastReportedPct) {
-                                lastReportedPct = p
-                                runOnUiThread { uploadProgressBar?.progress = p }
-                            }
+                            uploaded += read; val p = ((uploaded * 100) / totalLength).toInt()
+                            if (p != lastPct) { lastPct = p; runOnUiThread { uploadProgressBar?.progress = p } }
                         }
                     }
                 }
             }
         }
-
-        val req = Request.Builder()
-            .url("http://${device.host}/api/upload_raw?filename=remote.apk&apk=true")
-            .post(customBody)
-            .build()
-
-        httpClient.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread {
-                    uploadProgressBar?.visibility = View.GONE
-                    Toast.makeText(this@MainActivity, "APK gönderimi başarısız: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.close()
-                runOnUiThread {
-                    uploadProgressBar?.visibility = View.GONE
-                    Toast.makeText(this@MainActivity, "APK gönderildi ve Menuboard'da kurulum başlatıldı!", Toast.LENGTH_LONG).show()
-                }
-            }
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/upload_raw?filename=remote.apk&apk=true").post(customBody).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { uploadProgressBar?.visibility = View.GONE; Toast.makeText(this@MainActivity, "APK gönderimi başarısız!", Toast.LENGTH_LONG).show() } }
+            override fun onResponse(call: Call, response: Response) { response.close(); runOnUiThread { uploadProgressBar?.visibility = View.GONE; Toast.makeText(this@MainActivity, "APK gönderildi ve Menuboard'da kurulum başlatıldı!", Toast.LENGTH_LONG).show() } }
         })
     }
 
     private fun fetchAndShowInstalledApps(device: DeviceItem) {
         Toast.makeText(this, "${device.nameTag} üzerindeki uygulamalar getiriliyor...", Toast.LENGTH_SHORT).show()
-        val req = Request.Builder().url("http://${device.host}/api/apps").build()
-        httpClient.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_LONG).show() }
-            }
-
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/apps").build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_LONG).show() } }
             override fun onResponse(call: Call, response: Response) {
-                val body = response.body?.string() ?: "[]"
-                response.close()
+                val body = response.body?.string() ?: "[]"; response.close()
                 try {
-                    val type = object : TypeToken<List<RemoteAppInfo>>() {}.type
-                    val apps: List<RemoteAppInfo> = gson.fromJson(body, type)
-                    if (apps.isEmpty()) {
-                        runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi alınamadı.", Toast.LENGTH_LONG).show() }
-                        return
-                    }
+                    val apps: List<RemoteAppInfo> = gson.fromJson(body, object : TypeToken<List<RemoteAppInfo>>() {}.type)
+                    if (apps.isEmpty()) { runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi alınamadı.", Toast.LENGTH_LONG).show() }; return }
                     val labels = apps.map { "${it.appName}\n(${it.packageName})" }.toTypedArray()
-                    runOnUiThread {
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle("${device.nameTag} - Uygulama Başlat")
-                            .setItems(labels) { _, idx -> launchRemoteApp(device, apps[idx]) }
-                            .setNegativeButton("İptal", null)
-                            .show()
-                    }
+                    runOnUiThread { AlertDialog.Builder(this@MainActivity).setTitle("${device.nameTag} - Uygulama Başlat").setItems(labels) { _, idx -> launchRemoteApp(device, apps[idx]) }.setNegativeButton("İptal", null).show() }
                 } catch (_: Exception) {}
             }
         })
     }
 
     private fun launchRemoteApp(device: DeviceItem, app: RemoteAppInfo) {
-        val req = Request.Builder()
-            .url("http://${device.host}/api/apps/launch?pkg=${Uri.encode(app.packageName)}")
-            .post("".toRequestBody(null))
-            .build()
-        httpClient.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.close()
-                runOnUiThread { Toast.makeText(this@MainActivity, "${app.appName} Menuboard'da başlatıldı!", Toast.LENGTH_SHORT).show() }
-            }
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/apps/launch?pkg=${Uri.encode(app.packageName)}").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() } }
+            override fun onResponse(call: Call, response: Response) { response.close(); runOnUiThread { Toast.makeText(this@MainActivity, "${app.appName} Menuboard'da başlatıldı!", Toast.LENGTH_SHORT).show() } }
         })
     }
 
     private fun saveLocalSefimState() {
         val dbPrefs = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE)
         val payload = SefimBackupPayload(
-            dbServer = dbPrefs.getString("db_server", "192.168.2.167\\YIRMIBES") ?: "",
-            dbName = dbPrefs.getString("db_name", "BALIKCISUKRU") ?: "",
-            dbUser = dbPrefs.getString("db_user", "sa") ?: "",
-            dbPass = dbPrefs.getString("db_pass", "") ?: "",
-            restaurantName = edtRestaurantName.text.toString().trim(),
-            headerNote = edtHeaderNote.text.toString().trim(),
-            footerNote = edtFooterNote.text.toString().trim(),
-            websiteUrl = edtWebsiteLink.text.toString().trim(),
+            dbServer = dbPrefs.getString("db_server", "192.168.2.167\\YIRMIBES") ?: "", dbName = dbPrefs.getString("db_name", "BALIKCISUKRU") ?: "",
+            dbUser = dbPrefs.getString("db_user", "sa") ?: "", dbPass = dbPrefs.getString("db_pass", "") ?: "",
+            restaurantName = edtRestaurantName.text.toString().trim(), headerNote = edtHeaderNote.text.toString().trim(),
+            footerNote = edtFooterNote.text.toString().trim(), websiteUrl = edtWebsiteLink.text.toString().trim(),
             pageDurationSec = edtMenuPageDuration.text.toString().toIntOrNull() ?: 12,
-            showChoice1 = cbShowChoice1.isChecked,
-            showChoice2 = cbShowChoice2.isChecked,
-            showOptions = cbShowOptions.isChecked,
-            themeIndex = spinnerSefimTheme.selectedItemPosition,
-            fontSizeIndex = spinnerSefimFontSize.selectedItemPosition,
-            isBold = cbSefimBold.isChecked,
-            bgObjectMode = bgObjectValues.getOrElse(spinnerSefimBgObject.selectedItemPosition) { "none" },
-            products = sefimProducts,
-            metaCacheByName = productMetaCache
+            showChoice1 = cbShowChoice1.isChecked, showChoice2 = cbShowChoice2.isChecked, showOptions = cbShowOptions.isChecked,
+            themeIndex = spinnerSefimTheme.selectedItemPosition, fontSizeIndex = spinnerSefimFontSize.selectedItemPosition,
+            isBold = cbSefimBold.isChecked, bgObjectMode = bgObjectValues.getOrElse(spinnerSefimBgObject.selectedItemPosition) { "none" },
+            products = sefimProducts, metaCacheByName = productMetaCache
         )
         dbPrefs.edit().putString("sefim_v118_json", gson.toJson(payload)).apply()
     }
 
     private fun loadLocalSefimState() {
-        val dbPrefs = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE)
-        val json = dbPrefs.getString("sefim_v118_json", null) ?: return
+        val json = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE).getString("sefim_v118_json", null) ?: return
         try {
             val payload = gson.fromJson(json, SefimBackupPayload::class.java) ?: return
             edtRestaurantName.setText((payload.restaurantName ?: "").ifEmpty { "BALIKÇI ŞÜKRÜ" })
-            edtHeaderNote.setText(payload.headerNote ?: "")
-            edtFooterNote.setText(payload.footerNote ?: "")
-            edtWebsiteLink.setText(payload.websiteUrl ?: "")
+            edtHeaderNote.setText(payload.headerNote ?: ""); edtFooterNote.setText(payload.footerNote ?: ""); edtWebsiteLink.setText(payload.websiteUrl ?: "")
             edtMenuPageDuration.setText((if (payload.pageDurationSec > 0) payload.pageDurationSec else 12).toString())
-            cbShowChoice1.isChecked = payload.showChoice1
-            cbShowChoice2.isChecked = payload.showChoice2
-            cbShowOptions.isChecked = payload.showOptions
-
-            productMetaCache.clear()
-            payload.metaCacheByName?.let { productMetaCache.putAll(it) }
-
-            sefimProducts.clear()
-            payload.products?.let { sefimProducts.addAll(it) }
+            cbShowChoice1.isChecked = payload.showChoice1; cbShowChoice2.isChecked = payload.showChoice2; cbShowOptions.isChecked = payload.showOptions
+            productMetaCache.clear(); payload.metaCacheByName?.let { productMetaCache.putAll(it) }
+            sefimProducts.clear(); payload.products?.let { sefimProducts.addAll(it) }
             sefimProducts.forEach { prod ->
-                val pName = prod.productName ?: ""
-                val meta = productMetaCache[pName]
-                if (meta != null) {
+                productMetaCache[prod.productName ?: ""]?.let { meta ->
                     if (prod.imageBase64.isNullOrEmpty()) prod.imageBase64 = meta.imageBase64
                     if (prod.recipeContent.isNullOrEmpty()) prod.recipeContent = meta.recipeContent
                     if (prod.manualAllergen.isNullOrEmpty()) prod.manualAllergen = meta.manualAllergen
@@ -1802,14 +1313,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun pushSefimBackupToMenuboard() {
         val host = activeDevice?.host ?: return
-        val dbPrefs = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE)
-        val json = dbPrefs.getString("sefim_v118_json", null) ?: return
-
-        val req = Request.Builder()
-            .url("http://$host/api/sefim/backup")
-            .post(json.toRequestBody("application/json".toMediaTypeOrNull()))
-            .build()
-        httpClient.newCall(req).enqueue(object : Callback {
+        val json = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE).getString("sefim_v118_json", null) ?: return
+        httpClient.newCall(Request.Builder().url("http://$host/api/sefim/backup").post(json.toRequestBody("application/json".toMediaTypeOrNull())).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) { response.close() }
         })
@@ -1817,304 +1322,134 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncSefimBackupWithMenuboard() {
         val host = activeDevice?.host ?: return
-        val req = Request.Builder().url("http://$host/api/sefim/backup").build()
-        httpClient.newCall(req).enqueue(object : Callback {
+        httpClient.newCall(Request.Builder().url("http://$host/api/sefim/backup").build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
-
             override fun onResponse(call: Call, response: Response) {
-                val remoteJson = response.body?.string()?.trim() ?: ""
-                response.close()
-
+                val remoteJson = response.body?.string()?.trim() ?: ""; response.close()
                 if (remoteJson.isNotEmpty() && sefimProducts.isEmpty()) {
                     try {
                         val payload = gson.fromJson(remoteJson, SefimBackupPayload::class.java) ?: return
-                        val dbPrefs = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE)
-                        dbPrefs.edit()
-                            .putString("db_server", payload.dbServer ?: "")
-                            .putString("db_name", payload.dbName ?: "")
-                            .putString("db_user", payload.dbUser ?: "")
-                            .putString("db_pass", payload.dbPass ?: "")
-                            .putString("sefim_v118_json", remoteJson)
-                            .apply()
-
+                        getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE).edit()
+                            .putString("db_server", payload.dbServer ?: "").putString("db_name", payload.dbName ?: "")
+                            .putString("db_user", payload.dbUser ?: "").putString("db_pass", payload.dbPass ?: "")
+                            .putString("sefim_v118_json", remoteJson).apply()
                         payload.metaCacheByName?.let { productMetaCache.putAll(it) }
-                        sefimProducts.clear()
-                        payload.products?.let { sefimProducts.addAll(it) }
-
+                        sefimProducts.clear(); payload.products?.let { sefimProducts.addAll(it) }
                         runOnUiThread {
-                            edtRestaurantName.setText(payload.restaurantName ?: "")
-                            edtHeaderNote.setText(payload.headerNote ?: "")
-                            edtFooterNote.setText(payload.footerNote ?: "")
-                            edtWebsiteLink.setText(payload.websiteUrl ?: "")
+                            edtRestaurantName.setText(payload.restaurantName ?: ""); edtHeaderNote.setText(payload.headerNote ?: "")
+                            edtFooterNote.setText(payload.footerNote ?: ""); edtWebsiteLink.setText(payload.websiteUrl ?: "")
                             edtMenuPageDuration.setText((if (payload.pageDurationSec > 0) payload.pageDurationSec else 12).toString())
                             filterSefimProductList(currentSearchQuery)
                             Toast.makeText(this@MainActivity, "Şefim ürünleri Menuboard'dan geri yüklendi!", Toast.LENGTH_LONG).show()
                         }
                     } catch (_: Exception) {}
-                } else if (remoteJson.isEmpty() && sefimProducts.isNotEmpty()) {
-                    pushSefimBackupToMenuboard()
-                }
+                } else if (remoteJson.isEmpty() && sefimProducts.isNotEmpty()) pushSefimBackupToMenuboard()
             }
         })
     }
 
     private fun showDbConfigDialog() {
         val prefs = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE)
-        val edtServer = EditText(this).apply {
-            hint = "Örn: 192.168.2.167\\YIRMIBES veya 192.168.2.167:1433"
-            setText(prefs.getString("db_server", "192.168.2.167\\YIRMIBES"))
-        }
-        val edtDbName = EditText(this).apply {
-            hint = "Veritabanı Adı (Örn: BALIKCISUKRU)"
-            setText(prefs.getString("db_name", "BALIKCISUKRU"))
-        }
-        val edtUser = EditText(this).apply {
-            hint = "Kullanıcı Adı (Örn: sa)"
-            setText(prefs.getString("db_user", "sa"))
-        }
-        val edtPass = EditText(this).apply {
-            hint = "Şifre"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("db_pass", ""))
-        }
-
+        val edtServer = EditText(this).apply { hint = "192.168.2.167\\YIRMIBES"; setText(prefs.getString("db_server", "192.168.2.167\\YIRMIBES")) }
+        val edtDbName = EditText(this).apply { hint = "BALIKCISUKRU"; setText(prefs.getString("db_name", "BALIKCISUKRU")) }
+        val edtUser = EditText(this).apply { hint = "sa"; setText(prefs.getString("db_user", "sa")) }
+        val edtPass = EditText(this).apply { hint = "Şifre"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD; setText(prefs.getString("db_pass", "")) }
         val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(50, 30, 50, 10)
-            addView(TextView(this@MainActivity).apply { text = "SQL Server IP (veya IP\\INSTANCE):" })
-            addView(edtServer)
-            addView(TextView(this@MainActivity).apply { text = "Database Adı:" })
-            addView(edtDbName)
-            addView(TextView(this@MainActivity).apply { text = "Kullanıcı Adı:" })
-            addView(edtUser)
-            addView(TextView(this@MainActivity).apply { text = "Şifre:" })
-            addView(edtPass)
+            orientation = LinearLayout.VERTICAL; setPadding(50, 30, 50, 10)
+            addView(TextView(this@MainActivity).apply { text = "SQL Server IP:" }); addView(edtServer)
+            addView(TextView(this@MainActivity).apply { text = "Database Adı:" }); addView(edtDbName)
+            addView(TextView(this@MainActivity).apply { text = "Kullanıcı Adı:" }); addView(edtUser)
+            addView(TextView(this@MainActivity).apply { text = "Şifre:" }); addView(edtPass)
         }
-
-        AlertDialog.Builder(this)
-            .setTitle("Şefim MS SQL Bağlantı Ayarları")
-            .setView(layout)
+        AlertDialog.Builder(this).setTitle("Şefim MS SQL Bağlantı Ayarları").setView(layout)
             .setPositiveButton("Kaydet") { _, _ ->
-                prefs.edit()
-                    .putString("db_server", edtServer.text.toString().trim())
-                    .putString("db_name", edtDbName.text.toString().trim())
-                    .putString("db_user", edtUser.text.toString().trim())
-                    .putString("db_pass", edtPass.text.toString())
-                    .apply()
-                saveLocalSefimState()
-                pushSefimBackupToMenuboard()
+                prefs.edit().putString("db_server", edtServer.text.toString().trim()).putString("db_name", edtDbName.text.toString().trim())
+                    .putString("db_user", edtUser.text.toString().trim()).putString("db_pass", edtPass.text.toString()).apply()
+                saveLocalSefimState(); pushSefimBackupToMenuboard()
                 Toast.makeText(this, "Veritabanı bilgileri kaydedildi.", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("İptal", null)
-            .show()
+            }.setNegativeButton("İptal", null).show()
     }
 
     private fun buildJdbcConnectionUrl(rawServerInput: String, dbName: String): String {
         val normalized = rawServerInput.trim().replace("/", "\\")
-        var hostPart = normalized
-        var instancePart = ""
-
-        if (normalized.contains("\\")) {
-            val split = normalized.split("\\", limit = 2)
-            hostPart = split[0].trim()
-            instancePart = split[1].trim()
-        }
-
-        return if (instancePart.isNotEmpty()) {
-            "jdbc:jtds:sqlserver://$hostPart/$dbName;instance=$instancePart"
-        } else {
-            val cleanHost = if (hostPart.contains(":")) hostPart else "$hostPart:1433"
-            "jdbc:jtds:sqlserver://$cleanHost/$dbName"
-        }
+        var hostPart = normalized; var instancePart = ""
+        if (normalized.contains("\\")) { val split = normalized.split("\\", limit = 2); hostPart = split[0].trim(); instancePart = split[1].trim() }
+        return if (instancePart.isNotEmpty()) "jdbc:jtds:sqlserver://$hostPart/$dbName;instance=$instancePart"
+        else "jdbc:jtds:sqlserver://${if (hostPart.contains(":")) hostPart else "$hostPart:1433"}/$dbName"
     }
 
     private fun fetchSefimProductsFromDb() {
         val prefs = getSharedPreferences("sefim_v118_prefs", Context.MODE_PRIVATE)
-        val server = prefs.getString("db_server", "") ?: ""
-        val dbName = prefs.getString("db_name", "") ?: ""
-        val user = prefs.getString("db_user", "") ?: ""
-        val pass = prefs.getString("db_pass", "") ?: ""
-
-        if (server.isEmpty() || dbName.isEmpty()) {
-            Toast.makeText(this, "Lütfen önce ⚙️ DB Ayarları butonundan bilgileri girin!", Toast.LENGTH_LONG).show()
-            showDbConfigDialog()
-            return
-        }
-
+        val server = prefs.getString("db_server", "") ?: ""; val dbName = prefs.getString("db_name", "") ?: ""
+        val user = prefs.getString("db_user", "") ?: ""; val pass = prefs.getString("db_pass", "") ?: ""
+        if (server.isEmpty() || dbName.isEmpty()) { Toast.makeText(this, "Lütfen önce ⚙️ DB Ayarları girin!", Toast.LENGTH_LONG).show(); showDbConfigDialog(); return }
         Toast.makeText(this, "Şefim veritabanına bağlanılıyor...", Toast.LENGTH_SHORT).show()
 
         Thread {
             try {
-                Class.forName("net.sourceforge.jtds.jdbc.Driver")
-                DriverManager.setLoginTimeout(8)
-
-                val primaryUrl = buildJdbcConnectionUrl(server, dbName)
-                val conn = try {
-                    DriverManager.getConnection(primaryUrl, user, pass)
-                } catch (firstEx: Exception) {
-                    if (server.contains("\\") && !server.contains(":")) {
-                        val hostOnly = server.split("\\")[0].trim()
-                        val fallbackUrl = "jdbc:jtds:sqlserver://$hostOnly:1433/$dbName"
-                        DriverManager.getConnection(fallbackUrl, user, pass)
-                    } else {
-                        throw firstEx
-                    }
+                Class.forName("net.sourceforge.jtds.jdbc.Driver"); DriverManager.setLoginTimeout(8)
+                val conn = try { DriverManager.getConnection(buildJdbcConnectionUrl(server, dbName), user, pass) }
+                catch (firstEx: Exception) {
+                    if (server.contains("\\") && !server.contains(":")) DriverManager.getConnection("jdbc:jtds:sqlserver://${server.split("\\")[0].trim()}:1433/$dbName", user, pass)
+                    else throw firstEx
                 }
-
                 val choice1Map = mutableMapOf<String, MutableList<String>>()
                 val choice2Map = mutableMapOf<String, MutableList<String>>()
                 val optionsMap = mutableMapOf<String, MutableList<String>>()
+                try { val rs1 = conn.createStatement().executeQuery("SELECT * FROM Choice1"); val m1 = rs1.metaData; while (rs1.next()) { val p = getColString(rs1, m1, listOf("ProductId", "Product_Id", "UrunId", "Id")); val n = getColString(rs1, m1, listOf("Name", "ChoiceName", "ProductName", "Header", "Description")); if (p.isNotEmpty() && n.isNotEmpty()) choice1Map.getOrPut(p) { mutableListOf() }.add(n) }; rs1.close() } catch (_: Exception) {}
+                try { val rs2 = conn.createStatement().executeQuery("SELECT * FROM Choice2"); val m2 = rs2.metaData; while (rs2.next()) { val p = getColString(rs2, m2, listOf("ProductId", "Choice1Id", "Product_Id", "Id")); val n = getColString(rs2, m2, listOf("Name", "ChoiceName", "ProductName", "Header", "Description")); if (p.isNotEmpty() && n.isNotEmpty()) choice2Map.getOrPut(p) { mutableListOf() }.add(n) }; rs2.close() } catch (_: Exception) {}
+                try { val rsO = conn.createStatement().executeQuery("SELECT * FROM [Option]"); val mO = rsO.metaData; while (rsO.next()) { val p = getColString(rsO, mO, listOf("ProductId", "Product_Id", "Id")); val n = getColString(rsO, mO, listOf("Name", "OptionName", "Header", "Description")); if (p.isNotEmpty() && n.isNotEmpty()) optionsMap.getOrPut(p) { mutableListOf() }.add(n) }; rsO.close() } catch (_: Exception) {}
 
-                try {
-                    val st1 = conn.createStatement()
-                    val rs1 = st1.executeQuery("SELECT * FROM Choice1")
-                    val meta1 = rs1.metaData
-                    while (rs1.next()) {
-                        val pId = getColString(rs1, meta1, listOf("ProductId", "Product_Id", "UrunId", "Id"))
-                        val cName = getColString(rs1, meta1, listOf("Name", "ChoiceName", "ProductName", "Header", "Description"))
-                        if (pId.isNotEmpty() && cName.isNotEmpty()) choice1Map.getOrPut(pId) { mutableListOf() }.add(cName)
-                    }
-                    rs1.close()
-                } catch (_: Exception) {}
-
-                try {
-                    val st2 = conn.createStatement()
-                    val rs2 = st2.executeQuery("SELECT * FROM Choice2")
-                    val meta2 = rs2.metaData
-                    while (rs2.next()) {
-                        val pId = getColString(rs2, meta2, listOf("ProductId", "Choice1Id", "Product_Id", "Id"))
-                        val cName = getColString(rs2, meta2, listOf("Name", "ChoiceName", "ProductName", "Header", "Description"))
-                        if (pId.isNotEmpty() && cName.isNotEmpty()) choice2Map.getOrPut(pId) { mutableListOf() }.add(cName)
-                    }
-                    rs2.close()
-                } catch (_: Exception) {}
-
-                try {
-                    val stOpt = conn.createStatement()
-                    val rsOpt = stOpt.executeQuery("SELECT * FROM [Option]")
-                    val metaOpt = rsOpt.metaData
-                    while (rsOpt.next()) {
-                        val pId = getColString(rsOpt, metaOpt, listOf("ProductId", "Product_Id", "Id"))
-                        val oName = getColString(rsOpt, metaOpt, listOf("Name", "OptionName", "Header", "Description"))
-                        if (pId.isNotEmpty() && oName.isNotEmpty()) optionsMap.getOrPut(pId) { mutableListOf() }.add(oName)
-                    }
-                    rsOpt.close()
-                } catch (_: Exception) {}
-
-                val stmt = conn.createStatement()
-                val rs = stmt.executeQuery("SELECT * FROM Product")
-                val meta = rs.metaData
+                val rs = conn.createStatement().executeQuery("SELECT * FROM Product"); val meta = rs.metaData
                 val fetchedList = mutableListOf<SefimProductItem>()
-                val previousSelectionMap = sefimProducts.associate { (it.productName ?: "") to it.isSelected }
-
+                val prevSel = sefimProducts.associate { (it.productName ?: "") to it.isSelected }
                 while (rs.next()) {
                     val id = getColString(rs, meta, listOf("Id", "ProductId", "RECNO", "Kod"))
                     val name = getColString(rs, meta, listOf("ProductName", "Name", "UrunAdi", "Header", "Description"))
                     val rawPrice = getColString(rs, meta, listOf("Price", "Price1", "Fiyat", "SatisFiyati", "Amount"))
-
-                    val inlineC1 = getColString(rs, meta, listOf("Choice1", "Choice1Name", "Secenek1"))
-                    val inlineC2 = getColString(rs, meta, listOf("Choice2", "Choice2Name", "Secenek2"))
-                    val inlineOpt = getColString(rs, meta, listOf("Option", "Options", "OptionName", "Opsiyon"))
-
-                    val c1List = mutableListOf<String>()
-                    if (inlineC1.isNotEmpty()) c1List.add(inlineC1)
-                    choice1Map[id]?.let { c1List.addAll(it) }
-
-                    val c2List = mutableListOf<String>()
-                    if (inlineC2.isNotEmpty()) c2List.add(inlineC2)
-                    choice2Map[id]?.let { c2List.addAll(it) }
-
-                    val optList = mutableListOf<String>()
-                    if (inlineOpt.isNotEmpty()) optList.add(inlineOpt)
-                    optionsMap[id]?.let { optList.addAll(it) }
-
+                    val c1List = mutableListOf<String>().apply { getColString(rs, meta, listOf("Choice1", "Choice1Name", "Secenek1")).takeIf { it.isNotEmpty() }?.let { add(it) }; choice1Map[id]?.let { addAll(it) } }
+                    val c2List = mutableListOf<String>().apply { getColString(rs, meta, listOf("Choice2", "Choice2Name", "Secenek2")).takeIf { it.isNotEmpty() }?.let { add(it) }; choice2Map[id]?.let { addAll(it) } }
+                    val optList = mutableListOf<String>().apply { getColString(rs, meta, listOf("Option", "Options", "OptionName", "Opsiyon")).takeIf { it.isNotEmpty() }?.let { add(it) }; optionsMap[id]?.let { addAll(it) } }
                     if (name.isNotEmpty()) {
-                        val formattedPrice = if (rawPrice.isNotEmpty()) "$rawPrice ₺" else ""
                         val cachedMeta = productMetaCache[name]
-                        val keepSelected = previousSelectionMap[name] ?: true
-
-                        fetchedList.add(
-                            SefimProductItem(
-                                id = id,
-                                productName = name,
-                                price = formattedPrice,
-                                choice1Text = c1List.distinct().joinToString(", "),
-                                choice2Text = c2List.distinct().joinToString(", "),
-                                optionsText = optList.distinct().joinToString(", "),
-                                recipeContent = cachedMeta?.recipeContent ?: "",
-                                manualAllergen = cachedMeta?.manualAllergen ?: "",
-                                isSelected = keepSelected,
-                                imageBase64 = cachedMeta?.imageBase64
-                            )
-                        )
+                        fetchedList.add(SefimProductItem(id, name, if (rawPrice.isNotEmpty()) "$rawPrice ₺" else "", c1List.distinct().joinToString(", "), c2List.distinct().joinToString(", "), optList.distinct().joinToString(", "), "", cachedMeta?.recipeContent ?: "", cachedMeta?.manualAllergen ?: "", prevSel[name] ?: true, cachedMeta?.imageBase64))
                     }
                 }
-                rs.close()
-                conn.close()
-
-                runOnUiThread {
-                    sefimProducts.clear()
-                    sefimProducts.addAll(fetchedList)
-                    saveLocalSefimState()
-                    pushSefimBackupToMenuboard()
-                    filterSefimProductList(currentSearchQuery)
-                    Toast.makeText(this, "${fetchedList.size} ürün getirildi!", Toast.LENGTH_LONG).show()
-                }
+                rs.close(); conn.close()
+                runOnUiThread { sefimProducts.clear(); sefimProducts.addAll(fetchedList); saveLocalSefimState(); pushSefimBackupToMenuboard(); filterSefimProductList(currentSearchQuery); Toast.makeText(this, "${fetchedList.size} ürün getirildi!", Toast.LENGTH_LONG).show() }
             } catch (e: Exception) {
-                runOnUiThread {
-                    AlertDialog.Builder(this)
-                        .setTitle("Veritabanı Bağlantı Hatası")
-                        .setMessage("Hata: ${e.localizedMessage}\n\n'🧪 Test Menüleri' butonuna basarak hazır balık, döner, cafe veya tatlı menülerini hemen deneyebilirsiniz.")
-                        .setPositiveButton("Tamam", null)
-                        .show()
-                }
+                runOnUiThread { AlertDialog.Builder(this).setTitle("Veritabanı Bağlantı Hatası").setMessage("Hata: ${e.localizedMessage}").setPositiveButton("Tamam", null).show() }
             }
         }.start()
     }
 
     private fun getColString(rs: java.sql.ResultSet, meta: java.sql.ResultSetMetaData, candidates: List<String>): String {
-        for (colName in candidates) {
-            for (i in 1..meta.columnCount) {
-                if (meta.getColumnName(i).equals(colName, ignoreCase = true)) {
-                    val v = rs.getString(i)?.trim() ?: ""
-                    if (v.isNotEmpty() && v != "null" && v != "0" && v != "0.00") return v
-                }
-            }
+        for (colName in candidates) for (i in 1..meta.columnCount) if (meta.getColumnName(i).equals(colName, ignoreCase = true)) {
+            val v = rs.getString(i)?.trim() ?: ""; if (v.isNotEmpty() && v != "null" && v != "0" && v != "0.00") return v
         }
         return ""
     }
 
-    private fun getSelectedThemeColors(): Triple<Int, Int, Int> {
-        return when (spinnerSefimTheme.selectedItemPosition) {
-            1 -> Triple(Color.parseColor("#FAFAFA"), Color.parseColor("#212121"), Color.parseColor("#D32F2F"))
-            2 -> Triple(Color.parseColor("#1B0505"), Color.parseColor("#FFF8E1"), Color.parseColor("#FF5252"))
-            3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF"))
-            4 -> Triple(Color.parseColor("#041E3A"), Color.parseColor("#E1F5FE"), Color.parseColor("#29B6F6"))
-            5 -> Triple(Color.parseColor("#0D2618"), Color.parseColor("#E8F5E9"), Color.parseColor("#69F0AE"))
-            6 -> Triple(Color.parseColor("#2B0912"), Color.parseColor("#FFF3E0"), Color.parseColor("#FFC107"))
-            7 -> Triple(Color.parseColor("#FFF0F5"), Color.parseColor("#4A1525"), Color.parseColor("#D81B60"))
-            8 -> Triple(Color.parseColor("#26140C"), Color.parseColor("#FFF8F0"), Color.parseColor("#FF8A65"))
-            9 -> Triple(Color.parseColor("#1E272C"), Color.parseColor("#ECEFF1"), Color.parseColor("#80CBC4"))
-            else -> Triple(Color.parseColor("#121212"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700"))
-        }
+    private fun getSelectedThemeColors(): Triple<Int, Int, Int> = when (spinnerSefimTheme.selectedItemPosition) {
+        1 -> Triple(Color.parseColor("#FAFAFA"), Color.parseColor("#212121"), Color.parseColor("#D32F2F"))
+        2 -> Triple(Color.parseColor("#1B0505"), Color.parseColor("#FFF8E1"), Color.parseColor("#FF5252"))
+        3 -> Triple(Color.parseColor("#0A0E27"), Color.parseColor("#E0F7FA"), Color.parseColor("#00E5FF"))
+        4 -> Triple(Color.parseColor("#041E3A"), Color.parseColor("#E1F5FE"), Color.parseColor("#29B6F6"))
+        5 -> Triple(Color.parseColor("#0D2618"), Color.parseColor("#E8F5E9"), Color.parseColor("#69F0AE"))
+        6 -> Triple(Color.parseColor("#2B0912"), Color.parseColor("#FFF3E0"), Color.parseColor("#FFC107"))
+        7 -> Triple(Color.parseColor("#FFF0F5"), Color.parseColor("#4A1525"), Color.parseColor("#D81B60"))
+        8 -> Triple(Color.parseColor("#26140C"), Color.parseColor("#FFF8F0"), Color.parseColor("#FF8A65"))
+        9 -> Triple(Color.parseColor("#1E272C"), Color.parseColor("#ECEFF1"), Color.parseColor("#80CBC4"))
+        else -> Triple(Color.parseColor("#121212"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFD700"))
     }
 
-    private fun applySefimPreviewBackground() {
-        val (bgColor, _, _) = getSelectedThemeColors()
-        rvSefimProducts.setBackgroundColor(bgColor)
-    }
+    private fun applySefimPreviewBackground() { rvSefimProducts.setBackgroundColor(getSelectedThemeColors().first) }
 
     private fun publishSefimMenuToMenuboard() {
         val host = activeDevice?.host
-        if (host.isNullOrEmpty()) {
-            Toast.makeText(this, "Lütfen önce Cihazlar sekmesinden bir Menuboard seçin!", Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (host.isNullOrEmpty()) { Toast.makeText(this, "Önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return }
         val selectedItems = sefimProducts.filter { it.isSelected }
-        if (selectedItems.isEmpty()) {
-            Toast.makeText(this, "Liste boş! Lütfen '🧪 Test Menüleri' butonundan örnek bir menü seçin.", Toast.LENGTH_LONG).show()
-            return
-        }
+        if (selectedItems.isEmpty()) { Toast.makeText(this, "Liste boş!", Toast.LENGTH_LONG).show(); return }
 
         val restName = edtRestaurantName.text.toString().trim().ifEmpty { "MENÜ" }
         val topInfo = edtHeaderNote.text.toString().trim()
@@ -2122,163 +1457,64 @@ class MainActivity : AppCompatActivity() {
         val rawWebLink = edtWebsiteLink.text.toString().trim()
         val pageDurSec = (edtMenuPageDuration.text.toString().toIntOrNull() ?: 12).coerceAtLeast(3)
 
-        saveLocalSefimState()
-        pushSefimBackupToMenuboard()
-
-        val bgMode = bgObjectValues[spinnerSefimBgObject.selectedItemPosition]
-        httpClient.newCall(
-            Request.Builder().url("http://$host/api/sefim/bgobject?mode=$bgMode").post("".toRequestBody(null)).build()
-        ).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) { response.close() }
+        saveLocalSefimState(); pushSefimBackupToMenuboard()
+        httpClient.newCall(Request.Builder().url("http://$host/api/sefim/bgobject?mode=${bgObjectValues[spinnerSefimBgObject.selectedItemPosition]}").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}; override fun onResponse(call: Call, response: Response) { response.close() }
         })
-
-        Toast.makeText(this, "Menü sayfaları ve QR Kod hazırlanıyor...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Menü sayfaları hazırlanıyor...", Toast.LENGTH_SHORT).show()
 
         Thread {
-            val width = 1080
-            val height = 1920
+            val width = 1080; val height = 1920
             val (bgColor, textColor, accentColor) = getSelectedThemeColors()
             val isBold = cbSefimBold.isChecked
             val baseFontPt = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
-            val titleSizePx = baseFontPt * 2.0f
-            val subSizePx = baseFontPt * 1.25f
+            val titleSizePx = baseFontPt * 2.0f; val subSizePx = baseFontPt * 1.25f
 
             var linkQrBitmap: Bitmap? = null
             if (rawWebLink.isNotEmpty()) {
-                val formattedUrl = if (rawWebLink.startsWith("http://") || rawWebLink.startsWith("https://")) {
-                    rawWebLink
-                } else {
-                    "https://$rawWebLink"
-                }
-                try {
-                    linkQrBitmap = BarcodeEncoder().encodeBitmap(formattedUrl, BarcodeFormat.QR_CODE, 165, 165)
-                } catch (_: Exception) {}
+                val url = if (rawWebLink.startsWith("http://") || rawWebLink.startsWith("https://")) rawWebLink else "https://$rawWebLink"
+                try { linkQrBitmap = BarcodeEncoder().encodeBitmap(url, BarcodeFormat.QR_CODE, 165, 165) } catch (_: Exception) {}
             }
 
             val startTopY = if (topInfo.isNotEmpty()) 245f else 200f
-            val maxBottomY = if (linkQrBitmap != null) {
-                height - 220f
-            } else if (bottomInfo.isNotEmpty()) {
-                height - 150f
-            } else {
-                height - 90f
-            }
+            val maxBottomY = if (linkQrBitmap != null) height - 220f else if (bottomInfo.isNotEmpty()) height - 150f else height - 90f
 
             val pages = mutableListOf<List<SefimProductItem>>()
             var currentPageItems = mutableListOf<SefimProductItem>()
             var testY = startTopY
-
             for (item in selectedItems) {
-                val pName = item.productName ?: ""
-                val hasImg = !(item.imageBase64 ?: productMetaCache[pName]?.imageBase64).isNullOrEmpty()
-                val choicesStr = buildFilteredChoicesString(item)
-                val allergenStr = computeAllergenWarning(item)
-                var extraLinesHeight = 0f
-                if (choicesStr.isNotEmpty()) extraLinesHeight += subSizePx + 12f
-                if ((item.recipeContent ?: "").isNotEmpty()) extraLinesHeight += subSizePx + 10f
-                if (allergenStr.isNotEmpty()) extraLinesHeight += subSizePx + 10f
-
-                val rowHeight = maxOf(if (hasImg) 145f else 0f, titleSizePx + extraLinesHeight + 48f)
-
-                if (testY + rowHeight > maxBottomY && currentPageItems.isNotEmpty()) {
-                    pages.add(currentPageItems)
-                    currentPageItems = mutableListOf()
-                    testY = startTopY
-                }
-                currentPageItems.add(item)
-                testY += rowHeight
+                val hasImg = !(item.imageBase64 ?: productMetaCache[item.productName ?: ""]?.imageBase64).isNullOrEmpty()
+                var extraH = 0f
+                if (buildFilteredChoicesString(item).isNotEmpty()) extraH += subSizePx + 12f
+                if ((item.recipeContent ?: "").isNotEmpty()) extraH += subSizePx + 10f
+                if (computeAllergenWarning(item).isNotEmpty()) extraH += subSizePx + 10f
+                val rowH = maxOf(if (hasImg) 145f else 0f, titleSizePx + extraH + 48f)
+                if (testY + rowH > maxBottomY && currentPageItems.isNotEmpty()) { pages.add(currentPageItems); currentPageItems = mutableListOf(); testY = startTopY }
+                currentPageItems.add(item); testY += rowH
             }
             if (currentPageItems.isNotEmpty()) pages.add(currentPageItems)
 
             playlist.removeAll { it.fileName.startsWith("sefim_menu_") }
-
-            val batchTime = System.currentTimeMillis()
-            val totalPages = pages.size
+            val batchTime = System.currentTimeMillis(); val totalPages = pages.size
 
             for ((pageIdx, pageItems) in pages.withIndex()) {
                 val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bitmap)
-                canvas.drawColor(bgColor)
+                val canvas = Canvas(bitmap); canvas.drawColor(bgColor)
+                val paintRest = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; textSize = 58f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.CENTER }
+                val paintHdr = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = textColor; alpha = 220; textSize = 30f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC); textAlign = Paint.Align.CENTER }
+                val paintFtr = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; textSize = 30f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = if (linkQrBitmap != null) Paint.Align.LEFT else Paint.Align.CENTER }
+                val paintPg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = textColor; alpha = 180; textSize = 26f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.RIGHT }
+                val paintTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = textColor; textSize = titleSizePx; typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD else Typeface.NORMAL) }
+                val paintPrice = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; textSize = titleSizePx; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.RIGHT }
+                val paintSub = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; alpha = 215; textSize = subSizePx; typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD_ITALIC else Typeface.ITALIC) }
+                val paintRec = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = textColor; alpha = 190; textSize = subSizePx * 0.92f }
+                val paintAlg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FF5252"); textSize = subSizePx * 0.92f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+                val paintLine = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; alpha = 75; strokeWidth = 2f }
 
-                val paintRestName = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = accentColor
-                    textSize = 58f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textAlign = Paint.Align.CENTER
-                }
-
-                val paintHeaderInfo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    alpha = 220
-                    textSize = 30f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-                    textAlign = Paint.Align.CENTER
-                }
-
-                val paintFooterInfo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = accentColor
-                    textSize = 30f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textAlign = if (linkQrBitmap != null) Paint.Align.LEFT else Paint.Align.CENTER
-                }
-
-                val paintPageBadge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    alpha = 180
-                    textSize = 26f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textAlign = Paint.Align.RIGHT
-                }
-
-                val paintTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    textSize = titleSizePx
-                    typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD else Typeface.NORMAL)
-                }
-
-                val paintPrice = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = accentColor
-                    textSize = titleSizePx
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    textAlign = Paint.Align.RIGHT
-                }
-
-                val paintSub = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = accentColor
-                    alpha = 215
-                    textSize = subSizePx
-                    typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD_ITALIC else Typeface.ITALIC)
-                }
-
-                val paintRecipe = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = textColor
-                    alpha = 190
-                    textSize = subSizePx * 0.92f
-                }
-
-                val paintAllergen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.parseColor("#FF5252")
-                    textSize = subSizePx * 0.92f
-                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                }
-
-                val paintLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = accentColor
-                    alpha = 75
-                    strokeWidth = 2f
-                }
-
-                canvas.drawText(restName, width / 2f, 92f, paintRestName)
-                if (totalPages > 1) {
-                    canvas.drawText("Sayfa ${pageIdx + 1}/$totalPages", width - 60f, 92f, paintPageBadge)
-                }
-
+                canvas.drawText(restName, width / 2f, 92f, paintRest)
+                if (totalPages > 1) canvas.drawText("Sayfa ${pageIdx + 1}/$totalPages", width - 60f, 92f, paintPg)
                 var headerLineY = 122f
-                if (topInfo.isNotEmpty()) {
-                    canvas.drawText(topInfo, width / 2f, 140f, paintHeaderInfo)
-                    headerLineY = 166f
-                }
+                if (topInfo.isNotEmpty()) { canvas.drawText(topInfo, width / 2f, 140f, paintHdr); headerLineY = 166f }
                 canvas.drawLine(60f, headerLineY, width - 60f, headerLineY, paintLine)
 
                 var currentY = startTopY
@@ -2286,127 +1522,59 @@ class MainActivity : AppCompatActivity() {
                     val pName = item.productName ?: ""
                     var textStartX = 65f
                     val imgB64 = item.imageBase64 ?: productMetaCache[pName]?.imageBase64
-
                     if (!imgB64.isNullOrEmpty()) {
                         try {
                             val bytes = Base64.decode(imgB64, Base64.DEFAULT)
-                            val prodBmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (prodBmp != null) {
-                                val dstRect = RectF(65f, currentY - 30f, 175f, currentY + 80f)
-                                canvas.drawBitmap(prodBmp, null, dstRect, null)
-                                textStartX = 200f
-                            }
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { bmp -> canvas.drawBitmap(bmp, null, RectF(65f, currentY - 30f, 175f, currentY + 80f), null); textStartX = 200f }
                         } catch (_: Exception) {}
                     }
-
                     canvas.drawText(pName, textStartX, currentY + 12f, paintTitle)
                     canvas.drawText(item.price ?: "", width - 65f, currentY + 12f, paintPrice)
-
-                    var lineOffsetY = currentY + 12f
-
-                    val choicesStr = buildFilteredChoicesString(item)
-                    if (choicesStr.isNotEmpty()) {
-                        lineOffsetY += subSizePx + 12f
-                        canvas.drawText("↳ $choicesStr", textStartX + 10f, lineOffsetY, paintSub)
-                    }
-
-                    val recStr = item.recipeContent ?: ""
-                    if (recStr.isNotEmpty()) {
-                        lineOffsetY += subSizePx + 10f
-                        canvas.drawText("İçindekiler: $recStr", textStartX + 10f, lineOffsetY, paintRecipe)
-                    }
-
-                    val allergenWarn = computeAllergenWarning(item)
-                    if (allergenWarn.isNotEmpty()) {
-                        lineOffsetY += subSizePx + 10f
-                        canvas.drawText("⚠️ Alerjen Uyarısı: $allergenWarn", textStartX + 10f, lineOffsetY, paintAllergen)
-                    }
-
-                    val usedHeight = maxOf(if (!imgB64.isNullOrEmpty()) 125f else 0f, (lineOffsetY - currentY) + 25f)
-                    currentY += usedHeight
-                    canvas.drawLine(65f, currentY, width - 65f, currentY, paintLine)
-                    currentY += 32f
+                    var lineY = currentY + 12f
+                    val chStr = buildFilteredChoicesString(item); if (chStr.isNotEmpty()) { lineY += subSizePx + 12f; canvas.drawText("↳ $chStr", textStartX + 10f, lineY, paintSub) }
+                    val recStr = item.recipeContent ?: ""; if (recStr.isNotEmpty()) { lineY += subSizePx + 10f; canvas.drawText("İçindekiler: $recStr", textStartX + 10f, lineY, paintRec) }
+                    val algStr = computeAllergenWarning(item); if (algStr.isNotEmpty()) { lineY += subSizePx + 10f; canvas.drawText("⚠️ Alerjen Uyarısı: $algStr", textStartX + 10f, lineY, paintAlg) }
+                    currentY += maxOf(if (!imgB64.isNullOrEmpty()) 125f else 0f, (lineY - currentY) + 25f)
+                    canvas.drawLine(65f, currentY, width - 65f, currentY, paintLine); currentY += 32f
                 }
 
                 if (bottomInfo.isNotEmpty() || linkQrBitmap != null) {
-                    val footerTopLineY = if (linkQrBitmap != null) height - 205f else height - 115f
-                    canvas.drawLine(60f, footerTopLineY, width - 60f, footerTopLineY, paintLine)
-
-                    if (bottomInfo.isNotEmpty()) {
-                        val footerX = if (linkQrBitmap != null) 65f else width / 2f
-                        val footerY = if (linkQrBitmap != null) height - 105f else height - 65f
-                        canvas.drawText(bottomInfo, footerX, footerY, paintFooterInfo)
-                    }
-
+                    canvas.drawLine(60f, if (linkQrBitmap != null) height - 205f else height - 115f, width - 60f, if (linkQrBitmap != null) height - 205f else height - 115f, paintLine)
+                    if (bottomInfo.isNotEmpty()) canvas.drawText(bottomInfo, if (linkQrBitmap != null) 65f else width / 2f, if (linkQrBitmap != null) height - 105f else height - 65f, paintFtr)
                     if (linkQrBitmap != null) {
-                        val qrBoxRect = RectF(width - 215f, height - 195f, width - 50f, height - 30f)
-                        val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-                        canvas.drawRoundRect(qrBoxRect, 12f, 12f, whitePaint)
+                        canvas.drawRoundRect(RectF(width - 215f, height - 195f, width - 50f, height - 30f), 12f, 12f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
                         canvas.drawBitmap(linkQrBitmap, null, RectF(width - 207f, height - 187f, width - 58f, height - 38f), null)
                     }
                 }
 
-                val stream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
-                val bytes = stream.toByteArray()
+                val stream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
                 val fileName = "sefim_menu_${batchTime}_p${pageIdx + 1}.jpg"
-
-                val uploadRequest = Request.Builder()
-                    .url("http://$host/api/upload_raw?filename=$fileName")
-                    .post(bytes.toRequestBody("application/octet-stream".toMediaTypeOrNull()))
-                    .build()
-
                 try {
-                    httpClient.newCall(uploadRequest).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            playlist.add(
-                                MediaItemModel(
-                                    id = "${batchTime}_${pageIdx + 1}",
-                                    fileName = fileName,
-                                    type = "image",
-                                    durationSec = pageDurSec,
-                                    waitAfterSec = 0,
-                                    animation = "fade"
-                                )
-                            )
-                        }
+                    httpClient.newCall(Request.Builder().url("http://$host/api/upload_raw?filename=$fileName").post(stream.toByteArray().toRequestBody("application/octet-stream".toMediaTypeOrNull())).build()).execute().use { resp ->
+                        if (resp.isSuccessful) playlist.add(MediaItemModel(id = "${batchTime}_${pageIdx + 1}", fileName = fileName, type = "image", durationSec = pageDurSec, waitAfterSec = 0, animation = "fade"))
                     }
                 } catch (_: Exception) {}
             }
-
-            runOnUiThread {
-                Toast.makeText(this, "Toplam $totalPages sayfa menü yayınlandı!", Toast.LENGTH_LONG).show()
-                syncPlaylistToMenuboard()
-            }
+            runOnUiThread { Toast.makeText(this, "Toplam $totalPages sayfa menü yayınlandı!", Toast.LENGTH_LONG).show(); syncPlaylistToMenuboard() }
         }.start()
     }
 
     private fun checkAllDevicesStatus() {
         val now = System.currentTimeMillis()
         if (deviceList.isEmpty()) return
-
         for (dev in deviceList) {
-            val req = Request.Builder().url("http://${dev.host}/api/ping").build()
-            pingClient.newCall(req).enqueue(object : Callback {
+            pingClient.newCall(Request.Builder().url("http://${dev.host}/api/ping").build()).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     if (now - dev.lastSeenMs > 10000L) dev.isOnline = false
                     if (activeDevice?.id == dev.id) updateConnectionUi(dev.isOnline)
                     runOnUiThread { deviceAdapter.notifyDataSetChanged() }
                 }
-
                 override fun onResponse(call: Call, response: Response) {
-                    val ok = response.isSuccessful
-                    response.close()
-                    dev.isOnline = ok
-                    if (ok) dev.lastSeenMs = System.currentTimeMillis()
-
+                    val ok = response.isSuccessful; response.close()
+                    dev.isOnline = ok; if (ok) dev.lastSeenMs = System.currentTimeMillis()
                     if (activeDevice?.id == dev.id) {
-                        val wasDisconnected = !isConnected
-                        updateConnectionUi(ok)
-                        if (ok && (wasDisconnected || playlist.isEmpty())) {
-                            fetchPlaylist()
-                            syncSefimBackupWithMenuboard()
-                        }
+                        val wasDisc = !isConnected; updateConnectionUi(ok)
+                        if (ok && (wasDisc || playlist.isEmpty())) { fetchPlaylist(); syncSefimBackupWithMenuboard() }
                     }
                     runOnUiThread { deviceAdapter.notifyDataSetChanged() }
                 }
@@ -2416,45 +1584,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkForUpdate() {
         if (GITHUB_REPO.startsWith("KULLANICI_ADINIZ")) return
-        val url = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "Anypay-Remote-App")
-            .header("Accept", "application/vnd.github+json")
-            .build()
-
-        httpClient.newCall(request).enqueue(object : Callback {
+        httpClient.newCall(Request.Builder().url("https://api.github.com/repos/$GITHUB_REPO/releases/latest").header("User-Agent", "Anypay-Remote-App").header("Accept", "application/vnd.github+json").build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
-
             override fun onResponse(call: Call, response: Response) {
                 if (!response.isSuccessful) return
                 try {
                     val json = JSONObject(response.body?.string() ?: "{}")
                     val rawTag = json.optString("tag_name", "v1.00")
-                    val digitsOnly = rawTag.replace(Regex("[^0-9]"), "")
-                    val remoteVersionCode = digitsOnly.toIntOrNull() ?: 100
-
-                    val currentVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt()
-                    } else {
-                        @Suppress("DEPRECATION")
-                        packageManager.getPackageInfo(packageName, 0).versionCode
-                    }
-
-                    if (remoteVersionCode > currentVersionCode) {
+                    val remoteCode = rawTag.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 100
+                    val curCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt() else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0).versionCode
+                    if (remoteCode > curCode) {
                         val assets = json.optJSONArray("assets") ?: return
-                        var downloadUrl = ""
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.getJSONObject(i)
-                            val name = asset.getString("name").lowercase()
-                            if (name.contains("remote") && name.endsWith(".apk")) {
-                                downloadUrl = asset.getString("browser_download_url")
-                                break
-                            }
-                        }
-                        if (downloadUrl.isNotEmpty()) {
-                            runOnUiThread { showUpdateDialog(rawTag, downloadUrl) }
-                        }
+                        var dlUrl = ""
+                        for (i in 0 until assets.length()) { val a = assets.getJSONObject(i); val n = a.getString("name").lowercase(); if (n.contains("remote") && n.endsWith(".apk")) { dlUrl = a.getString("browser_download_url"); break } }
+                        if (dlUrl.isNotEmpty()) runOnUiThread { showUpdateDialog(rawTag, dlUrl) }
                     }
                 } catch (_: Exception) {}
             }
@@ -2462,77 +1605,43 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showUpdateDialog(versionTitle: String, downloadUrl: String) {
-        AlertDialog.Builder(this)
-            .setTitle("Yeni Güncelleme Bulundu")
-            .setMessage("Kumanda için yeni bir sürüm mevcut ($versionTitle).\nŞimdi indirip yüklemek ister misiniz?")
-            .setPositiveButton("Güncelle") { _, _ -> downloadAndInstallApk(downloadUrl) }
-            .setNegativeButton("Daha Sonra", null)
-            .show()
+        AlertDialog.Builder(this).setTitle("Yeni Güncelleme Bulundu").setMessage("Kumanda için yeni sürüm mevcut ($versionTitle).\nŞimdi yüklemek ister misiniz?")
+            .setPositiveButton("Güncelle") { _, _ -> downloadAndInstallApk(downloadUrl) }.setNegativeButton("Daha Sonra", null).show()
     }
 
     private fun downloadAndInstallApk(url: String) {
         Toast.makeText(this, "Güncelleme indiriliyor...", Toast.LENGTH_SHORT).show()
-        val fileName = "remote_update_${System.currentTimeMillis()}.apk"
-        val destination = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
+        val destination = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "remote_update_${System.currentTimeMillis()}.apk")
         if (destination.exists()) destination.delete()
-
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("Kumanda Güncellemesi")
-            .setDescription("Yeni sürüm indiriliyor...")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationUri(Uri.fromFile(destination))
-
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = manager.enqueue(request)
-
+        val req = DownloadManager.Request(Uri.parse(url)).setTitle("Kumanda Güncellemesi").setDescription("İndiriliyor...").setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED).setDestinationUri(Uri.fromFile(destination))
+        val downloadId = (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
         val onComplete = object : BroadcastReceiver() {
             override fun onReceive(ctxt: Context, intent: Intent) {
                 if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) == downloadId) {
                     unregisterReceiver(this)
                     val apkUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.provider", destination)
-                    val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(apkUri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(installIntent)
+                    startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(apkUri, "application/vnd.android.package-archive"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK) })
                 }
             }
         }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
+        else registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
     }
 
     private fun stopScreenShare() {
-        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply { action = "STOP" }
-        startService(serviceIntent)
-        isSharingScreen = false
-        btnToggleScreenShare.text = "📱 Ekranı Paylaş"
-        btnToggleScreenShare.setBackgroundColor(0xFF7B1FA2.toInt())
+        startService(Intent(this, ScreenCaptureService::class.java).apply { action = "STOP" })
+        isSharingScreen = false; btnToggleScreenShare.text = "📱 Ekranı Paylaş"; btnToggleScreenShare.setBackgroundColor(0xFF7B1FA2.toInt())
     }
 
     private fun startUdpListener() {
         Thread {
             try {
-                val socket = DatagramSocket(8888)
-                val buffer = ByteArray(1024)
+                val socket = DatagramSocket(8888); val buffer = ByteArray(1024)
                 while (isUdpListening) {
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    socket.receive(packet)
+                    val packet = DatagramPacket(buffer, buffer.size); socket.receive(packet)
                     val msg = String(packet.data, 0, packet.length)
                     if (msg.startsWith("ANYPAY_DISCOVERY:")) {
-                        val parts = msg.split(":")
-                        if (parts.size >= 5) {
-                            val id = parts[1]
-                            val tag = parts[2]
-                            val ip = parts[3]
-                            val port = parts[4]
-                            val host = "$ip:$port"
-                            runOnUiThread { updateOrAddDevice(id, host, tag, true) }
-                        }
+                        val p = msg.split(":"); if (p.size >= 5) runOnUiThread { updateOrAddDevice(p[1], "${p[3]}:${p[4]}", p[2], true) }
                     }
                 }
             } catch (_: Exception) {}
@@ -2542,23 +1651,10 @@ class MainActivity : AppCompatActivity() {
     private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean): DeviceItem {
         val now = System.currentTimeMillis()
         var existing = deviceList.find { it.id == id }
-        if (existing != null) {
-            existing.host = host
-            existing.isOnline = online
-            if (online) existing.lastSeenMs = now
-        } else {
-            existing = DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L)
-            deviceList.add(existing)
-        }
-        saveDevices()
-        deviceAdapter.notifyDataSetChanged()
-
-        if (activeDevice?.id == id) {
-            activeDevice?.host = host
-            activeDevice?.isOnline = online
-            txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"
-            updateConnectionUi(online)
-        }
+        if (existing != null) { existing.host = host; existing.isOnline = online; if (online) existing.lastSeenMs = now }
+        else { existing = DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L); deviceList.add(existing) }
+        saveDevices(); deviceAdapter.notifyDataSetChanged()
+        if (activeDevice?.id == id) { activeDevice?.host = host; activeDevice?.isOnline = online; txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"; updateConnectionUi(online) }
         return existing
     }
 
@@ -2566,7 +1662,6 @@ class MainActivity : AppCompatActivity() {
         panelTabDevices.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
         panelTabMedia.visibility = if (tabIndex == 1) View.VISIBLE else View.GONE
         panelTabSefimWrapper?.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
-
         tabDevices.setTextColor(if (tabIndex == 0) 0xFF00E676.toInt() else 0xFF888888.toInt())
         tabMedia.setTextColor(if (tabIndex == 1) 0xFF00E676.toInt() else 0xFF888888.toInt())
         tabSefim?.setTextColor(if (tabIndex == 2) 0xFF00E676.toInt() else 0xFF888888.toInt())
@@ -2574,68 +1669,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectDevice(device: DeviceItem) {
         if (isSharingScreen) stopScreenShare()
-        activeDevice = device
-        txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
-
-        playlist.clear()
-        mediaAdapter.notifyDataSetChanged()
-
-        saveDevices()
-        deviceAdapter.notifyDataSetChanged()
-        checkAllDevicesStatus()
-        syncSefimBackupWithMenuboard()
+        activeDevice = device; txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
+        playlist.clear(); mediaAdapter.notifyDataSetChanged()
+        saveDevices(); deviceAdapter.notifyDataSetChanged(); checkAllDevicesStatus(); syncSefimBackupWithMenuboard()
     }
 
     private fun loadSavedDevices() {
-        val prefs = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE)
-        val json = prefs.getString("device_list_json", null)
-        if (!json.isNullOrEmpty()) {
-            val type = object : TypeToken<MutableList<DeviceItem>>() {}.type
-            deviceList = gson.fromJson(json, type)
-            deviceList.forEach { it.isOnline = false }
-        }
+        val json = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("device_list_json", null)
+        if (!json.isNullOrEmpty()) { deviceList = gson.fromJson(json, object : TypeToken<MutableList<DeviceItem>>() {}.type); deviceList.forEach { it.isOnline = false } }
     }
 
-    private fun saveDevices() {
-        val prefs = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putString("device_list_json", gson.toJson(deviceList)).apply()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        handler.post(heartbeatRunnable)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        handler.removeCallbacks(heartbeatRunnable)
-    }
+    private fun saveDevices() { getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).edit().putString("device_list_json", gson.toJson(deviceList)).apply() }
+    override fun onResume() { super.onResume(); handler.post(heartbeatRunnable) }
+    override fun onPause() { super.onPause(); handler.removeCallbacks(heartbeatRunnable) }
 
     private fun updateConnectionUi(connected: Boolean) {
         isConnected = connected
-        runOnUiThread {
-            if (connected) {
-                txtConnectionStatus.text = "Bağlı"
-                txtConnectionStatus.setTextColor(0xFF2E7D32.toInt())
-            } else {
-                txtConnectionStatus.text = "Bağlı Değil"
-                txtConnectionStatus.setTextColor(0xFFD32F2F.toInt())
-            }
-        }
+        runOnUiThread { txtConnectionStatus.text = if (connected) "Bağlı" else "Bağlı Değil"; txtConnectionStatus.setTextColor(if (connected) 0xFF2E7D32.toInt() else 0xFFD32F2F.toInt()) }
     }
 
     private fun fetchPlaylist() {
         val host = activeDevice?.host ?: return
-        val request = Request.Builder().url("http://$host/api/playlist").build()
-
-        httpClient.newCall(request).enqueue(object : Callback {
+        httpClient.newCall(Request.Builder().url("http://$host/api/playlist").build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
-
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
-                    val body = response.body?.string() ?: "[]"
-                    val type = object : TypeToken<MutableList<MediaItemModel>>() {}.type
-                    playlist = gson.fromJson(body, type)
+                    playlist = gson.fromJson(response.body?.string() ?: "[]", object : TypeToken<MutableList<MediaItemModel>>() {}.type)
                     runOnUiThread { mediaAdapter.notifyDataSetChanged() }
                 }
             }
@@ -2645,355 +1704,119 @@ class MainActivity : AppCompatActivity() {
     private fun uploadMediaFile(uri: Uri) {
         val host = activeDevice?.host ?: return
         val contentResolver = applicationContext.contentResolver
-        val mimeType = contentResolver.getType(uri) ?: ""
-        val isVideo = mimeType.startsWith("video")
-        val type = if (isVideo) "video" else "image"
-
+        val isVideo = (contentResolver.getType(uri) ?: "").startsWith("video")
         var fileName = "media_${System.currentTimeMillis()}"
-        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (cursor.moveToFirst() && nameIndex >= 0) {
-                fileName = cursor.getString(nameIndex).replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            }
-        }
-
-        var fileDurationSec = 0
+        contentResolver.query(uri, null, null, null, null)?.use { c -> val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (c.moveToFirst() && idx >= 0) fileName = c.getString(idx).replace(Regex("[^a-zA-Z0-9._-]"), "_") }
+        var fileDurSec = 0
         if (isVideo) {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(this, uri)
-                val time = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                fileDurationSec = ((time?.toLong() ?: 0L) / 1000).toInt()
-            } catch (_: Exception) {
-            } finally {
-                try { retriever.release() } catch (_: Exception) {}
-            }
+            val ret = MediaMetadataRetriever()
+            try { ret.setDataSource(this, uri); fileDurSec = ((ret.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L) / 1000).toInt() } catch (_: Exception) {} finally { try { ret.release() } catch (_: Exception) {} }
         }
-
-        val totalLength = try {
-            contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-        } catch (_: Exception) { -1L }
-
+        val totalLen = try { contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L } catch (_: Exception) { -1L }
         Toast.makeText(this, "Yükleniyor ($fileName)...", Toast.LENGTH_SHORT).show()
-        uploadProgressBar?.visibility = View.VISIBLE
-        uploadProgressBar?.progress = 0
+        uploadProgressBar?.visibility = View.VISIBLE; uploadProgressBar?.progress = 0
 
-        val customRequestBody = object : RequestBody() {
+        val body = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaTypeOrNull()
-            override fun contentLength(): Long = totalLength
-
+            override fun contentLength(): Long = totalLen
             override fun writeTo(sink: okio.BufferedSink) {
-                contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val buffer = ByteArray(65536)
-                    var read: Int
-                    var uploaded: Long = 0
-                    var lastReportedPct = -1
-                    while (inputStream.read(buffer).also { read = it } != -1) {
-                        sink.write(buffer, 0, read)
-                        if (totalLength > 0) {
-                            uploaded += read
-                            val progress = ((uploaded * 100) / totalLength).toInt()
-                            if (progress != lastReportedPct) {
-                                lastReportedPct = progress
-                                runOnUiThread { uploadProgressBar?.progress = progress }
-                            }
-                        }
+                contentResolver.openInputStream(uri)?.use { inp ->
+                    val buf = ByteArray(65536); var r: Int; var up = 0L; var lastP = -1
+                    while (inp.read(buf).also { r = it } != -1) {
+                        sink.write(buf, 0, r)
+                        if (totalLen > 0) { up += r; val p = ((up * 100) / totalLen).toInt(); if (p != lastP) { lastP = p; runOnUiThread { uploadProgressBar?.progress = p } } }
                     }
                 }
             }
         }
-
-        val uploadRequest = Request.Builder()
-            .url("http://$host/api/upload_raw?filename=${Uri.encode(fileName)}")
-            .post(customRequestBody)
-            .build()
-
-        httpClient.newCall(uploadRequest).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread {
-                    uploadProgressBar?.visibility = View.GONE
-                    Toast.makeText(this@MainActivity, "Yükleme Başarısız: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
-            }
-
+        httpClient.newCall(Request.Builder().url("http://$host/api/upload_raw?filename=${Uri.encode(fileName)}").post(body).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { uploadProgressBar?.visibility = View.GONE; Toast.makeText(this@MainActivity, "Yükleme Başarısız!", Toast.LENGTH_LONG).show() } }
             override fun onResponse(call: Call, response: Response) {
-                val ok = response.isSuccessful
-                response.close()
+                val ok = response.isSuccessful; response.close()
                 runOnUiThread { uploadProgressBar?.visibility = View.GONE }
                 if (ok) {
-                    val dur = edtDuration.text.toString().toIntOrNull() ?: 0
-                    val wait = edtWaitAfter.text.toString().toIntOrNull() ?: 0
-                    val anim = animValues[spinnerAnim.selectedItemPosition]
-
-                    val newItem = MediaItemModel(
-                        id = System.currentTimeMillis().toString(),
-                        fileName = fileName,
-                        type = type,
-                        durationSec = dur,
-                        waitAfterSec = wait,
-                        animation = anim,
-                        fileDurationSec = fileDurationSec
-                    )
-                    playlist.add(newItem)
+                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = fileName, type = if (isVideo) "video" else "image", durationSec = edtDuration.text.toString().toIntOrNull() ?: 0, waitAfterSec = edtWaitAfter.text.toString().toIntOrNull() ?: 0, animation = animValues[spinnerAnim.selectedItemPosition], fileDurationSec = fileDurSec))
                     syncPlaylistToMenuboard()
-                } else {
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Sunucu dosyayı kaydedemedi!", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                } else runOnUiThread { Toast.makeText(this@MainActivity, "Sunucu dosyayı kaydedemedi!", Toast.LENGTH_SHORT).show() }
             }
         })
     }
 
     private fun syncPlaylistToMenuboard() {
         val host = activeDevice?.host ?: return
-        val jsonPayload = gson.toJson(playlist)
-        val body = jsonPayload.toRequestBody("application/json".toMediaTypeOrNull())
-
-        val request = Request.Builder().url("http://$host/api/playlist").post(body).build()
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Senkronizasyon Başarısız!", Toast.LENGTH_SHORT).show() }
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.close()
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Menuboard Güncellendi!", Toast.LENGTH_SHORT).show()
-                    fetchPlaylist()
-                }
-            }
+        httpClient.newCall(Request.Builder().url("http://$host/api/playlist").post(gson.toJson(playlist).toRequestBody("application/json".toMediaTypeOrNull())).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Senkronizasyon Başarısız!", Toast.LENGTH_SHORT).show() } }
+            override fun onResponse(call: Call, response: Response) { response.close(); runOnUiThread { Toast.makeText(this@MainActivity, "Menuboard Güncellendi!", Toast.LENGTH_SHORT).show(); fetchPlaylist() } }
         })
     }
 
     private fun showEditTagDialog(device: DeviceItem) {
-        val input = EditText(this).apply {
-            hint = "Örn: 1, 2 veya Menuboard Kasa"
-            setText(device.nameTag)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Nametag Belirle")
-            .setView(input)
-            .setPositiveButton("Kaydet") { _, _ ->
-                val newTag = input.text.toString().trim()
-                if (newTag.isNotEmpty()) {
-                    device.nameTag = newTag
-                    saveDevices()
-                    deviceAdapter.notifyDataSetChanged()
-                    if (activeDevice?.id == device.id) {
-                        txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
-                    }
-                    val req = Request.Builder().url("http://${device.host}/api/tag?tag=${Uri.encode(newTag)}").post("".toRequestBody(null)).build()
-                    httpClient.newCall(req).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {}
-                        override fun onResponse(call: Call, response: Response) { response.close() }
-                    })
-                }
+        val input = EditText(this).apply { hint = "Örn: 1, 2 veya Kasa"; setText(device.nameTag) }
+        AlertDialog.Builder(this).setTitle("Nametag Belirle").setView(input).setPositiveButton("Kaydet") { _, _ ->
+            val newTag = input.text.toString().trim()
+            if (newTag.isNotEmpty()) {
+                device.nameTag = newTag; saveDevices(); deviceAdapter.notifyDataSetChanged()
+                if (activeDevice?.id == device.id) txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
+                httpClient.newCall(Request.Builder().url("http://${device.host}/api/tag?tag=${Uri.encode(newTag)}").post("".toRequestBody(null)).build()).enqueue(object : Callback { override fun onFailure(call: Call, e: IOException) {}; override fun onResponse(call: Call, response: Response) { response.close() } })
             }
-            .setNegativeButton("İptal", null)
-            .show()
+        }.setNegativeButton("İptal", null).show()
     }
 
     private fun toggleFindDevice(device: DeviceItem) {
-        device.isFinding = !device.isFinding
-        deviceAdapter.notifyDataSetChanged()
-
-        val url = "http://${device.host}/api/identify?show=${device.isFinding}&tag=${Uri.encode(device.nameTag)}"
-        val request = Request.Builder().url(url).post("".toRequestBody(null)).build()
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
-            override fun onResponse(call: Call, response: Response) { response.close() }
-        })
+        device.isFinding = !device.isFinding; deviceAdapter.notifyDataSetChanged()
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/identify?show=${device.isFinding}&tag=${Uri.encode(device.nameTag)}").post("".toRequestBody(null)).build()).enqueue(object : Callback { override fun onFailure(call: Call, e: IOException) {}; override fun onResponse(call: Call, response: Response) { response.close() } })
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        isUdpListening = false
-    }
-
-    // --- RECYCLERVIEW ADAPTÖRLERİ ---
+    override fun onDestroy() { super.onDestroy(); isUdpListening = false }
 
     inner class SefimProductAdapter : RecyclerView.Adapter<SefimProductAdapter.SefimViewHolder>() {
-        inner class SefimViewHolder(
-            v: View,
-            val cbInclude: CheckBox,
-            val imgPhoto: ImageView,
-            val btnPickPhoto: ImageButton,
-            val txtName: TextView,
-            val txtChoices: TextView,
-            val txtAllergen: TextView,
-            val txtPrice: TextView,
-            val btnEditRecipe: Button
-        ) : RecyclerView.ViewHolder(v)
-
+        inner class SefimViewHolder(v: View, val cbInclude: CheckBox, val imgPhoto: ImageView, val btnPickPhoto: ImageButton, val txtName: TextView, val txtChoices: TextView, val txtAllergen: TextView, val txtPrice: TextView, val btnEditRecipe: Button) : RecyclerView.ViewHolder(v)
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SefimViewHolder {
-            val row = LinearLayout(parent.context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(12, 12, 12, 12)
-                layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = 8
-                }
-            }
+            val row = LinearLayout(parent.context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(12, 12, 12, 12); layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = 8 } }
             val cb = CheckBox(parent.context)
-            val photoFrame = FrameLayout(parent.context).apply {
-                layoutParams = LinearLayout.LayoutParams(125, 125).apply { leftMargin = 6 }
-                setBackgroundColor(Color.parseColor("#33888888"))
-            }
-            val img = ImageView(parent.context).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            }
-            val btnCam = ImageButton(parent.context).apply {
-                setImageResource(android.R.drawable.ic_menu_camera)
-                setBackgroundResource(android.R.drawable.list_selector_background)
-                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            }
-            photoFrame.addView(img)
-            photoFrame.addView(btnCam)
-
-            val midCol = LinearLayout(parent.context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 16; rightMargin = 10 }
-            }
-            val tName = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
-            val tChoices = TextView(parent.context).apply { textSize = 11f }
-            val tAllergen = TextView(parent.context).apply {
-                textSize = 11f
-                setTextColor(Color.parseColor("#FF5252"))
-                typeface = Typeface.DEFAULT_BOLD
-                visibility = View.GONE
-            }
-            midCol.addView(tName)
-            midCol.addView(tChoices)
-            midCol.addView(tAllergen)
-
-            val rightCol = LinearLayout(parent.context).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            }
-            val tPrice = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
-            val bRecipe = Button(parent.context).apply {
-                text = "📝 İçerik"
-                textSize = 10f
-                isAllCaps = false
-                setTextColor(Color.WHITE)
-                setBackgroundColor(Color.parseColor("#37474F"))
-                layoutParams = LinearLayout.LayoutParams(170, 82).apply { topMargin = 6 }
-            }
-            rightCol.addView(tPrice)
-            rightCol.addView(bRecipe)
-
-            row.addView(cb)
-            row.addView(photoFrame)
-            row.addView(midCol)
-            row.addView(rightCol)
-
-            return SefimViewHolder(row, cb, img, btnCam, tName, tChoices, tAllergen, tPrice, bRecipe)
+            val pf = FrameLayout(parent.context).apply { layoutParams = LinearLayout.LayoutParams(125, 125).apply { leftMargin = 6 }; setBackgroundColor(Color.parseColor("#33888888")) }
+            val img = ImageView(parent.context).apply { scaleType = ImageView.ScaleType.CENTER_CROP; layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+            val cam = ImageButton(parent.context).apply { setImageResource(android.R.drawable.ic_menu_camera); setBackgroundResource(android.R.drawable.list_selector_background); layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+            pf.addView(img); pf.addView(cam)
+            val mid = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 16; rightMargin = 10 } }
+            val tN = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
+            val tC = TextView(parent.context).apply { textSize = 11f }
+            val tA = TextView(parent.context).apply { textSize = 11f; setTextColor(Color.parseColor("#FF5252")); typeface = Typeface.DEFAULT_BOLD; visibility = View.GONE }
+            mid.addView(tN); mid.addView(tC); mid.addView(tA)
+            val rCol = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+            val tP = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
+            val bR = Button(parent.context).apply { text = "📝 İçerik"; textSize = 10f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#37474F")); layoutParams = LinearLayout.LayoutParams(170, 82).apply { topMargin = 6 } }
+            rCol.addView(tP); rCol.addView(bR); row.addView(cb); row.addView(pf); row.addView(mid); row.addView(rCol)
+            return SefimViewHolder(row, cb, img, cam, tN, tC, tA, tP, bR)
         }
-
         override fun onBindViewHolder(holder: SefimViewHolder, position: Int) {
             val item = filteredSefimProducts.getOrNull(position) ?: return
             val pName = item.productName ?: ""
             val (_, textColor, accentColor) = getSelectedThemeColors()
             val fontSize = fontSizeValues.getOrElse(spinnerSefimFontSize.selectedItemPosition) { 18f }
-            val style = if (cbSefimBold.isChecked) Typeface.BOLD else Typeface.NORMAL
-
-            holder.cbInclude.setOnCheckedChangeListener(null)
-            holder.cbInclude.isChecked = item.isSelected
-            holder.cbInclude.setOnCheckedChangeListener { _, isChecked ->
-                item.isSelected = isChecked
-                saveLocalSefimState()
-            }
-
+            holder.cbInclude.setOnCheckedChangeListener(null); holder.cbInclude.isChecked = item.isSelected
+            holder.cbInclude.setOnCheckedChangeListener { _, isChecked -> item.isSelected = isChecked; saveLocalSefimState() }
             val cachedB64 = item.imageBase64 ?: productMetaCache[pName]?.imageBase64
             if (!cachedB64.isNullOrEmpty()) {
-                try {
-                    val bytes = Base64.decode(cachedB64, Base64.DEFAULT)
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    holder.imgPhoto.setImageBitmap(bmp)
-                    holder.btnPickPhoto.alpha = 0.15f
-                } catch (_: Exception) {
-                    holder.imgPhoto.setImageDrawable(null)
-                    holder.btnPickPhoto.alpha = 0.85f
-                }
-            } else {
-                holder.imgPhoto.setImageDrawable(null)
-                holder.btnPickPhoto.alpha = 0.85f
-            }
-
+                try { val b = Base64.decode(cachedB64, Base64.DEFAULT); holder.imgPhoto.setImageBitmap(BitmapFactory.decodeByteArray(b, 0, b.size)); holder.btnPickPhoto.alpha = 0.15f }
+                catch (_: Exception) { holder.imgPhoto.setImageDrawable(null); holder.btnPickPhoto.alpha = 0.85f }
+            } else { holder.imgPhoto.setImageDrawable(null); holder.btnPickPhoto.alpha = 0.85f }
             holder.btnPickPhoto.setOnClickListener {
                 if (!cachedB64.isNullOrEmpty()) {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle(pName)
-                        .setItems(arrayOf("📷 Yeni Görsel Seç", "🗑️ Mevcut Görseli Kaldır")) { _, which ->
-                            if (which == 0) {
-                                pendingPhotoProductName = pName
-                                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-                                    type = "image/*"
-                                }
-                                pickProductPhotoLauncher.launch(intent)
-                            } else {
-                                productMetaCache[pName]?.imageBase64 = null
-                                item.imageBase64 = null
-                                saveLocalSefimState()
-                                pushSefimBackupToMenuboard()
-                                notifyDataSetChanged()
-                            }
-                        }
-                        .show()
-                } else {
-                    pendingPhotoProductName = pName
-                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "image/*"
-                    }
-                    pickProductPhotoLauncher.launch(intent)
-                }
+                    AlertDialog.Builder(this@MainActivity).setTitle(pName).setItems(arrayOf("📷 Yeni Görsel Seç", "🗑️ Mevcut Görseli Kaldır")) { _, w ->
+                        if (w == 0) { pendingPhotoProductName = pName; pickProductPhotoLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/*" }) }
+                        else { productMetaCache[pName]?.imageBase64 = null; item.imageBase64 = null; saveLocalSefimState(); pushSefimBackupToMenuboard(); notifyDataSetChanged() }
+                    }.show()
+                } else { pendingPhotoProductName = pName; pickProductPhotoLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/*" }) }
             }
-
-            holder.txtName.text = pName
-            holder.txtName.setTextColor(textColor)
-            holder.txtName.textSize = fontSize
-            holder.txtName.setTypeface(null, style)
-
-            holder.txtPrice.text = item.price ?: ""
-            holder.txtPrice.setTextColor(accentColor)
-            holder.txtPrice.textSize = fontSize
-            holder.txtPrice.setTypeface(null, Typeface.BOLD)
-
-            val filteredSub = buildFilteredChoicesString(item)
-            val recStr = item.recipeContent ?: ""
-            val fullSubText = buildString {
-                if (filteredSub.isNotEmpty()) append("↳ $filteredSub")
-                if (recStr.isNotEmpty()) {
-                    if (isNotEmpty()) append("\n")
-                    append("🍽️ İçerik: $recStr")
-                }
-            }
-
-            if (fullSubText.isNotEmpty()) {
-                holder.txtChoices.visibility = View.VISIBLE
-                holder.txtChoices.text = fullSubText
-                holder.txtChoices.setTextColor(accentColor)
-                holder.txtChoices.textSize = (fontSize - 4f).coerceAtLeast(10f)
-            } else {
-                holder.txtChoices.visibility = View.GONE
-            }
-
-            val allergenWarning = computeAllergenWarning(item)
-            if (allergenWarning.isNotEmpty()) {
-                holder.txtAllergen.visibility = View.VISIBLE
-                holder.txtAllergen.text = "⚠️ Alerjen: $allergenWarning"
-            } else {
-                holder.txtAllergen.visibility = View.GONE
-            }
-
+            holder.txtName.text = pName; holder.txtName.setTextColor(textColor); holder.txtName.textSize = fontSize; holder.txtName.setTypeface(null, if (cbSefimBold.isChecked) Typeface.BOLD else Typeface.NORMAL)
+            holder.txtPrice.text = item.price ?: ""; holder.txtPrice.setTextColor(accentColor); holder.txtPrice.textSize = fontSize; holder.txtPrice.setTypeface(null, Typeface.BOLD)
+            val sub = buildString { val f = buildFilteredChoicesString(item); if (f.isNotEmpty()) append("↳ $f"); val r = item.recipeContent ?: ""; if (r.isNotEmpty()) { if (isNotEmpty()) append("\n"); append("🍽️ İçerik: $r") } }
+            if (sub.isNotEmpty()) { holder.txtChoices.visibility = View.VISIBLE; holder.txtChoices.text = sub; holder.txtChoices.setTextColor(accentColor); holder.txtChoices.textSize = (fontSize - 4f).coerceAtLeast(10f) } else holder.txtChoices.visibility = View.GONE
+            val alg = computeAllergenWarning(item)
+            if (alg.isNotEmpty()) { holder.txtAllergen.visibility = View.VISIBLE; holder.txtAllergen.text = "⚠️ Alerjen: $alg" } else holder.txtAllergen.visibility = View.GONE
             holder.btnEditRecipe.setOnClickListener { showEditRecipeAndAllergenDialog(item) }
         }
-
         override fun getItemCount(): Int = filteredSefimProducts.size
     }
 
@@ -3006,95 +1829,39 @@ class MainActivity : AppCompatActivity() {
             val btnFindDevice: Button = v.findViewById(R.id.btnFindDevice)
             val btnDeleteDevice: ImageButton = v.findViewById(R.id.btnDeleteDevice)
             var btnDynamicSettings: Button? = null
-
             init {
                 val rowLayout = btnFindDevice.parent as? LinearLayout
                 val existingId = resources.getIdentifier("btnDeviceSettings", "id", packageName)
                 val existingBtn = if (existingId != 0) v.findViewById<View>(existingId) else null
-
-                if (existingBtn is Button) {
-                    btnDynamicSettings = existingBtn
-                } else if (existingBtn != null) {
-                    existingBtn.setOnClickListener {
-                        val pos = adapterPosition
-                        if (pos != RecyclerView.NO_POSITION) showDeviceAdvancedMenu(deviceList[pos])
-                    }
-                } else if (rowLayout != null) {
-                    val newSettingsBtn = Button(v.context).apply {
-                        text = "⚙️ Ayar"
-                        textSize = 11f
-                        isAllCaps = false
-                        setTextColor(Color.WHITE)
-                        setBackgroundColor(Color.parseColor("#1976D2"))
-                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 92).apply {
-                            leftMargin = 8
-                            rightMargin = 4
-                        }
-                    }
-                    val findIdx = rowLayout.indexOfChild(btnFindDevice)
-                    rowLayout.addView(newSettingsBtn, (findIdx + 1).coerceAtMost(rowLayout.childCount))
-                    btnDynamicSettings = newSettingsBtn
+                if (existingBtn is Button) btnDynamicSettings = existingBtn
+                else if (existingBtn != null) existingBtn.setOnClickListener { val p = adapterPosition; if (p != RecyclerView.NO_POSITION) showDeviceAdvancedMenu(deviceList[p]) }
+                else if (rowLayout != null) {
+                    val b = Button(v.context).apply { text = "⚙️ Ayar"; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#1976D2")); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 92).apply { leftMargin = 8; rightMargin = 4 } }
+                    rowLayout.addView(b, (rowLayout.indexOfChild(btnFindDevice) + 1).coerceAtMost(rowLayout.childCount)); btnDynamicSettings = b
                 }
             }
         }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DeviceViewHolder {
-            val v = LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false)
-            return DeviceViewHolder(v)
-        }
-
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = DeviceViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false))
         override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
             val dev = deviceList[position]
-            val activePrefix = if (activeDevice?.id == dev.id) "✓ " else ""
-            holder.txtDeviceTag.text = "$activePrefix${dev.nameTag}"
-            holder.txtDeviceIp.text = dev.host
-
-            if (dev.isOnline) {
-                holder.viewStatusDot.setBackgroundColor(0xFF00C853.toInt())
-            } else {
-                holder.viewStatusDot.setBackgroundColor(0xFFD32F2F.toInt())
-            }
-
-            if (dev.isFinding) {
-                holder.btnFindDevice.text = "Gizle"
-                holder.btnFindDevice.setBackgroundColor(0xFFD32F2F.toInt())
-            } else {
-                holder.btnFindDevice.text = "Bul"
-                holder.btnFindDevice.setBackgroundColor(0xFFF57C00.toInt())
-            }
-
-            holder.itemView.setOnClickListener {
-                selectDevice(dev)
-                switchTab(1)
-            }
-
+            holder.txtDeviceTag.text = "${if (activeDevice?.id == dev.id) "✓ " else ""}${dev.nameTag}"; holder.txtDeviceIp.text = dev.host
+            holder.viewStatusDot.setBackgroundColor(if (dev.isOnline) 0xFF00C853.toInt() else 0xFFD32F2F.toInt())
+            holder.btnFindDevice.text = if (dev.isFinding) "Gizle" else "Bul"; holder.btnFindDevice.setBackgroundColor(if (dev.isFinding) 0xFFD32F2F.toInt() else 0xFFF57C00.toInt())
+            holder.itemView.setOnClickListener { selectDevice(dev); switchTab(1) }
             holder.btnEditTag.setOnClickListener { showEditTagDialog(dev) }
             holder.btnFindDevice.setOnClickListener { toggleFindDevice(dev) }
             holder.btnDynamicSettings?.setOnClickListener { showDeviceAdvancedMenu(dev) }
-
             holder.btnDeleteDevice.setOnClickListener {
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Cihazı Kaldır")
-                    .setMessage("${dev.nameTag} silinsin mi?")
-                    .setPositiveButton("Kaldır") { _, _ ->
-                        deviceList.removeAt(holder.adapterPosition)
-                        if (activeDevice?.id == dev.id) {
-                            activeDevice = deviceList.firstOrNull()
-                            if (activeDevice != null) selectDevice(activeDevice!!)
-                            else {
-                                txtActiveDeviceName.text = "Seçili Cihaz Yok"
-                                playlist.clear()
-                                mediaAdapter.notifyDataSetChanged()
-                            }
-                        }
-                        saveDevices()
-                        notifyDataSetChanged()
+                AlertDialog.Builder(this@MainActivity).setTitle("Cihazı Kaldır").setMessage("${dev.nameTag} silinsin mi?").setPositiveButton("Kaldır") { _, _ ->
+                    deviceList.removeAt(holder.adapterPosition)
+                    if (activeDevice?.id == dev.id) {
+                        activeDevice = deviceList.firstOrNull()
+                        if (activeDevice != null) selectDevice(activeDevice!!) else { txtActiveDeviceName.text = "Seçili Cihaz Yok"; playlist.clear(); mediaAdapter.notifyDataSetChanged() }
                     }
-                    .setNegativeButton("İptal", null)
-                    .show()
+                    saveDevices(); notifyDataSetChanged()
+                }.setNegativeButton("İptal", null).show()
             }
         }
-
         override fun getItemCount(): Int = deviceList.size
     }
 
@@ -3108,119 +1875,54 @@ class MainActivity : AppCompatActivity() {
             val btnEdit: ImageButton = v.findViewById(R.id.btnEdit)
             val btnDelete: ImageButton = v.findViewById(R.id.btnDelete)
         }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MediaViewHolder {
-            val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media, parent, false)
-            return MediaViewHolder(v)
-        }
-
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = MediaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_media, parent, false))
         override fun onBindViewHolder(holder: MediaViewHolder, position: Int) {
             val item = playlist[position]
             val host = activeDevice?.host ?: ""
-
             holder.txtFileName.text = item.fileName
+            holder.txtAnimBadge.text = "Animasyon: ${animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"}"
 
             if (item.type == "web") {
-                holder.txtTypeBadge.text = "URL"
-                holder.txtTypeBadge.setBackgroundColor(0xCC00897B.toInt())
-
-                val spdLabel = scrollSpeedLabels.getOrElse(scrollSpeedValues.indexOf(item.webScrollSpeed ?: "medium")) { "Orta" }
-                val scrollStr = when {
-                    item.scrollUntilEnd -> "Sonuna Kadar ($spdLabel)"
-                    item.autoScroll -> "${item.durationSec}sn ($spdLabel)"
-                    else -> "${item.durationSec}sn Sabit"
-                }
-                val qrStr = if (item.showQr) " | QR" else ""
-                holder.txtDetails.text = "$scrollStr | Zoom:%${item.webZoomPercent}$qrStr"
-
-                val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
-                holder.txtAnimBadge.text = "Animasyon: $animName"
-
-                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_compass)
-                holder.imgThumb.setBackgroundColor(Color.parseColor("#E0F2F1"))
-
-                holder.btnEdit.setOnClickListener {
-                    showUrlConfigDialog(existingItem = item)
-                }
+                holder.txtTypeBadge.text = "URL"; holder.txtTypeBadge.setBackgroundColor(0xCC00897B.toInt())
+                val spd = scrollSpeedLabels.getOrElse(scrollSpeedValues.indexOf(item.webScrollSpeed ?: "medium")) { "Orta" }
+                val scr = when { item.scrollUntilEnd -> "Sonuna Kadar ($spd)"; item.autoScroll -> "${item.durationSec}sn ($spd)"; else -> "${item.durationSec}sn Sabit" }
+                holder.txtDetails.text = "$scr | Zoom:%${item.webZoomPercent}${if (item.showQr) " | QR" else ""}"
+                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_compass); holder.imgThumb.setBackgroundColor(Color.parseColor("#E0F2F1"))
+                holder.btnEdit.setOnClickListener { showUrlConfigDialog(existingItem = item) }
+            } else if (item.type == "instagram") {
+                holder.txtTypeBadge.text = "IG"; holder.txtTypeBadge.setBackgroundColor(0xCCE1306C.toInt())
+                val modeStr = if (item.scrollUntilEnd) "Medyalar Bitene Kadar" else "${item.durationSec}sn"
+                val fltStr = when (item.igMediaFilter) { "photo" -> "Fotoğraf"; "video" -> "Video"; else -> "Tümü" }
+                holder.txtDetails.text = "IG: $modeStr | Filtre: $fltStr"
+                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_camera); holder.imgThumb.setBackgroundColor(Color.parseColor("#FCE4EC"))
+                holder.btnEdit.setOnClickListener { checkInstagramStatusAndOpenDialog(existingItem = item) }
             } else {
                 holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
                 holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
-
-                if (item.type == "video") {
-                    val totalStr = if (item.fileDurationSec > 0) "${item.fileDurationSec}sn" else "Bilinmiyor"
-                    val playStr = if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı ($totalStr)"
-                    holder.txtDetails.text = "Video: $playStr | +${item.waitAfterSec}s ara"
-                } else {
-                    val dur = if (item.durationSec > 0) item.durationSec else 10
-                    holder.txtDetails.text = "Resim: ${dur}s süre | +${item.waitAfterSec}s ara"
-                }
-
-                val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
-                holder.txtAnimBadge.text = "Animasyon: $animName"
-
+                holder.txtDetails.text = if (item.type == "video") "Video: ${if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı"} | +${item.waitAfterSec}s ara"
+                else "Resim: ${if (item.durationSec > 0) item.durationSec else 10}s süre | +${item.waitAfterSec}s ara"
                 holder.imgThumb.setBackgroundColor(Color.TRANSPARENT)
-                val thumbUrl = "http://$host/api/thumbnail?filename=${item.fileName}"
-                Glide.with(holder.itemView.context)
-                    .load(thumbUrl)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .centerCrop()
-                    .into(holder.imgThumb)
-
+                Glide.with(holder.itemView.context).load("http://$host/api/thumbnail?filename=${item.fileName}").diskCacheStrategy(DiskCacheStrategy.ALL).centerCrop().into(holder.imgThumb)
                 holder.btnEdit.setOnClickListener {
-                    val edtDur = EditText(this@MainActivity).apply {
-                        hint = "Süre (0=tamamı)"
-                        inputType = InputType.TYPE_CLASS_NUMBER
-                        setText(item.durationSec.toString())
-                    }
-                    val edtWait = EditText(this@MainActivity).apply {
-                        hint = "Ara Bekleme (sn)"
-                        inputType = InputType.TYPE_CLASS_NUMBER
-                        setText(item.waitAfterSec.toString())
-                    }
-                    val spAnim = Spinner(this@MainActivity).apply {
-                        adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
-                        val idx = animValues.indexOf(item.animation)
-                        if (idx >= 0) setSelection(idx)
-                    }
-
-                    val layout = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        setPadding(50, 40, 50, 10)
-                        addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" })
-                        addView(edtDur)
-                        addView(TextView(this@MainActivity).apply { text = "İki Medya Arası Bekleme (sn):" })
-                        addView(edtWait)
-                        addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" })
-                        addView(spAnim)
-                    }
-
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Medya Ayarları")
-                        .setView(layout)
-                        .setPositiveButton("Kaydet") { _, _ ->
-                            item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
-                            item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
-                            item.animation = animValues[spAnim.selectedItemPosition]
-                            syncPlaylistToMenuboard()
-                        }
-                        .setNegativeButton("İptal", null)
-                        .show()
+                    val edtDur = EditText(this@MainActivity).apply { hint = "Süre (0=tamamı)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(item.durationSec.toString()) }
+                    val edtWait = EditText(this@MainActivity).apply { hint = "Ara Bekleme (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(item.waitAfterSec.toString()) }
+                    val spAnim = Spinner(this@MainActivity).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions); val idx = animValues.indexOf(item.animation); if (idx >= 0) setSelection(idx) }
+                    val layout = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(50, 40, 50, 10); addView(TextView(this@MainActivity).apply { text = "Oynatma Süresi (sn):" }); addView(edtDur); addView(TextView(this@MainActivity).apply { text = "Ara Bekleme (sn):" }); addView(edtWait); addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:" }); addView(spAnim) }
+                    AlertDialog.Builder(this@MainActivity).setTitle("Medya Ayarları").setView(layout).setPositiveButton("Kaydet") { _, _ ->
+                        item.durationSec = edtDur.text.toString().toIntOrNull() ?: item.durationSec
+                        item.waitAfterSec = edtWait.text.toString().toIntOrNull() ?: item.waitAfterSec
+                        item.animation = animValues[spAnim.selectedItemPosition]
+                        syncPlaylistToMenuboard()
+                    }.setNegativeButton("İptal", null).show()
                 }
             }
 
             holder.btnDelete.setOnClickListener {
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Öğeyi Sil")
-                    .setMessage("${item.fileName} silinsin mi?")
-                    .setPositiveButton("Sil") { _, _ ->
-                        playlist.removeAt(holder.adapterPosition)
-                        syncPlaylistToMenuboard()
-                    }
-                    .setNegativeButton("İptal", null)
-                    .show()
+                AlertDialog.Builder(this@MainActivity).setTitle("Öğeyi Sil").setMessage("${item.fileName} silinsin mi?").setPositiveButton("Sil") { _, _ ->
+                    playlist.removeAt(holder.adapterPosition); syncPlaylistToMenuboard()
+                }.setNegativeButton("İptal", null).show()
             }
         }
-
         override fun getItemCount(): Int = playlist.size
     }
 }
