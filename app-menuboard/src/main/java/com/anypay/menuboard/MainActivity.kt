@@ -47,8 +47,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.journeyapps.barcodescanner.BarcodeEncoder
 import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeEncoder
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.Call
 import okhttp3.Callback
@@ -74,7 +74,7 @@ import kotlin.random.Random
 data class MediaItemModel(
     val id: String = UUID.randomUUID().toString(),
     val fileName: String = "",
-    val type: String = "image", // "image", "video", "web", "instagram"
+    val type: String = "image",
     val durationSec: Int = 10,
     val waitAfterSec: Int = 0,
     val animation: String = "fade",
@@ -89,8 +89,6 @@ data class MediaItemModel(
     val webFontFamily: String? = "default",
     val webFontSizePercent: Int = 0,
     val webBoldHeaders: Boolean = false,
-    val igMediaFilter: String? = "all",
-    val igSlideSec: Int = 8
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false
@@ -423,6 +421,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var imgWebQr: ImageView
     private var activeWebItem: MediaItemModel? = null
     private var webScrollActive = false
+
     private var igPostUrls = mutableListOf<String>()
     private var igPostIndex = 0
     private val igSafetyRunnable = Runnable { playNextInstagramPost() }
@@ -596,6 +595,8 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
         mediaContainer.addView(
             webView,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
@@ -616,7 +617,7 @@ class MainActivity : AppCompatActivity() {
         mediaContainer.addView(webQrContainer)
     }
 
-private fun playNextInstagramPost() {
+    private fun playNextInstagramPost() {
         handler.removeCallbacks(igSafetyRunnable)
         val item = activeWebItem ?: return
         if (item.type != "instagram") return
@@ -641,7 +642,6 @@ private fun playNextInstagramPost() {
 
         val nextUrl = igPostUrls[igPostIndex++]
         webView.loadUrl(nextUrl)
-        // Bir gönderi takılırsa 65 saniye sonra otomatik sıradakine geç
         handler.postDelayed(igSafetyRunnable, 65000L)
     }
 
@@ -1004,6 +1004,8 @@ private fun playNextInstagramPost() {
     private fun stopAllPlayback() {
         handler.removeCallbacks(mediaEndRunnable)
         handler.removeCallbacks(webScrollRunnable)
+        handler.removeCallbacks(igSafetyRunnable)
+        igPostUrls.clear()
         webScrollActive = false
         activeWebItem = null
         exoPlayer?.stop(); exoPlayer?.clearMediaItems()
@@ -1012,8 +1014,6 @@ private fun playNextInstagramPost() {
         imgLiveStream.visibility = View.GONE
         webView.stopLoading(); webView.visibility = View.GONE
         webQrContainer.visibility = View.GONE
-        handler.removeCallbacks(igSafetyRunnable)
-        igPostUrls.clear()
     }
 
     private fun startPlayback() {
@@ -1040,6 +1040,8 @@ private fun playNextInstagramPost() {
         if (isScreenSharing) return
         handler.removeCallbacks(mediaEndRunnable)
         handler.removeCallbacks(webScrollRunnable)
+        handler.removeCallbacks(igSafetyRunnable)
+        igPostUrls.clear()
         webScrollActive = false
         activeWebItem = null
 
@@ -1446,6 +1448,7 @@ private fun playNextInstagramPost() {
         isBroadcasting = false
         handler.removeCallbacks(ipCheckRunnable)
         handler.removeCallbacks(webScrollRunnable)
+        handler.removeCallbacks(igSafetyRunnable)
         httpServer?.stop()
         exoPlayer?.release()
     }
