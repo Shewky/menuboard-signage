@@ -691,11 +691,22 @@ class MainActivity : AppCompatActivity() {
         var synced = false
 
         val webView = WebView(this).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             val cm = CookieManager.getInstance()
             cm.setAcceptCookie(true)
             cm.setAcceptThirdPartyCookies(this, true)
+
+            setOnTouchListener { v, event ->
+                if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_UP) {
+                    if (!v.hasFocus()) {
+                        v.requestFocus()
+                    }
+                }
+                false
+            }
 
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -732,7 +743,25 @@ class MainActivity : AppCompatActivity() {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200)
             addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200))
         }
-        loginDialog = AlertDialog.Builder(this).setTitle("🔑 Instagram Giriş").setView(container).setNegativeButton("Kapat", null).create()
+
+        loginDialog = AlertDialog.Builder(this)
+            .setTitle("🔑 Instagram Giriş")
+            .setView(container)
+            .setNegativeButton("Kapat", null)
+            .create()
+
+        loginDialog.setOnShowListener {
+            loginDialog?.window?.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+            )
+            loginDialog?.window?.setSoftInputMode(
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            )
+            webView.requestFocus()
+        }
+
         loginDialog.show()
     }
 
