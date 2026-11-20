@@ -77,10 +77,15 @@ data class MediaItemModel(
     var fileDurationSec: Int = 0,
     var autoScroll: Boolean = false,
     var scrollUntilEnd: Boolean = false,
+    var webScrollSpeed: String? = "medium", // "slow", "medium", "fast"
     var showQr: Boolean = false,
-    var qrCorner: String = "bottom_right",
+    var qrCorner: String? = "bottom_right",
     var qrSizeDp: Int = 150,
-    var webZoomPercent: Int = 100
+    var qrBorderDp: Int = 8,
+    var webZoomPercent: Int = 100,
+    var webFontFamily: String? = "default",
+    var webFontSizePercent: Int = 0,
+    var webBoldHeaders: Boolean = false
 )
 
 data class SefimProductItem(
@@ -141,7 +146,6 @@ class MainActivity : AppCompatActivity() {
     private var panelTabSefimWrapper: FrameLayout? = null
     private lateinit var sefimScrollView: NestedScrollView
 
-    // Şefim Menü PIN Koruması (5 tıklama -> PIN: 2228)
     private var isSefimUnlocked = false
     private var sefimTapCount = 0
     private var lastSefimTapMs = 0L
@@ -165,6 +169,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recyclerViewPlaylist: RecyclerView
     private lateinit var mediaAdapter: MediaAdapter
     private var playlist = mutableListOf<MediaItemModel>()
+
+    // URL Ekle/Düzenle penceresindeki aktif URL kutusu (QR tarama sonrası doğrudan doldurmak için)
+    private var activeUrlInputField: EditText? = null
 
     private lateinit var edtRestaurantName: EditText
     private lateinit var edtMenuPageDuration: EditText
@@ -213,14 +220,43 @@ class MainActivity : AppCompatActivity() {
     )
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
 
+    private val scrollSpeedLabels = arrayOf("Yavaş", "Orta", "Hızlı")
+    private val scrollSpeedValues = arrayOf("slow", "medium", "fast")
+
     private val qrCornerLabels = arrayOf("Sağ Alt Köşe", "Sol Alt Köşe", "Sağ Üst Köşe", "Sol Üst Köşe")
     private val qrCornerValues = arrayOf("bottom_right", "bottom_left", "top_right", "top_left")
 
     private val qrSizeLabels = arrayOf("Küçük (110dp)", "Orta (150dp)", "Büyük (190dp)", "Dev (240dp)")
     private val qrSizeValues = arrayOf(110, 150, 190, 240)
 
-    private val webZoomLabels = arrayOf("%50 (Çok Uzak)", "%75 (Uzak)", "%100 (Normal)", "%125 (Büyük)", "%150 (Daha Büyük)", "%175 (Çok Büyük)", "%200 (Dev)")
-    private val webZoomValues = arrayOf(50, 75, 100, 125, 150, 175, 200)
+    private val qrBorderLabels = arrayOf("Çerçevesiz (0dp)", "İnce (4dp)", "Orta (8dp)", "Kalın (14dp)", "Çok Kalın (22dp)")
+    private val qrBorderValues = arrayOf(0, 4, 8, 14, 22)
+
+    private val webZoomLabels = arrayOf(
+        "%30", "%40", "%50", "%60", "%70", "%75", "%80", "%90",
+        "%100 (Normal)", "%110", "%125", "%140", "%150", "%175", "%200", "%225", "%250"
+    )
+    private val webZoomValues = arrayOf(30, 40, 50, 60, 70, 75, 80, 90, 100, 110, 125, 140, 150, 175, 200, 225, 250)
+
+    private val webFontFamilyLabels = arrayOf(
+        "Site Varsayılanı",
+        "Modern (Sans-Serif)",
+        "Klasik (Serif)",
+        "Daktilo (Monospace)",
+        "El Yazısı (Cursive)"
+    )
+    private val webFontFamilyValues = arrayOf("default", "sans-serif", "serif", "monospace", "cursive")
+
+    private val webFontSizeLabels = arrayOf(
+        "Site Varsayılanı",
+        "%85 (Küçük)",
+        "%100 (Normal)",
+        "%115 (Orta)",
+        "%130 (Büyük)",
+        "%150 (Çok Büyük)",
+        "%175 (Dev)"
+    )
+    private val webFontSizeValues = arrayOf(0, 85, 100, 115, 130, 150, 175)
 
     private val themeNames = arrayOf(
         "🖤 Koyu Lüks (Gold & Siyah)",
@@ -273,6 +309,16 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 Toast.makeText(this, "Geçersiz QR Kod!", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    // URL Ekle / Düzenle Penceresi İçin Özel QR Kod Okuyucu
+    private val urlQrLauncher = registerForActivityResult(ScanContract()) { result ->
+        val scanned = result.contents?.trim()
+        if (!scanned.isNullOrEmpty()) {
+            activeUrlInputField?.setText(scanned)
+            activeUrlInputField?.setSelection(scanned.length)
+            Toast.makeText(this, "URL QR koddan okundu!", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -373,7 +419,7 @@ class MainActivity : AppCompatActivity() {
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
 
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.23" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.24" }
         supportActionBar?.title = "Menuboard Kumanda"
 
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
@@ -381,9 +427,7 @@ class MainActivity : AppCompatActivity() {
             findViewById<TextView>(resIdVer)?.text = "v$vName"
         }
 
-        // "+ Medya Yükle" butonunun hemen altına "🌐 URL EKLE" butonunu yerleştir
         injectAddUrlButton()
-
         setupDynamicSefimTabAndControls()
 
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
@@ -479,8 +523,6 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate()
     }
 
-    // --- ŞEFİM MENÜ GİZLİ ERİŞİM (5 TIKLAMA -> PIN: 2228) ---
-
     private fun handleLockedSefimTabClick() {
         if (isSefimUnlocked) {
             switchTab(2)
@@ -534,8 +576,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // --- MEDYA YÜKLE ALTINA "URL EKLE" BUTONU VE URL AYAR PENCERESİ ---
-
     private fun injectAddUrlButton() {
         val parentLayout = btnPickMedia.parent as? LinearLayout ?: return
         val pickIdx = parentLayout.indexOfChild(btnPickMedia)
@@ -563,7 +603,7 @@ class MainActivity : AppCompatActivity() {
         parentLayout.addView(btnAddUrl, (pickIdx + 1).coerceAtMost(parentLayout.childCount))
     }
 
-    // Hem Yeni URL Ekleme hem de Kalem (Düzenle) Butonu İçin Ortak URL Yapılandırma Penceresi
+    // Gelişmiş URL Yapılandırma Penceresi (QR Okutma, Kaydırma Hızı, 15x Zoom, QR Çerçeve & Web Tipografi)
     private fun showUrlConfigDialog(existingItem: MediaItemModel?) {
         val isEdit = existingItem != null
 
@@ -574,12 +614,41 @@ class MainActivity : AppCompatActivity() {
         }
         scrollView.addView(layout)
 
+        // URL Satırı + Kamera İle QR Okutma Butonu
+        val urlRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         val edtUrl = EditText(this).apply {
             hint = "Örn: https://www.ornekmenu.com"
             inputType = InputType.TYPE_TEXT_VARIATION_URI
             setSingleLine(true)
             setText(existingItem?.fileName ?: "")
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
+        activeUrlInputField = edtUrl
+
+        val btnScanUrlQr = Button(this).apply {
+            text = "📷 QR"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0288D1"))
+            setPadding(16, 10, 16, 10)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = 8
+            }
+            setOnClickListener {
+                val options = ScanOptions().apply {
+                    setPrompt("URL içeren QR kodu kameraya gösterin")
+                    setBeepEnabled(true)
+                    setOrientationLocked(false)
+                }
+                urlQrLauncher.launch(options)
+            }
+        }
+        urlRow.addView(edtUrl)
+        urlRow.addView(btnScanUrlQr)
 
         val edtDur = EditText(this).apply {
             hint = "Ekranda Kalma Süresi (sn)"
@@ -612,10 +681,33 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val spScrollSpeed = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels)
+            val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium")
+            setSelection(if (idx >= 0) idx else 1)
+        }
+
         val spZoom = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels)
             val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100)
-            setSelection(if (idx >= 0) idx else 2)
+            setSelection(if (idx >= 0) idx else 8) // %100
+        }
+
+        val spFontFamily = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontFamilyLabels)
+            val idx = webFontFamilyValues.indexOf(existingItem?.webFontFamily ?: "default")
+            setSelection(if (idx >= 0) idx else 0)
+        }
+
+        val spFontSize = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontSizeLabels)
+            val idx = webFontSizeValues.indexOf(existingItem?.webFontSizePercent ?: 0)
+            setSelection(if (idx >= 0) idx else 0)
+        }
+
+        val cbBoldHeaders = CheckBox(this).apply {
+            text = "Sayfadaki Başlıkları Kalın (Bold) Yap"
+            isChecked = existingItem?.webBoldHeaders ?: false
         }
 
         val cbShowQr = CheckBox(this).apply {
@@ -635,6 +727,12 @@ class MainActivity : AppCompatActivity() {
             setSelection(if (idx >= 0) idx else 1)
         }
 
+        val spQrBorder = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrBorderLabels)
+            val idx = qrBorderValues.indexOf(existingItem?.qrBorderDp ?: 8)
+            setSelection(if (idx >= 0) idx else 2)
+        }
+
         val qrOptionsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = if (cbShowQr.isChecked) View.VISIBLE else View.GONE
@@ -643,6 +741,8 @@ class MainActivity : AppCompatActivity() {
             addView(spQrCorner)
             addView(TextView(this@MainActivity).apply { text = "QR Kod Boyutu:"; textSize = 12f; setPadding(0, 8, 0, 0) })
             addView(spQrSize)
+            addView(TextView(this@MainActivity).apply { text = "QR Beyaz Çerçeve Genişliği:"; textSize = 12f; setPadding(0, 8, 0, 0) })
+            addView(spQrBorder)
         }
 
         cbShowQr.setOnCheckedChangeListener { _, isChecked ->
@@ -650,7 +750,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         layout.addView(TextView(this).apply { text = "Web Sayfası URL Adresi:"; typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(edtUrl)
+        layout.addView(urlRow)
 
         layout.addView(TextView(this).apply { text = "Gösterim Süresi (saniye):"; setPadding(0, 12, 0, 0) })
         layout.addView(edtDur)
@@ -661,11 +761,22 @@ class MainActivity : AppCompatActivity() {
         layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) })
         layout.addView(spAnim)
 
-        layout.addView(TextView(this).apply { text = "Sayfa Boyutu (Ölçek / Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD })
-        layout.addView(spZoom)
-
         layout.addView(cbAutoScroll)
         layout.addView(cbScrollEnd)
+
+        layout.addView(TextView(this).apply { text = "Aşağı Kaydırma Hızı:"; setPadding(0, 8, 0, 0); typeface = Typeface.DEFAULT_BOLD })
+        layout.addView(spScrollSpeed)
+
+        layout.addView(TextView(this).apply { text = "Sayfa Ölçeklendirme (Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD })
+        layout.addView(spZoom)
+
+        layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Font):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD })
+        layout.addView(spFontFamily)
+
+        layout.addView(TextView(this).apply { text = "Web Yazı Boyutu:"; setPadding(0, 10, 0, 0); typeface = Typeface.DEFAULT_BOLD })
+        layout.addView(spFontSize)
+
+        layout.addView(cbBoldHeaders)
         layout.addView(cbShowQr)
         layout.addView(qrOptionsContainer)
 
@@ -687,10 +798,15 @@ class MainActivity : AppCompatActivity() {
                 val anim = animValues[spAnim.selectedItemPosition]
                 val autoScroll = cbAutoScroll.isChecked || cbScrollEnd.isChecked
                 val scrollEnd = cbScrollEnd.isChecked
+                val scrollSpeed = scrollSpeedValues[spScrollSpeed.selectedItemPosition]
                 val zoomPct = webZoomValues[spZoom.selectedItemPosition]
+                val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]
+                val fontSz = webFontSizeValues[spFontSize.selectedItemPosition]
+                val boldHdr = cbBoldHeaders.isChecked
                 val showQr = cbShowQr.isChecked
                 val qrCorner = qrCornerValues[spQrCorner.selectedItemPosition]
                 val qrSize = qrSizeValues[spQrSize.selectedItemPosition]
+                val qrBorder = qrBorderValues[spQrBorder.selectedItemPosition]
 
                 if (isEdit && existingItem != null) {
                     existingItem.fileName = rawUrl
@@ -699,10 +815,15 @@ class MainActivity : AppCompatActivity() {
                     existingItem.animation = anim
                     existingItem.autoScroll = autoScroll
                     existingItem.scrollUntilEnd = scrollEnd
+                    existingItem.webScrollSpeed = scrollSpeed
                     existingItem.webZoomPercent = zoomPct
+                    existingItem.webFontFamily = fontFam
+                    existingItem.webFontSizePercent = fontSz
+                    existingItem.webBoldHeaders = boldHdr
                     existingItem.showQr = showQr
                     existingItem.qrCorner = qrCorner
                     existingItem.qrSizeDp = qrSize
+                    existingItem.qrBorderDp = qrBorder
                 } else {
                     val newItem = MediaItemModel(
                         id = System.currentTimeMillis().toString(),
@@ -713,16 +834,23 @@ class MainActivity : AppCompatActivity() {
                         animation = anim,
                         autoScroll = autoScroll,
                         scrollUntilEnd = scrollEnd,
+                        webScrollSpeed = scrollSpeed,
                         showQr = showQr,
                         qrCorner = qrCorner,
                         qrSizeDp = qrSize,
-                        webZoomPercent = zoomPct
+                        qrBorderDp = qrBorder,
+                        webZoomPercent = zoomPct,
+                        webFontFamily = fontFam,
+                        webFontSizePercent = fontSz,
+                        webBoldHeaders = boldHdr
                     )
                     playlist.add(newItem)
                 }
+                activeUrlInputField = null
                 syncPlaylistToMenuboard()
             }
-            .setNegativeButton("İptal", null)
+            .setNegativeButton("İptal") { _, _ -> activeUrlInputField = null }
+            .setOnDismissListener { activeUrlInputField = null }
             .show()
     }
 
@@ -2996,13 +3124,14 @@ class MainActivity : AppCompatActivity() {
                 holder.txtTypeBadge.text = "URL"
                 holder.txtTypeBadge.setBackgroundColor(0xCC00897B.toInt())
 
+                val spdLabel = scrollSpeedLabels.getOrElse(scrollSpeedValues.indexOf(item.webScrollSpeed ?: "medium")) { "Orta" }
                 val scrollStr = when {
-                    item.scrollUntilEnd -> "Sayfa Sonuna Kadar"
-                    item.autoScroll -> "${item.durationSec}sn Kaydır"
+                    item.scrollUntilEnd -> "Sonuna Kadar ($spdLabel)"
+                    item.autoScroll -> "${item.durationSec}sn ($spdLabel)"
                     else -> "${item.durationSec}sn Sabit"
                 }
-                val qrStr = if (item.showQr) " | QR Aktif" else ""
-                holder.txtDetails.text = "$scrollStr | Zoom: %${item.webZoomPercent}$qrStr"
+                val qrStr = if (item.showQr) " | QR" else ""
+                holder.txtDetails.text = "$scrollStr | Zoom:%${item.webZoomPercent}$qrStr"
 
                 val animName = animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"
                 holder.txtAnimBadge.text = "Animasyon: $animName"
