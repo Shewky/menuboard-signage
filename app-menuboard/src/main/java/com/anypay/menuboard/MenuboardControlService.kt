@@ -136,16 +136,68 @@ class MenuboardControlService : AccessibilityService() {
         }
     }
 
+    // Sistem Pencerelerinde (Yalnızca bir defa / Her zaman / İzin Onayları) Tapjacking Korumasını Aşan Akıllı Tıklama
     fun clickAtCursor() {
         mainHandler.post {
-            cursorView?.visibility = View.VISIBLE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val path = Path().apply { moveTo(cursorX, cursorY) }
-                val stroke = GestureDescription.StrokeDescription(path, 0, 55)
-                val gesture = GestureDescription.Builder().addStroke(stroke).build()
-                dispatchGesture(gesture, null, null)
-            }
+            val x = cursorX.toInt()
+            val y = cursorY.toInt()
+
+            // 1. Önce o koordinattaki AccessibilityNodeInfo düğümünü bulup doğrudan sistem ACTION_CLICK göndermeyi dene
+            val clickedViaNode = tryClickAccessibilityNodeAt(x, y)
+
+            // 2. İmleç katmanını (Overlay) 90ms gizle ki sistem pencereleri dokunuşu 'Obscured' (Engellenmiş) saymasın!
+            cursorView?.visibility = View.GONE
+
+            mainHandler.postDelayed({
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !clickedViaNode) {
+                    val path = Path().apply { moveTo(cursorX, cursorY) }
+                    val stroke = GestureDescription.StrokeDescription(path, 0, 50)
+                    val gesture = GestureDescription.Builder().addStroke(stroke).build()
+                    dispatchGesture(gesture, null, null)
+                }
+                mainHandler.postDelayed({
+                    cursorView?.visibility = View.VISIBLE
+                    mainHandler.removeCallbacks(hideCursorRunnable)
+                    mainHandler.postDelayed(hideCursorRunnable, 8000L)
+                }, 80L)
+            }, 40L)
         }
+    }
+
+    private fun tryClickAccessibilityNodeAt(x: Int, y: Int): Boolean {
+        try {
+            val root = rootInActiveWindow ?: return false
+            val targetNode = findSmallestClickableNodeAt(root, x, y)
+            if (targetNode != null) {
+                if (targetNode.isCheckable && !targetNode.isChecked) {
+                    targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    return true
+                }
+                if (targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+            }
+        } catch (_: Exception) {}
+        return false
+    }
+
+    private fun findSmallestClickableNodeAt(node: AccessibilityNodeInfo?, x: Int, y: Int): AccessibilityNodeInfo? {
+        if (node == null || !node.isVisibleToUser) return null
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (!bounds.contains(x, y)) return null
+
+        for (i in 0 until node.childCount) {
+            val childMatch = findSmallestClickableNodeAt(node.getChild(i), x, y)
+            if (childMatch != null) return childMatch
+        }
+
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (current.isClickable || current.isCheckable) return current
+            current = current.parent
+        }
+        return null
     }
 
     fun scrollAtCursor(scrollDy: Float) {
@@ -173,16 +225,13 @@ class MenuboardControlService : AccessibilityService() {
         }
     }
 
-    // Android 10-15 Arka Plan Kısıtlamasını (BAL) Aşan Çok Katmanlı Öne Getirme Motoru
     fun bringPackageToFront(pkg: String) {
         mainHandler.post {
             try {
                 if (cursorView == null) attachGlobalCursorOverlay()
-                // 1. Sistem Üstü Katmanı (Overlay) Görünür Yap (Android bu sayede servisi ön planda kabul eder)
                 cursorView?.visibility = View.VISIBLE
                 cursorView?.invalidate()
 
-                // 2. Eğer istenen paket Menuboard'un kendisiyse ve açık bir Task ID'si varsa doğrudan öne çek
                 if (pkg == packageName) {
                     val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
                     val myTaskId = MainActivity.currentTaskId
@@ -191,7 +240,6 @@ class MenuboardControlService : AccessibilityService() {
                     }
                 }
 
-                // 3. Hedef Uygulama Intent'ini Oluştur
                 val launchIntent = if (pkg == packageName) {
                     Intent(this, MainActivity::class.java).apply {
                         action = Intent.ACTION_MAIN
@@ -209,7 +257,6 @@ class MenuboardControlService : AccessibilityService() {
                         Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
                     )
 
-                    // Android 14+ (API 34) Arka Plan Başlatma İzin Bayrağı
                     val optionsBundle: Bundle? = if (Build.VERSION.SDK_INT >= 34) {
                         try {
                             val opts = ActivityOptions.makeBasic()
@@ -217,12 +264,11 @@ class MenuboardControlService : AccessibilityService() {
                                 "setPendingIntentBackgroundActivityStartMode",
                                 Int::class.javaPrimitiveType
                             )
-                            method.invoke(opts, 1) // MODE_BACKGROUND_ACTIVITY_START_ALLOWED = 1
+                            method.invoke(opts, 1)
                             opts.toBundle()
                         } catch (_: Exception) { null }
                     } else null
 
-                    // 4. Hem PendingIntent hem de doğrudan Servis Context'i üzerinden tetikle
                     val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                     } else {
