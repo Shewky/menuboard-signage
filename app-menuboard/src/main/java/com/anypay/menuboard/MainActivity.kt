@@ -538,7 +538,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupWebPlayerAndQrOverlay() {
         webView = WebView(this).apply {
             visibility = View.GONE
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Color.BLACK)
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.useWideViewPort = true
@@ -687,14 +688,19 @@ class MainActivity : AppCompatActivity() {
                             if (window.AnypayIg) window.AnypayIg.nextPost();
                             return;
                         }
-                        var bg = document.createElement('div');
-                        bg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483646;';
-                        document.body.appendChild(bg);
+                        var ov = document.createElement('div');
+                        ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;overflow:hidden;';
+                        document.body.appendChild(ov);
 
-                        vid.style.cssText = 'position:fixed !important;top:0 !important;left:0 !important;width:100vw !important;height:100vh !important;object-fit:contain !important;background:#000 !important;z-index:2147483647 !important;';
+                        vid.style.cssText = 'width:100vw !important;height:100vh !important;max-width:100vw !important;max-height:100vh !important;object-fit:contain !important;background:#000 !important;position:relative !important;display:block !important;visibility:visible !important;opacity:1 !important;';
+                        vid.setAttribute('playsinline', '');
+                        vid.setAttribute('webkit-playsinline', '');
                         vid.loop = false;
                         vid.muted = !audioEnabled;
                         vid.volume = 1.0;
+
+                        ov.appendChild(vid);
+
                         vid.onended = function() {
                             if (window.AnypayIg) window.AnypayIg.nextPost();
                         };
@@ -727,13 +733,13 @@ class MainActivity : AppCompatActivity() {
                     });
 
                     if (bestImg && bestImg.src) {
-                        var ov = document.createElement('div');
-                        ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+                        var ovImg = document.createElement('div');
+                        ovImg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;';
                         var el = document.createElement('img');
                         el.src = bestImg.src;
                         el.style.cssText = 'width:100vw;height:100vh;object-fit:contain;';
-                        ov.appendChild(el);
-                        document.body.appendChild(ov);
+                        ovImg.appendChild(el);
+                        document.body.appendChild(ovImg);
                         setTimeout(function() {
                             if (window.AnypayIg) window.AnypayIg.nextPost();
                         }, slideMs);
