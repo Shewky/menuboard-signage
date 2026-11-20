@@ -78,10 +78,15 @@ data class MediaItemModel(
     val animation: String = "fade",
     val autoScroll: Boolean = false,
     val scrollUntilEnd: Boolean = false,
+    val webScrollSpeed: String? = "medium", // "slow", "medium", "fast"
     val showQr: Boolean = false,
-    val qrCorner: String = "bottom_right", // "top_left", "top_right", "bottom_left", "bottom_right"
+    val qrCorner: String? = "bottom_right",
     val qrSizeDp: Int = 150,
-    val webZoomPercent: Int = 100
+    val qrBorderDp: Int = 8,
+    val webZoomPercent: Int = 100,
+    val webFontFamily: String? = "default", // "default", "sans-serif", "serif", "monospace", "cursive"
+    val webFontSizePercent: Int = 0, // 0 = site varsayılanı
+    val webBoldHeaders: Boolean = false
 )
 
 data class InstalledAppInfo(
@@ -554,7 +559,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtFindMeTag: TextView
     private lateinit var animatedOverlayView: AnimatedOverlayView
 
-    // URL (Web) Oynatıcı ve Köşe QR Kod Bileşenleri
     private lateinit var webView: WebView
     private lateinit var webQrContainer: FrameLayout
     private lateinit var imgWebQr: ImageView
@@ -584,21 +588,25 @@ class MainActivity : AppCompatActivity() {
         animatedOverlayView.invalidate()
     }
 
-    // Web sayfasını pürüzsüzce aşağı kaydıran motor
+    // Seçilen Kaydırma Hızına (Yavaş / Orta / Hızlı) Göre Akış Motoru
     private val webScrollRunnable = object : Runnable {
         override fun run() {
             if (!webScrollActive || webView.visibility != View.VISIBLE) return
             val item = activeWebItem ?: return
 
+            val (stepPx, delayMs) = when (item.webScrollSpeed) {
+                "slow" -> Pair(1, 32L)
+                "fast" -> Pair(6, 22L)
+                else -> Pair(3, 28L)
+            }
+
             if (webView.canScrollVertically(1)) {
-                webView.scrollBy(0, 3) // Pürüzsüz akış hızı
-                handler.postDelayed(this, 30L)
+                webView.scrollBy(0, stepPx)
+                handler.postDelayed(this, delayMs)
             } else {
-                // Sayfa en alta ulaştı
                 if (item.scrollUntilEnd) {
                     webScrollActive = false
                     handler.removeCallbacks(mediaEndRunnable)
-                    // En altta 2.5 saniye bekleyip sıradaki medyaya geç
                     handler.postDelayed(mediaEndRunnable, 2500L)
                 }
             }
@@ -682,11 +690,13 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     val item = activeWebItem ?: return
-                    if (view?.visibility == View.VISIBLE && (item.autoScroll || item.scrollUntilEnd)) {
-                        handler.removeCallbacks(webScrollRunnable)
-                        webScrollActive = true
-                        // Sayfa açıldıktan 2 saniye sonra kaydırmaya başla
-                        handler.postDelayed(webScrollRunnable, 2000L)
+                    if (view?.visibility == View.VISIBLE) {
+                        injectWebCustomStyles(view, item)
+                        if (item.autoScroll || item.scrollUntilEnd) {
+                            handler.removeCallbacks(webScrollRunnable)
+                            webScrollActive = true
+                            handler.postDelayed(webScrollRunnable, 2000L)
+                        }
                     }
                 }
             }
@@ -699,8 +709,6 @@ class MainActivity : AppCompatActivity() {
         webQrContainer = FrameLayout(this).apply {
             visibility = View.GONE
             setBackgroundColor(Color.WHITE)
-            val pad = (8 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, pad)
             elevation = 16f
         }
         imgWebQr = ImageView(this).apply {
@@ -711,6 +719,23 @@ class MainActivity : AppCompatActivity() {
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         )
         mediaContainer.addView(webQrContainer)
+    }
+
+    // Web Sayfasındaki Yazı Tipi, Boyutu ve Kalın Başlık Müdahalesi (Canlı CSS Enjeksiyonu)
+    private fun injectWebCustomStyles(view: WebView, item: MediaItemModel) {
+        val cssRules = StringBuilder()
+        val fontFamily = item.webFontFamily ?: "default"
+        if (fontFamily != "default" && fontFamily.isNotEmpty()) {
+            cssRules.append("body, p, div, span, li, td, th, a, h1, h2, h3, h4, h5, h6 { font-family: $fontFamily !important; } ")
+        }
+        if (item.webBoldHeaders) {
+            cssRules.append("h1, h2, h3, h4, h5, h6, strong, b, .title, .header, [class*='title'], [class*='head'] { font-weight: 900 !important; } ")
+        }
+        if (cssRules.isNotEmpty()) {
+            val safeCss = cssRules.toString().replace("'", "\\'")
+            val js = "(function(){ var s = document.getElementById('anypay-custom-style'); if(!s){ s = document.createElement('style'); s.id='anypay-custom-style'; document.head.appendChild(s); } s.innerHTML = '$safeCss'; })();"
+            view.evaluateJavascript(js, null)
+        }
     }
 
     override fun onResume() {
@@ -1137,7 +1162,6 @@ class MainActivity : AppCompatActivity() {
         currentIndex = index
         val item = playlist[index]
 
-        // --- WEB / URL OYNATMA MODU ---
         if (item.type == "web") {
             exoPlayer?.stop()
             playerView.visibility = View.GONE
@@ -1151,21 +1175,25 @@ class MainActivity : AppCompatActivity() {
                 "https://${item.fileName}"
             }
 
+            // Sayfa Ölçeklendirme (Zoom) ve Yazı Boyutu Ayarları
             val zoom = if (item.webZoomPercent in 25..300) item.webZoomPercent else 100
             webView.setInitialScale(zoom)
+            webView.settings.textZoom = if (item.webFontSizePercent in 50..250) item.webFontSizePercent else 100
+
             webView.scrollTo(0, 0)
             webView.loadUrl(targetUrl)
 
             applyTransitionAnimation(item.animation)
 
-            // Opsiyonel QR Kod Gösterimi (Köşe ve Boyut Ayarlı)
+            // Opsiyonel QR Kod Gösterimi (Köşe, Boyut ve Çerçeve Genişliği Ayarlı)
             if (item.showQr) {
                 try {
                     val density = resources.displayMetrics.density
-                    val sizePx = ((if (item.qrSizeDp in 60..400) item.qrSizeDp else 150) * density).toInt()
+                    val qrSizePx = ((if (item.qrSizeDp in 60..400) item.qrSizeDp else 150) * density).toInt()
+                    val borderPx = ((if (item.qrBorderDp in 0..40) item.qrBorderDp else 8) * density).toInt()
                     val marginPx = (20 * density).toInt()
 
-                    val qrBitmap = BarcodeEncoder().encodeBitmap(targetUrl, BarcodeFormat.QR_CODE, sizePx, sizePx)
+                    val qrBitmap = BarcodeEncoder().encodeBitmap(targetUrl, BarcodeFormat.QR_CODE, qrSizePx, qrSizePx)
                     imgWebQr.setImageBitmap(qrBitmap)
 
                     val gravityVal = when (item.qrCorner) {
@@ -1175,7 +1203,11 @@ class MainActivity : AppCompatActivity() {
                         else -> Gravity.BOTTOM or Gravity.END
                     }
 
-                    val lp = FrameLayout.LayoutParams(sizePx, sizePx).apply {
+                    val totalBoxPx = qrSizePx + (borderPx * 2)
+                    webQrContainer.setPadding(borderPx, borderPx, borderPx, borderPx)
+                    webQrContainer.setBackgroundColor(if (borderPx > 0) Color.WHITE else Color.TRANSPARENT)
+
+                    val lp = FrameLayout.LayoutParams(totalBoxPx, totalBoxPx).apply {
                         gravity = gravityVal
                         setMargins(marginPx, marginPx, marginPx, marginPx)
                     }
@@ -1189,9 +1221,7 @@ class MainActivity : AppCompatActivity() {
                 webQrContainer.visibility = View.GONE
             }
 
-            // Zamanlayıcı ve Sayfa Sonu Kontrolü
             if (item.scrollUntilEnd) {
-                // Sayfa bitimine kadar kaydır seçiliyse: 5 dakikalık güvenlik sınırı koy, asıl geçişi webScrollRunnable yapar
                 handler.postDelayed(mediaEndRunnable, 300000L)
             } else {
                 val dur = if (item.durationSec > 0) item.durationSec else 20
@@ -1202,7 +1232,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // --- RESİM VE VİDEO OYNATMA MODU ---
         webView.stopLoading()
         webView.visibility = View.GONE
         webQrContainer.visibility = View.GONE
