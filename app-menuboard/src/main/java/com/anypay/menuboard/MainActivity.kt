@@ -28,6 +28,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.*
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -68,11 +71,17 @@ import kotlin.random.Random
 
 data class MediaItemModel(
     val id: String = UUID.randomUUID().toString(),
-    val fileName: String,
-    val type: String,
+    val fileName: String = "",
+    val type: String = "image", // "image", "video", "web"
     val durationSec: Int = 10,
     val waitAfterSec: Int = 0,
-    val animation: String = "fade"
+    val animation: String = "fade",
+    val autoScroll: Boolean = false,
+    val scrollUntilEnd: Boolean = false,
+    val showQr: Boolean = false,
+    val qrCorner: String = "bottom_right", // "top_left", "top_right", "bottom_left", "bottom_right"
+    val qrSizeDp: Int = 150,
+    val webZoomPercent: Int = 100
 )
 
 data class InstalledAppInfo(
@@ -268,17 +277,11 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 e.y = h + 80f
                 e.x = Random.nextFloat() * w
             }
-
             if (e.kind == 1) {
                 val progress = ((h - e.y) / h).coerceIn(0f, 1f)
                 val rad = e.size * (0.85f + progress * 0.9f)
                 val alpha = ((1f - progress * 0.6f) * 44f).toInt().coerceIn(8, 48)
-                val steamGrad = RadialGradient(
-                    swayX, e.y, rad,
-                    intArrayOf(Color.argb(alpha, 245, 235, 225), Color.argb(alpha / 2, 230, 215, 200), Color.TRANSPARENT),
-                    floatArrayOf(0f, 0.55f, 1f),
-                    Shader.TileMode.CLAMP
-                )
+                val steamGrad = RadialGradient(swayX, e.y, rad, intArrayOf(Color.argb(alpha, 245, 235, 225), Color.argb(alpha / 2, 230, 215, 200), Color.TRANSPARENT), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
                 paint.style = Paint.Style.FILL
                 paint.shader = steamGrad
                 canvas.drawCircle(swayX, e.y, rad, paint)
@@ -288,17 +291,13 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 canvas.save()
                 canvas.translate(swayX, e.y)
                 canvas.rotate(e.angle)
-
                 val bw = e.size * 1.35f
                 val bh = e.size * 0.92f
-
                 paint.style = Paint.Style.FILL
                 paint.color = e.color
                 canvas.drawOval(RectF(-bw, -bh, bw, bh), paint)
-
                 paint.color = Color.argb(70, 161, 136, 127)
                 canvas.drawOval(RectF(-bw * 0.7f, -bh * 0.75f, bw * 0.5f, -bh * 0.15f), paint)
-
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = 3.5f
                 paint.color = Color.argb(220, 27, 15, 12)
@@ -327,7 +326,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
             }
             canvas.drawPath(path, paint)
         }
-
         for (e in entities) {
             when (e.kind) {
                 0, 1, 2 -> {
@@ -336,16 +334,13 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     val waveY = e.y + sin((tick * 2.2f + e.phase).toDouble()).toFloat() * 20f
                     if (dir > 0 && e.x > w + 130f) e.x = -110f
                     if (dir < 0 && e.x < -130f) e.x = w + 110f
-
                     val primaryColor = when (e.kind) {
                         0 -> Color.argb(200, 255, 109, 0)
                         1 -> Color.argb(200, 2, 136, 209)
                         else -> Color.argb(200, 255, 196, 0)
                     }
-
                     val bodyH = if (e.kind == 2) e.size * 0.88f else e.size * 0.54f
                     val wag = sin((tick * 4.8f + e.phase).toDouble()).toFloat() * 13f
-
                     paint.style = Paint.Style.FILL
                     paint.color = primaryColor
                     val tail = Path().apply {
@@ -356,16 +351,13 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         close()
                     }
                     canvas.drawPath(tail, paint)
-
                     val dorsal = Path().apply {
                         moveTo(e.x + dir * e.size * 0.1f, waveY - bodyH * 0.85f)
                         quadTo(e.x - dir * e.size * 0.35f, waveY - bodyH * 1.55f, e.x - dir * e.size * 0.65f, waveY - bodyH * 0.75f)
                         close()
                     }
                     canvas.drawPath(dorsal, paint)
-
                     canvas.drawOval(RectF(e.x - e.size, waveY - bodyH, e.x + e.size, waveY + bodyH), paint)
-
                     if (e.kind == 0) {
                         paint.color = Color.argb(195, 255, 255, 255)
                         canvas.drawRoundRect(RectF(e.x - e.size * 0.15f, waveY - bodyH * 0.92f, e.x + e.size * 0.12f, waveY + bodyH * 0.92f), 6f, 6f, paint)
@@ -373,7 +365,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                         paint.color = Color.argb(180, 255, 235, 59)
                         canvas.drawPath(tail, paint)
                     }
-
                     paint.color = Color.WHITE
                     canvas.drawCircle(e.x + dir * e.size * 0.58f, waveY - bodyH * 0.22f, e.size * 0.16f, paint)
                     paint.color = Color.BLACK
@@ -383,11 +374,9 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     e.x += e.vx
                     val bobY = e.y + sin((tick * 1.5f + e.phase).toDouble()).toFloat() * 38f
                     if (e.x > w - 85f || e.x < 85f) e.vx = -e.vx
-
                     paint.style = Paint.Style.FILL
                     paint.color = e.color
                     canvas.drawOval(RectF(e.x - e.size, bobY - e.size * 1.15f, e.x + e.size, bobY + e.size * 0.32f), paint)
-
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 6.5f
                     for (t in -3..4) {
@@ -411,11 +400,9 @@ class AnimatedOverlayView(context: Context) : View(context) {
                     e.x += e.vx
                     if (e.x > w - 90f || e.x < 90f) e.vx = -e.vx
                     val stepY = (h - 62f) + kotlin.math.abs(sin((tick * 5.5f + e.phase).toDouble()).toFloat()) * 8f
-
                     paint.style = Paint.Style.FILL
                     paint.color = e.color
                     canvas.drawOval(RectF(e.x - e.size, stepY - e.size * 0.55f, e.x + e.size, stepY + e.size * 0.55f), paint)
-
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 4.5f
                     for (leg in -1..1) {
@@ -450,22 +437,15 @@ class AnimatedOverlayView(context: Context) : View(context) {
     }
 
     private fun drawRealisticDonerAndFire(canvas: Canvas, w: Float, h: Float) {
-        val fireGrad = RadialGradient(
-            w - 150f, h - 80f, 380f,
-            intArrayOf(Color.argb(135, 255, 87, 34), Color.argb(60, 211, 47, 47), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.55f, 1f),
-            Shader.TileMode.CLAMP
-        )
+        val fireGrad = RadialGradient(w - 150f, h - 80f, 380f, intArrayOf(Color.argb(135, 255, 87, 34), Color.argb(60, 211, 47, 47), Color.TRANSPARENT), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
         paint.shader = fireGrad
         paint.style = Paint.Style.FILL
         canvas.drawCircle(w - 150f, h - 80f, 380f, paint)
         paint.shader = null
-
         val cx = w - 145f
         val cy = h - 250f
         paint.color = Color.argb(190, 190, 195, 200)
         canvas.drawRect(cx - 5f, cy - 155f, cx + 5f, cy + 155f, paint)
-
         for (layer in -5..5) {
             val yPos = cy + layer * 20f
             val coneRadius = (90f - (layer + 5) * 3.8f)
@@ -473,7 +453,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
             paint.color = if ((layer + (tick * 2).toInt()) % 2 == 0) Color.argb(185, 145, 52, 18) else Color.argb(185, 198, 84, 30)
             canvas.drawOval(RectF(cx - coneRadius + shimmer, yPos - 13f, cx + coneRadius + shimmer, yPos + 13f), paint)
         }
-
         for (e in entities) {
             e.y += e.vy
             val driftX = e.x + sin((tick * 1.2f + e.phase).toDouble()).toFloat() * 28f
@@ -484,16 +463,10 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 e.y = h + 60f
                 e.x = Random.nextFloat() * w
             }
-
             when (e.kind) {
                 0 -> {
                     val radius = e.size * (1f + ((h - e.y) / h) * 0.65f)
-                    val steamGrad = RadialGradient(
-                        driftX, e.y, radius,
-                        intArrayOf(Color.argb(46, 255, 245, 238), Color.argb(20, 255, 235, 220), Color.TRANSPARENT),
-                        floatArrayOf(0f, 0.6f, 1f),
-                        Shader.TileMode.CLAMP
-                    )
+                    val steamGrad = RadialGradient(driftX, e.y, radius, intArrayOf(Color.argb(46, 255, 245, 238), Color.argb(20, 255, 235, 220), Color.TRANSPARENT), floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
                     paint.shader = steamGrad
                     canvas.drawCircle(driftX, e.y, radius, paint)
                     paint.shader = null
@@ -520,7 +493,6 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 e.x = Random.nextFloat() * w
             }
             val progress = ((h - e.y) / h).coerceIn(0f, 1f)
-
             if (e.kind == 1) {
                 val ringRad = e.size * (0.9f + progress * 1.4f)
                 val ringAlpha = ((1f - progress * 0.7f) * 85f).toInt().coerceIn(12, 90)
@@ -532,12 +504,7 @@ class AnimatedOverlayView(context: Context) : View(context) {
                 paint.style = Paint.Style.FILL
                 val rad = e.size * (0.8f + progress * 1.15f)
                 val peakAlpha = ((1f - progress * 0.65f) * 54f).toInt().coerceIn(8, 60)
-                val smokeShader = RadialGradient(
-                    waveX, e.y, rad,
-                    intArrayOf(Color.argb(peakAlpha, 215, 238, 255), Color.argb(peakAlpha / 2, 200, 230, 255), Color.TRANSPARENT),
-                    floatArrayOf(0f, 0.55f, 1f),
-                    Shader.TileMode.CLAMP
-                )
+                val smokeShader = RadialGradient(waveX, e.y, rad, intArrayOf(Color.argb(peakAlpha, 215, 238, 255), Color.argb(peakAlpha / 2, 200, 230, 255), Color.TRANSPARENT), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
                 paint.shader = smokeShader
                 canvas.drawCircle(waveX, e.y, rad, paint)
                 paint.shader = null
@@ -587,6 +554,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtFindMeTag: TextView
     private lateinit var animatedOverlayView: AnimatedOverlayView
 
+    // URL (Web) Oynatıcı ve Köşe QR Kod Bileşenleri
+    private lateinit var webView: WebView
+    private lateinit var webQrContainer: FrameLayout
+    private lateinit var imgWebQr: ImageView
+    private var activeWebItem: MediaItemModel? = null
+    private var webScrollActive = false
+
     private var exoPlayer: ExoPlayer? = null
     private var httpServer: SignageServer? = null
     private val gson = Gson()
@@ -608,6 +582,27 @@ class MainActivity : AppCompatActivity() {
     private val hideCursorRunnable = Runnable {
         animatedOverlayView.showCursor = false
         animatedOverlayView.invalidate()
+    }
+
+    // Web sayfasını pürüzsüzce aşağı kaydıran motor
+    private val webScrollRunnable = object : Runnable {
+        override fun run() {
+            if (!webScrollActive || webView.visibility != View.VISIBLE) return
+            val item = activeWebItem ?: return
+
+            if (webView.canScrollVertically(1)) {
+                webView.scrollBy(0, 3) // Pürüzsüz akış hızı
+                handler.postDelayed(this, 30L)
+            } else {
+                // Sayfa en alta ulaştı
+                if (item.scrollUntilEnd) {
+                    webScrollActive = false
+                    handler.removeCallbacks(mediaEndRunnable)
+                    // En altta 2.5 saniye bekleyip sıradaki medyaya geç
+                    handler.postDelayed(mediaEndRunnable, 2500L)
+                }
+            }
+        }
     }
 
     private val ipCheckRunnable = object : Runnable {
@@ -641,6 +636,8 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
+        setupWebPlayerAndQrOverlay()
+
         val rootFrame = mediaContainer.parent as? FrameLayout ?: mediaContainer
         animatedOverlayView = AnimatedOverlayView(this)
         rootFrame.addView(
@@ -669,6 +666,51 @@ class MainActivity : AppCompatActivity() {
         handler.post(ipCheckRunnable)
 
         checkForUpdate()
+    }
+
+    private fun setupWebPlayerAndQrOverlay() {
+        webView = WebView(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.WHITE)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    val item = activeWebItem ?: return
+                    if (view?.visibility == View.VISIBLE && (item.autoScroll || item.scrollUntilEnd)) {
+                        handler.removeCallbacks(webScrollRunnable)
+                        webScrollActive = true
+                        // Sayfa açıldıktan 2 saniye sonra kaydırmaya başla
+                        handler.postDelayed(webScrollRunnable, 2000L)
+                    }
+                }
+            }
+        }
+        mediaContainer.addView(
+            webView,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+
+        webQrContainer = FrameLayout(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.WHITE)
+            val pad = (8 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            elevation = 16f
+        }
+        imgWebQr = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        webQrContainer.addView(
+            imgWebQr,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        mediaContainer.addView(webQrContainer)
     }
 
     override fun onResume() {
@@ -708,11 +750,7 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             if (!hasOverlay && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 awaitingSequentialPermissionChain = true
-                Toast.makeText(
-                    this,
-                    "1. Adım: Lütfen 'Diğer uygulamaların üzerinde göster' iznini açıp geri dönün (Ardından 2. izin otomatik açılacaktır).",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this, "1. Adım: Lütfen 'Diğer uygulamaların üzerinde göster' iznini açıp geri dönün.", Toast.LENGTH_LONG).show()
                 try {
                     val ovIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -721,11 +759,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) {}
             } else if (!hasAcc) {
                 awaitingSequentialPermissionChain = false
-                Toast.makeText(
-                    this,
-                    "Lütfen listeden 'Anypay Uzaktan Mouse ve Kontrol' seçeneğini aktif edin.",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this, "Lütfen listeden 'Anypay Uzaktan Mouse ve Kontrol' seçeneğini aktif edin.", Toast.LENGTH_LONG).show()
                 try {
                     val accIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -736,14 +770,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Arka Plandayken Menuboard'u %100 Garantili Olarak En Öne Getiren 4 Katmanlı Motor
     private fun bringMenuboardToFront() {
-        // Katman 1: Erişilebilirlik Servisi Açıksa (HOME çağrısı yapmadan!) doğrudan görünür Overlay üzerinden öne çek
         MenuboardControlService.instance?.bringPackageToFront(packageName)
 
         runOnUiThread {
             try {
-                // Katman 2: ActivityManager.moveTaskToFront ile mevcut açık görevi en üste taşı
                 val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
                 if (am != null) {
                     am.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
@@ -754,7 +785,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // Katman 3: SYSTEM_ALERT_WINDOW (Üstte Gösterme) izni varsa 1x1 geçici görünmez sistem penceresi açarak BAL engelini bypass et
                 var tempBridgeView: View? = null
                 val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this) && wm != null) {
@@ -793,7 +823,7 @@ class MainActivity : AppCompatActivity() {
                             "setPendingIntentBackgroundActivityStartMode",
                             Int::class.javaPrimitiveType
                         )
-                        method.invoke(opts, 1) // MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                        method.invoke(opts, 1)
                         opts.toBundle()
                     } catch (_: Exception) { null }
                 } else null
@@ -814,7 +844,6 @@ class MainActivity : AppCompatActivity() {
 
                 startActivity(frontIntent)
 
-                // Katman 4: Yüksek Öncelikli Full-Screen Intent Bildirimi (Son Çare Yedeği)
                 try {
                     val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     val chId = "menuboard_front_ch"
@@ -1058,11 +1087,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopAllPlayback() {
         handler.removeCallbacks(mediaEndRunnable)
+        handler.removeCallbacks(webScrollRunnable)
+        webScrollActive = false
+        activeWebItem = null
+
         exoPlayer?.stop()
         exoPlayer?.clearMediaItems()
         playerView.visibility = View.GONE
         imageView.visibility = View.GONE
         imgLiveStream.visibility = View.GONE
+
+        webView.stopLoading()
+        webView.visibility = View.GONE
+        webQrContainer.visibility = View.GONE
     }
 
     private fun startPlayback() {
@@ -1091,10 +1128,85 @@ class MainActivity : AppCompatActivity() {
     private fun playItem(index: Int) {
         if (isScreenSharing) return
         handler.removeCallbacks(mediaEndRunnable)
+        handler.removeCallbacks(webScrollRunnable)
+        webScrollActive = false
+        activeWebItem = null
+
         if (playlist.isEmpty()) return
 
         currentIndex = index
         val item = playlist[index]
+
+        // --- WEB / URL OYNATMA MODU ---
+        if (item.type == "web") {
+            exoPlayer?.stop()
+            playerView.visibility = View.GONE
+            imageView.visibility = View.GONE
+            webView.visibility = View.VISIBLE
+
+            activeWebItem = item
+            val targetUrl = if (item.fileName.startsWith("http://") || item.fileName.startsWith("https://")) {
+                item.fileName
+            } else {
+                "https://${item.fileName}"
+            }
+
+            val zoom = if (item.webZoomPercent in 25..300) item.webZoomPercent else 100
+            webView.setInitialScale(zoom)
+            webView.scrollTo(0, 0)
+            webView.loadUrl(targetUrl)
+
+            applyTransitionAnimation(item.animation)
+
+            // Opsiyonel QR Kod Gösterimi (Köşe ve Boyut Ayarlı)
+            if (item.showQr) {
+                try {
+                    val density = resources.displayMetrics.density
+                    val sizePx = ((if (item.qrSizeDp in 60..400) item.qrSizeDp else 150) * density).toInt()
+                    val marginPx = (20 * density).toInt()
+
+                    val qrBitmap = BarcodeEncoder().encodeBitmap(targetUrl, BarcodeFormat.QR_CODE, sizePx, sizePx)
+                    imgWebQr.setImageBitmap(qrBitmap)
+
+                    val gravityVal = when (item.qrCorner) {
+                        "top_left" -> Gravity.TOP or Gravity.START
+                        "top_right" -> Gravity.TOP or Gravity.END
+                        "bottom_left" -> Gravity.BOTTOM or Gravity.START
+                        else -> Gravity.BOTTOM or Gravity.END
+                    }
+
+                    val lp = FrameLayout.LayoutParams(sizePx, sizePx).apply {
+                        gravity = gravityVal
+                        setMargins(marginPx, marginPx, marginPx, marginPx)
+                    }
+                    webQrContainer.layoutParams = lp
+                    webQrContainer.visibility = View.VISIBLE
+                    webQrContainer.bringToFront()
+                } catch (_: Exception) {
+                    webQrContainer.visibility = View.GONE
+                }
+            } else {
+                webQrContainer.visibility = View.GONE
+            }
+
+            // Zamanlayıcı ve Sayfa Sonu Kontrolü
+            if (item.scrollUntilEnd) {
+                // Sayfa bitimine kadar kaydır seçiliyse: 5 dakikalık güvenlik sınırı koy, asıl geçişi webScrollRunnable yapar
+                handler.postDelayed(mediaEndRunnable, 300000L)
+            } else {
+                val dur = if (item.durationSec > 0) item.durationSec else 20
+                handler.postDelayed(mediaEndRunnable, dur * 1000L)
+            }
+
+            animatedOverlayView.bringToFront()
+            return
+        }
+
+        // --- RESİM VE VİDEO OYNATMA MODU ---
+        webView.stopLoading()
+        webView.visibility = View.GONE
+        webQrContainer.visibility = View.GONE
+
         val file = File(filesDir, item.fileName)
         if (!file.exists() || file.length() == 0L) {
             scheduleNextMedia()
@@ -1584,6 +1696,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         isBroadcasting = false
         handler.removeCallbacks(ipCheckRunnable)
+        handler.removeCallbacks(webScrollRunnable)
         httpServer?.stop()
         exoPlayer?.release()
     }
