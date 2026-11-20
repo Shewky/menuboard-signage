@@ -605,41 +605,76 @@ class MainActivity : AppCompatActivity() {
                 var slideMs = $slideMs;
                 var stopAtEnd = $stopAtEnd;
 
-                setTimeout(function() {
-                    var items = [];
-                    var imgs = document.querySelectorAll('article img, main img');
-                    var vids = document.querySelectorAll('article video, main video');
+                var pathParts = window.location.pathname.split('/').filter(Boolean);
+                var username = pathParts[0] || '';
+                if (!username) return;
 
-                    if (filter === 'all' || filter === 'photo') {
-                        imgs.forEach(function(img) {
-                            if (img.naturalWidth > 200 && img.src) {
-                                items.push({type: 'photo', src: img.src});
+                async function loadAndPlay() {
+                    var items = [];
+                    try {
+                        var resp = await fetch('/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username), {
+                            headers: {
+                                'x-ig-app-id': '936619743392459',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            credentials: 'include'
+                        });
+                        if (resp.ok) {
+                            var json = await resp.json();
+                            var user = json && json.data && json.data.user;
+                            var edges = (user && user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
+
+                            for (var i = 0; i < edges.length; i++) {
+                                var node = edges[i].node;
+                                if (!node) continue;
+
+                                // Çoklu gönderi (Carousel) ise içindeki her medyayı ayrı kontrol et
+                                var sidecar = node.edge_sidecar_to_children && node.edge_sidecar_to_children.edges;
+                                if (sidecar && sidecar.length > 0) {
+                                    for (var j = 0; j < sidecar.length; j++) {
+                                        var child = sidecar[j].node;
+                                        if (!child) continue;
+                                        if (child.is_video && child.video_url) {
+                                            if (filter === 'all' || filter === 'video') {
+                                                items.push({ type: 'video', src: child.video_url });
+                                            }
+                                        } else if (!child.is_video && child.display_url) {
+                                            if (filter === 'all' || filter === 'photo') {
+                                                items.push({ type: 'photo', src: child.display_url });
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    if (node.is_video && node.video_url) {
+                                        if (filter === 'all' || filter === 'video') {
+                                            items.push({ type: 'video', src: node.video_url });
+                                        }
+                                    } else if (!node.is_video && node.display_url) {
+                                        if (filter === 'all' || filter === 'photo') {
+                                            items.push({ type: 'photo', src: node.display_url });
+                                        }
+                                    }
+                                }
                             }
-                        });
-                    }
-                    if (filter === 'all' || filter === 'video') {
-                        vids.forEach(function(v) {
-                            if (v.src) items.push({type: 'video', src: v.src});
-                        });
-                    }
+                        }
+                    } catch (e) {}
 
                     if (items.length === 0) {
-                        var sc = setInterval(function() {
-                            window.scrollBy(0, 4);
-                            if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight - 20) {
-                                clearInterval(sc);
-                                if (stopAtEnd && window.AnypayIg) window.AnypayIg.onInstagramFinished();
-                            }
-                        }, 30);
+                        if (stopAtEnd && window.AnypayIg) {
+                            window.AnypayIg.onInstagramFinished();
+                        }
                         return;
                     }
 
                     var overlay = document.createElement('div');
-                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:999999;display:flex;align-items:center;justify-content:center;';
+                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:999999;display:flex;align-items:center;justify-content:center;overflow:hidden;';
                     document.body.appendChild(overlay);
 
                     var idx = 0;
+                    var safetyTimer = null;
+
                     function showNext() {
+                        if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
                         if (idx >= items.length) {
                             if (stopAtEnd) {
                                 if (window.AnypayIg) window.AnypayIg.onInstagramFinished();
@@ -649,26 +684,35 @@ class MainActivity : AppCompatActivity() {
                         }
                         var cur = items[idx++];
                         overlay.innerHTML = '';
+
                         if (cur.type === 'video') {
                             var v = document.createElement('video');
                             v.src = cur.src;
                             v.autoplay = true;
                             v.muted = true;
                             v.playsInline = true;
-                            v.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                            v.setAttribute('playsinline', '');
+                            v.setAttribute('webkit-playsinline', '');
+                            v.style.cssText = 'width:100vw;height:100vh;object-fit:contain;background:#000;';
                             v.onended = showNext;
                             v.onerror = showNext;
                             overlay.appendChild(v);
+                            v.play().catch(function() { showNext(); });
+                            // Video takılırsa 90 saniye sonra sıradakine geç
+                            safetyTimer = setTimeout(showNext, 90000);
                         } else {
                             var im = document.createElement('img');
                             im.src = cur.src;
-                            im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                            im.style.cssText = 'width:100vw;height:100vh;object-fit:contain;background:#000;';
+                            im.onerror = showNext;
                             overlay.appendChild(im);
-                            setTimeout(showNext, slideMs);
+                            safetyTimer = setTimeout(showNext, slideMs);
                         }
                     }
                     showNext();
-                }, 2500);
+                }
+
+                setTimeout(loadAndPlay, 1500);
             })();
         """.trimIndent()
         view.evaluateJavascript(js, null)
