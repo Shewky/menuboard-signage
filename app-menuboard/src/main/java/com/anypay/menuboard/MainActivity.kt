@@ -75,6 +75,8 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -444,6 +446,8 @@ class MainActivity : AppCompatActivity() {
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
     private val updateHttpClient = OkHttpClient()
+    private val blurExecutor = Executors.newSingleThreadExecutor()
+    private val isBlurProcessing = AtomicBoolean(false)
 
     private var playlist = mutableListOf<MediaItemModel>()
     private var currentIndex = 0
@@ -476,20 +480,8 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (!blurBackgroundEnabled || isScreenSharing || videoTextureView.visibility != View.VISIBLE) return
             val player = exoPlayer
-            // Bulanıklık şiddetine göre temel çözünürlük (Az bulanık = daha net, Çok bulanık = daha yumuşak)
-            val baseDim = when (blurIntensityLevel) {
-                0 -> 140 // Az bulanık
-                2 -> 24  // Çok bulanık
-                else -> 64 // Orta bulanık
-            }
-            // Kalite seçimine göre çözünürlük çarpanı ve FPS
-            val longDim = when (blurQualityLevel) {
-                0 -> (baseDim * 0.6f).toInt().coerceAtLeast(16)
-                2 -> (baseDim * 2.0f).toInt().coerceAtMost(320)
-                else -> baseDim
-            }
             val delayMs = when (blurQualityLevel) {
-                0 -> 75L  // Düşük (~13 FPS)
+                0 -> 70L  // Düşük (~14 FPS)
                 2 -> 22L  // Yüksek (~45 FPS)
                 else -> 38L // Orta (~26 FPS)
             }
@@ -498,23 +490,63 @@ class MainActivity : AppCompatActivity() {
                     val vw = videoTextureView.width.coerceAtLeast(1)
                     val vh = videoTextureView.height.coerceAtLeast(1)
                     val ratio = vw.toFloat() / vh.toFloat()
-                    val bw: Int
-                    val bh: Int
-                    if (ratio >= 1f) {
-                        bw = longDim
-                        bh = (longDim / ratio).toInt().coerceAtLeast(12)
-                    } else {
-                        bh = longDim
-                        bw = (longDim * ratio).toInt().coerceAtLeast(12)
-                    }
-                    val frame = videoTextureView.getBitmap(bw, bh)
-                    if (frame != null) {
-                        bgBlurImageView.setImageBitmap(frame)
-                        if (bgBlurImageView.visibility != View.VISIBLE) {
-                            bgBlurImageView.visibility = View.VISIBLE
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        // Android 12+: Yüksek çözünürlüklü kare + GPU RenderEffect (sıfır pikselleşme)
+                        val longDim = when (blurQualityLevel) {
+                            0 -> 180
+                            2 -> 360
+                            else -> 260
+                        }
+                        val bw = if (ratio >= 1f) longDim else (longDim * ratio).toInt().coerceAtLeast(48)
+                        val bh = if (ratio >= 1f) (longDim / ratio).toInt().coerceAtLeast(48) else longDim
+                        val frame = videoTextureView.getBitmap(bw, bh)
+                        if (frame != null) {
+                            bgBlurImageView.setImageBitmap(frame)
+                            if (bgBlurImageView.visibility != View.VISIBLE) {
+                                bgBlurImageView.visibility = View.VISIBLE
+                            }
+                        }
+                    } else if (isBlurProcessing.compareAndSet(false, true)) {
+                        // Android 11 ve altı: Yeterli çözünürlük + 3 geçişli gerçek Gaussian bulanıklaştırma
+                        val longDim = when (blurQualityLevel) {
+                            0 -> 110
+                            2 -> 200
+                            else -> 150
+                        }
+                        val bw = if (ratio >= 1f) longDim else (longDim * ratio).toInt().coerceAtLeast(40)
+                        val bh = if (ratio >= 1f) (longDim / ratio).toInt().coerceAtLeast(40) else longDim
+                        val rawFrame = videoTextureView.getBitmap(bw, bh)
+                        val blurRadius = when (blurIntensityLevel) {
+                            0 -> 5
+                            2 -> 18
+                            else -> 10
+                        }
+                        if (rawFrame != null) {
+                            blurExecutor.execute {
+                                try {
+                                    val smooth = fastBlur(rawFrame, blurRadius)
+                                    rawFrame.recycle()
+                                    runOnUiThread {
+                                        if (blurBackgroundEnabled && !isScreenSharing && videoTextureView.visibility == View.VISIBLE) {
+                                            bgBlurImageView.setImageBitmap(smooth)
+                                            if (bgBlurImageView.visibility != View.VISIBLE) {
+                                                bgBlurImageView.visibility = View.VISIBLE
+                                            }
+                                        }
+                                    }
+                                } catch (_: Exception) {
+                                } finally {
+                                    isBlurProcessing.set(false)
+                                }
+                            }
+                        } else {
+                            isBlurProcessing.set(false)
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    isBlurProcessing.set(false)
+                }
             }
             handler.postDelayed(this, delayMs)
         }
@@ -627,12 +659,10 @@ class MainActivity : AppCompatActivity() {
         val isLandscape = screenOrientationMode == "landscape"
         val density = resources.displayMetrics.density
 
-        // Karşılama kutusunun iç boşluklarını yatay modda kompakt hale getir
         val padH = ((if (isLandscape) 16 else 24) * density).toInt()
         val padV = ((if (isLandscape) 8 else 24) * density).toInt()
         qrOverlay.setPadding(padH, padV, padH, padV)
 
-        // QR kod boyutunu TV (yatay) modunda ekrana sığacak şekilde ayarla
         val qrSizePx = ((if (isLandscape) 130 else 230) * density).toInt()
         imgQrCode.layoutParams = (imgQrCode.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
             width = qrSizePx
@@ -644,7 +674,6 @@ class MainActivity : AppCompatActivity() {
             height = qrSizePx
         }
 
-        // Oynatmaya Dön butonunu yatay modda kompaktlaştır
         btnCloseQr.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 13f else 15f)
         btnCloseQr.setPadding(
             ((if (isLandscape) 20 else 28) * density).toInt(),
@@ -657,7 +686,6 @@ class MainActivity : AppCompatActivity() {
             bottomMargin = ((if (isLandscape) 4 else 10) * density).toInt()
         }
 
-        // Tüm alt öğeleri tara: başlığı ortala, logoyu ve yazıları yatay moda sığdır
         fun styleWelcomeViews(v: View) {
             if (v is ImageView && v.id != R.id.imgQrCode) {
                 val logoH = ((if (isLandscape) 34 else 56) * density).toInt()
@@ -736,12 +764,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateBlurDarknessFilter() {
+    private fun updateBlurVisualEffects() {
         val alpha = (blurDarknessPercent.coerceIn(0, 85) * 255) / 100
         if (alpha > 0) {
             bgBlurImageView.setColorFilter(Color.argb(alpha, 0, 0, 0), PorterDuff.Mode.SRC_OVER)
         } else {
             bgBlurImageView.clearColorFilter()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (blurBackgroundEnabled) {
+                val radius = when (blurIntensityLevel) {
+                    0 -> 28f  // Az bulanık (pürüzsüz cam efekti)
+                    2 -> 95f  // Çok bulanık
+                    else -> 55f // Orta bulanık
+                }
+                bgBlurImageView.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP))
+            } else {
+                bgBlurImageView.setRenderEffect(null)
+            }
         }
     }
 
@@ -772,7 +812,7 @@ class MainActivity : AppCompatActivity() {
             scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
         }
-        updateBlurDarknessFilter()
+        updateBlurVisualEffects()
         mediaContainer.addView(
             bgBlurImageView,
             0,
@@ -804,50 +844,50 @@ class MainActivity : AppCompatActivity() {
             bgBlurImageView.setImageDrawable(null)
             return
         }
-        updateBlurDarknessFilter()
+        updateBlurVisualEffects()
         val expectedFileName = file.name
         val intensity = blurIntensityLevel
         val quality = blurQualityLevel
-        Thread {
+        blurExecutor.execute {
             try {
-                val sampleFactor = when (quality) {
-                    0 -> 6
-                    2 -> 2
-                    else -> 4
-                }
-                val opts = BitmapFactory.Options().apply { inSampleSize = sampleFactor }
+                val opts = BitmapFactory.Options().apply { inSampleSize = if (quality == 0) 4 else 2 }
                 val rawBmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (rawBmp != null) {
-                    val (baseMaxDim, radius) = when (intensity) {
-                        0 -> Pair(220, 2)  // Az Bulanık (daha net)
-                        2 -> Pair(64, 12)  // Çok Bulanık
-                        else -> Pair(128, 6) // Orta Bulanık
+                    val resultBmp: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        // Android 12+: Yüksek çözünürlükte ver, GPU RenderEffect pürüzsüz bulanıklaştırsın
+                        val maxDim = when (quality) { 0 -> 280; 2 -> 540; else -> 400 }
+                        val scale = (maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)).coerceAtMost(1f)
+                        val sw = (rawBmp.width * scale).toInt().coerceAtLeast(32)
+                        val sh = (rawBmp.height * scale).toInt().coerceAtLeast(32)
+                        val scaled = Bitmap.createScaledBitmap(rawBmp, sw, sh, true)
+                        if (scaled != rawBmp) rawBmp.recycle()
+                        scaled
+                    } else {
+                        // Android 11 ve altı: 3 geçişli gerçek Gaussian blur
+                        val maxDim = when (quality) { 0 -> 140; 2 -> 280; else -> 200 }
+                        val radius = when (intensity) { 0 -> 6; 2 -> 22; else -> 12 }
+                        val scale = (maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)).coerceAtMost(1f)
+                        val sw = (rawBmp.width * scale).toInt().coerceAtLeast(32)
+                        val sh = (rawBmp.height * scale).toInt().coerceAtLeast(32)
+                        val small = Bitmap.createScaledBitmap(rawBmp, sw, sh, true)
+                        val blurred = fastBlur(small, radius)
+                        if (small != rawBmp) small.recycle()
+                        rawBmp.recycle()
+                        blurred
                     }
-                    val maxDim = when (quality) {
-                        0 -> (baseMaxDim * 0.65f).toInt().coerceAtLeast(32)
-                        2 -> (baseMaxDim * 1.8f).toInt().coerceAtMost(380)
-                        else -> baseMaxDim
-                    }
-                    val scale = maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)
-                    val sw = (rawBmp.width * scale).toInt().coerceAtLeast(16)
-                    val sh = (rawBmp.height * scale).toInt().coerceAtLeast(16)
-                    val small = Bitmap.createScaledBitmap(rawBmp, sw, sh, true)
-                    val blurred = fastBlur(small, radius)
-                    if (small != rawBmp) small.recycle()
-                    rawBmp.recycle()
 
                     runOnUiThread {
                         val activeList = getActivePlaylist()
                         val currentItem = if (activeList.isNotEmpty()) activeList[currentIndex % activeList.size] else null
                         if (blurBackgroundEnabled && !isScreenSharing && currentItem?.fileName == expectedFileName) {
-                            updateBlurDarknessFilter()
-                            bgBlurImageView.setImageBitmap(blurred)
+                            updateBlurVisualEffects()
+                            bgBlurImageView.setImageBitmap(resultBmp)
                             bgBlurImageView.visibility = View.VISIBLE
                         }
                     }
                 }
             } catch (_: Exception) {}
-        }.start()
+        }
     }
 
     private fun fastBlur(source: Bitmap, radius: Int): Bitmap {
@@ -857,38 +897,51 @@ class MainActivity : AppCompatActivity() {
         val pix = IntArray(w * h)
         bmp.getPixels(pix, 0, w, 0, 0, w, h)
         val tmp = IntArray(w * h)
-        val r = radius.coerceIn(1, 20)
+        val r = radius.coerceIn(1, 25)
 
-        repeat(2) {
+        // 3 geçişli kutu bulanıklığı = gerçek pürüzsüz Gaussian bulanıklık
+        repeat(3) {
             for (y in 0 until h) {
                 val rowOff = y * w
+                var rSum = 0; var gSum = 0; var bSum = 0
+                val wm = w - 1
+                for (i in -r..r) {
+                    val c = pix[rowOff + i.coerceIn(0, wm)]
+                    rSum += (c shr 16) and 0xFF
+                    gSum += (c shr 8) and 0xFF
+                    bSum += c and 0xFF
+                }
+                val div = r * 2 + 1
                 for (x in 0 until w) {
-                    var rSum = 0; var gSum = 0; var bSum = 0; var count = 0
-                    val xStart = (x - r).coerceAtLeast(0)
-                    val xEnd = (x + r).coerceAtMost(w - 1)
-                    for (i in xStart..xEnd) {
-                        val c = pix[rowOff + i]
-                        rSum += (c shr 16) and 0xFF
-                        gSum += (c shr 8) and 0xFF
-                        bSum += c and 0xFF
-                        count++
-                    }
-                    tmp[rowOff + x] = (0xFF shl 24) or ((rSum / count) shl 16) or ((gSum / count) shl 8) or (bSum / count)
+                    tmp[rowOff + x] = (0xFF shl 24) or ((rSum / div) shl 16) or ((gSum / div) shl 8) or (bSum / div)
+                    val outIdx = (x - r).coerceIn(0, wm)
+                    val inIdx = (x + r + 1).coerceIn(0, wm)
+                    val cOut = pix[rowOff + outIdx]
+                    val cIn = pix[rowOff + inIdx]
+                    rSum += ((cIn shr 16) and 0xFF) - ((cOut shr 16) and 0xFF)
+                    gSum += ((cIn shr 8) and 0xFF) - ((cOut shr 8) and 0xFF)
+                    bSum += (cIn and 0xFF) - (cOut and 0xFF)
                 }
             }
             for (x in 0 until w) {
+                var rSum = 0; var gSum = 0; var bSum = 0
+                val hm = h - 1
+                for (i in -r..r) {
+                    val c = tmp[i.coerceIn(0, hm) * w + x]
+                    rSum += (c shr 16) and 0xFF
+                    gSum += (c shr 8) and 0xFF
+                    bSum += c and 0xFF
+                }
+                val div = r * 2 + 1
                 for (y in 0 until h) {
-                    var rSum = 0; var gSum = 0; var bSum = 0; var count = 0
-                    val yStart = (y - r).coerceAtLeast(0)
-                    val yEnd = (y + r).coerceAtMost(h - 1)
-                    for (i in yStart..yEnd) {
-                        val c = tmp[i * w + x]
-                        rSum += (c shr 16) and 0xFF
-                        gSum += (c shr 8) and 0xFF
-                        bSum += c and 0xFF
-                        count++
-                    }
-                    pix[y * w + x] = (0xFF shl 24) or ((rSum / count) shl 16) or ((gSum / count) shl 8) or (bSum / count)
+                    pix[y * w + x] = (0xFF shl 24) or ((rSum / div) shl 16) or ((gSum / div) shl 8) or (bSum / div)
+                    val outIdx = (y - r).coerceIn(0, hm)
+                    val inIdx = (y + r + 1).coerceIn(0, hm)
+                    val cOut = tmp[outIdx * w + x]
+                    val cIn = tmp[inIdx * w + x]
+                    rSum += ((cIn shr 16) and 0xFF) - ((cOut shr 16) and 0xFF)
+                    gSum += ((cIn shr 8) and 0xFF) - ((cOut shr 8) and 0xFF)
+                    bSum += (cIn and 0xFF) - (cOut and 0xFF)
                 }
             }
         }
@@ -1654,7 +1707,7 @@ class MainActivity : AppCompatActivity() {
             playerView.visibility = View.GONE
             videoTextureView.visibility = View.VISIBLE
             if (blurBackgroundEnabled) {
-                updateBlurDarknessFilter()
+                updateBlurVisualEffects()
                 handler.post(videoBlurRunnable)
             } else {
                 bgBlurImageView.visibility = View.GONE
@@ -1733,7 +1786,7 @@ class MainActivity : AppCompatActivity() {
                     .putBoolean("blur_apply_ig", applyIg)
                     .apply()
                 runOnUiThread {
-                    updateBlurDarknessFilter()
+                    updateBlurVisualEffects()
                     val qualLabel = when (quality) { 0 -> "Düşük"; 2 -> "Yüksek"; else -> "Orta" }
                     Toast.makeText(
                         this@MainActivity,
@@ -2065,6 +2118,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(webScrollRunnable)
         handler.removeCallbacks(igSafetyRunnable)
         handler.removeCallbacks(videoBlurRunnable)
+        blurExecutor.shutdownNow()
         httpServer?.stop()
         exoPlayer?.release()
     }
