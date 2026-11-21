@@ -898,13 +898,13 @@ class MainActivity : AppCompatActivity() {
                         ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;overflow:hidden;';
                         document.body.appendChild(ov);
 
-                        var drawBg = null;
+                        var bgStopped = false;
+                        var rafId = null;
                         if (blurBg) {
-                            // Kasmayan GPU ölçeklemeli hafif bulanık arka plan (CSS blur yok!)
                             var bgCanvas = document.createElement('canvas');
                             bgCanvas.width = cSize;
                             bgCanvas.height = cSize;
-                            bgCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1;pointer-events:none;image-rendering:auto;';
+                            bgCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1;pointer-events:none;image-rendering:auto;transform:translateZ(0);';
                             ov.appendChild(bgCanvas);
 
                             if (darkAlpha > 0) {
@@ -913,14 +913,31 @@ class MainActivity : AppCompatActivity() {
                                 ov.appendChild(dim);
                             }
 
-                            var ctx = bgCanvas.getContext('2d');
-                            drawBg = setInterval(function() {
-                                try {
-                                    if (!vid.paused && !vid.ended && vid.videoWidth > 0) {
-                                        ctx.drawImage(vid, 0, 0, cSize, cSize);
+                            var ctx = bgCanvas.getContext('2d', { alpha: false });
+                            if (ctx) {
+                                ctx.imageSmoothingEnabled = true;
+                                function renderFrame() {
+                                    if (bgStopped) return;
+                                    try {
+                                        if (!vid.paused && !vid.ended && vid.videoWidth > 0) {
+                                            ctx.drawImage(vid, 0, 0, cSize, cSize);
+                                        }
+                                    } catch (e) {
+                                        bgStopped = true;
+                                        return;
                                     }
-                                } catch (e) { clearInterval(drawBg); }
-                            }, 250);
+                                    if (typeof vid.requestVideoFrameCallback === 'function') {
+                                        vid.requestVideoFrameCallback(renderFrame);
+                                    } else {
+                                        rafId = requestAnimationFrame(renderFrame);
+                                    }
+                                }
+                                if (typeof vid.requestVideoFrameCallback === 'function') {
+                                    vid.requestVideoFrameCallback(renderFrame);
+                                } else {
+                                    rafId = requestAnimationFrame(renderFrame);
+                                }
+                            }
                         }
 
                         vid.style.cssText = 'width:100vw !important;height:100vh !important;max-width:100vw !important;max-height:100vh !important;object-fit:contain !important;background:transparent !important;position:relative !important;z-index:3 !important;display:block !important;visibility:visible !important;opacity:1 !important;';
@@ -933,7 +950,8 @@ class MainActivity : AppCompatActivity() {
                         ov.appendChild(vid);
 
                         function finishVideo() {
-                            if (drawBg) { clearInterval(drawBg); drawBg = null; }
+                            bgStopped = true;
+                            if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
                             if (window.AnypayIg) window.AnypayIg.nextPost();
                         }
                         vid.onended = finishVideo;
