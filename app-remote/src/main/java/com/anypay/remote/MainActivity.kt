@@ -100,6 +100,7 @@ data class MediaItemModel(
     var webBoldHeaders: Boolean = false,
     var webImageScalePercent: Int = 100,
     var webFixedHeader: Boolean = false,
+    var webFixedSelector: String? = "",
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8,
     var igAudioEnabled: Boolean = false,
@@ -396,7 +397,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.41" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.44" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -727,6 +728,26 @@ class MainActivity : AppCompatActivity() {
         val cbAutoScroll = CheckBox(this).apply { text = "Otomatik Aşağı Kaydır"; isChecked = existingItem?.autoScroll ?: true }
         val cbScrollEnd = CheckBox(this).apply { text = "Sayfa Bitimine Kadar Aşağı Kaydır"; isChecked = existingItem?.scrollUntilEnd ?: false; setOnCheckedChangeListener { _, checked -> if (checked) cbAutoScroll.isChecked = true } }
         val cbFixedHeader = CheckBox(this).apply { text = "Üst başlık / menü çubuğu sabit kalsın"; isChecked = existingItem?.webFixedHeader ?: false }
+        val edtFixedSelector = EditText(this).apply {
+            hint = "Özel CSS Seçici (Boş = Otomatik)"
+            textSize = 12.5f
+            setSingleLine(true)
+            setText(existingItem?.webFixedSelector ?: "")
+        }
+        val fixedSelectorContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (cbFixedHeader.isChecked) View.VISIBLE else View.GONE
+            setPadding(24, 2, 0, 8)
+            addView(TextView(this@MainActivity).apply {
+                text = "Özel Sabitlenecek Alan (İsteğe Bağlı CSS Seçici):"
+                textSize = 11.5f
+            })
+            addView(edtFixedSelector)
+        }
+        cbFixedHeader.setOnCheckedChangeListener { _, checked ->
+            fixedSelectorContainer.visibility = if (checked) View.VISIBLE else View.GONE
+        }
+
         val spScrollSpeed = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels); val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium"); setSelection(if (idx >= 0) idx else 2) }
         val spZoom = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels); val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100); setSelection(if (idx >= 0) idx else 8) }
         val spFontFamily = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontFamilyLabels); val idx = webFontFamilyValues.indexOf(existingItem?.webFontFamily ?: "default"); setSelection(if (idx >= 0) idx else 0) }
@@ -750,7 +771,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(TextView(this).apply { text = "Gösterim Süresi (saniye):"; setPadding(0, 12, 0, 0) }); layout.addView(edtDur)
         layout.addView(TextView(this).apply { text = "İki Medya Arası Bekleme (saniye):"; setPadding(0, 10, 0, 0) }); layout.addView(edtWait)
         layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) }); layout.addView(spAnim)
-        layout.addView(cbAutoScroll); layout.addView(cbScrollEnd); layout.addView(cbFixedHeader)
+        layout.addView(cbAutoScroll); layout.addView(cbScrollEnd); layout.addView(cbFixedHeader); layout.addView(fixedSelectorContainer)
         layout.addView(TextView(this).apply { text = "Aşağı Kaydırma Hızı:"; setPadding(0, 8, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spScrollSpeed)
         layout.addView(TextView(this).apply { text = "Sayfa Ölçeklendirme (Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spZoom)
         layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Türkçe Uyumlu Fontlar):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontFamily)
@@ -772,6 +793,7 @@ class MainActivity : AppCompatActivity() {
                 val autoScroll = cbAutoScroll.isChecked || cbScrollEnd.isChecked
                 val scrollEnd = cbScrollEnd.isChecked
                 val fixedHeader = cbFixedHeader.isChecked
+                val fixedSelector = edtFixedSelector.text.toString().trim()
                 val scrollSpeed = scrollSpeedValues[spScrollSpeed.selectedItemPosition]
                 val zoomPct = webZoomValues[spZoom.selectedItemPosition]
                 val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]
@@ -786,7 +808,8 @@ class MainActivity : AppCompatActivity() {
                 if (isEdit && existingItem != null) {
                     existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait
                     existingItem.animation = anim; existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd
-                    existingItem.webFixedHeader = fixedHeader; existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
+                    existingItem.webFixedHeader = fixedHeader; existingItem.webFixedSelector = fixedSelector
+                    existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
                     existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz
                     existingItem.webImageScalePercent = imgScale; existingItem.webBoldHeaders = boldHdr
                     existingItem.showQr = showQr; existingItem.qrCorner = qrCorner; existingItem.qrSizeDp = qrSize; existingItem.qrBorderDp = qrBorder
@@ -797,7 +820,7 @@ class MainActivity : AppCompatActivity() {
                         scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr,
                         qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct,
                         webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr,
-                        webImageScalePercent = imgScale, webFixedHeader = fixedHeader
+                        webImageScalePercent = imgScale, webFixedHeader = fixedHeader, webFixedSelector = fixedSelector
                     ))
                 }
                 activeUrlInputField = null; syncPlaylistToMenuboard()
