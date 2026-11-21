@@ -12,6 +12,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.graphics.*
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -440,6 +441,7 @@ class MainActivity : AppCompatActivity() {
     private var isBroadcasting = true
     private var currentKnownIp = ""
     private var activeBgObject = "none"
+    private var screenOrientationMode = "portrait"
 
     private var awaitingSequentialPermissionChain = false
 
@@ -487,6 +489,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Kayıtlı ekran yönünü (Dikey 9:16 veya TV Modu Yatay 16:9) uygula
+        val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
+        screenOrientationMode = prefs.getString("screen_orientation", "portrait") ?: "portrait"
+        applyScreenOrientation(screenOrientationMode)
+
         setContentView(R.layout.activity_main)
         currentTaskId = taskId
 
@@ -532,7 +540,16 @@ class MainActivity : AppCompatActivity() {
         startLocalServer()
         startUdpBeacon()
         handler.post(ipCheckRunnable)
-        checkForUpdate()
+        checkForUpdate(manualTrigger = false)
+    }
+
+    private fun applyScreenOrientation(mode: String) {
+        screenOrientationMode = if (mode == "landscape") "landscape" else "portrait"
+        requestedOrientation = if (screenOrientationMode == "landscape") {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
 
     private fun setupWebPlayerAndQrOverlay() {
@@ -874,11 +891,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkForUpdate() {
-        if (GITHUB_REPO.startsWith("KULLANICI_ADINIZ")) return
+    private fun checkForUpdate(manualTrigger: Boolean = false) {
+        if (GITHUB_REPO.startsWith("KULLANICI_ADINIZ")) {
+            if (manualTrigger) runOnUiThread { Toast.makeText(this, "GitHub depo adresi tanımlı değil!", Toast.LENGTH_LONG).show() }
+            return
+        }
         val request = Request.Builder().url("https://api.github.com/repos/$GITHUB_REPO/releases/latest").header("User-Agent", "Anypay-Menuboard-App").header("Accept", "application/vnd.github+json").build()
         updateHttpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
+            override fun onFailure(call: Call, e: IOException) {
+                if (manualTrigger) runOnUiThread { Toast.makeText(this@MainActivity, "Güncelleme sunucusuna ulaşılamadı!", Toast.LENGTH_SHORT).show() }
+            }
             override fun onResponse(call: Call, response: okhttp3.Response) {
                 if (!response.isSuccessful) return
                 try {
@@ -894,7 +916,14 @@ class MainActivity : AppCompatActivity() {
                             val name = asset.getString("name").lowercase()
                             if (name.contains("menuboard") && name.endsWith(".apk")) { downloadUrl = asset.getString("browser_download_url"); break }
                         }
-                        if (downloadUrl.isNotEmpty()) runOnUiThread { showUpdateDialog(rawTag, downloadUrl) }
+                        if (downloadUrl.isNotEmpty()) {
+                            runOnUiThread {
+                                if (manualTrigger) downloadAndInstallApk(downloadUrl)
+                                else showUpdateDialog(rawTag, downloadUrl)
+                            }
+                        }
+                    } else if (manualTrigger) {
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Menuboard zaten en güncel sürümde!", Toast.LENGTH_SHORT).show() }
                     }
                 } catch (_: Exception) {}
             }
@@ -1188,6 +1217,23 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
+            // TV Modu (Yatay 16:9) / Dikey Mod (9:16) Geçişi
+            if (uri == "/api/orientation" && method == Method.POST) {
+                val mode = if (session.parameters["mode"]?.firstOrNull() == "landscape") "landscape" else "portrait"
+                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putString("screen_orientation", mode).apply()
+                runOnUiThread {
+                    applyScreenOrientation(mode)
+                    Toast.makeText(this@MainActivity, if (mode == "landscape") "📺 TV Modu (16:9 Yatay) Aktif" else "📱 Dikey Mod (9:16) Aktif", Toast.LENGTH_SHORT).show()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", mode)
+            }
+
+            // Kumandadan Güncelleme Tetikleme
+            if (uri == "/api/update/check" && method == Method.POST) {
+                checkForUpdate(manualTrigger = true)
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "CHECKING")
+            }
+
             if (uri == "/api/instagram/status" && method == Method.GET) {
                 val cookie = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).getString("ig_cookie", "") ?: ""
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("active" to cookie.contains("sessionid="))))
@@ -1401,7 +1447,21 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (uri == "/api/ping" && method == Method.GET) {
-                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("id" to deviceId, "tag" to deviceTag, "bgObject" to activeBgObject, "serviceActive" to (MenuboardControlService.instance != null).toString())))
+                val curVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (_: Exception) { "" }
+                return newFixedLengthResponse(
+                    Response.Status.OK,
+                    "application/json",
+                    gson.toJson(
+                        mapOf(
+                            "id" to deviceId,
+                            "tag" to deviceTag,
+                            "bgObject" to activeBgObject,
+                            "serviceActive" to (MenuboardControlService.instance != null).toString(),
+                            "version" to curVer,
+                            "orientation" to screenOrientationMode
+                        )
+                    )
+                )
             }
 
             if (uri == "/api/playlist" && method == Method.GET) {
