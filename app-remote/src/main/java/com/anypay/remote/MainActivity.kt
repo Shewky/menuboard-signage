@@ -99,6 +99,7 @@ data class MediaItemModel(
     var webFontSizePercent: Int = 0,
     var webBoldHeaders: Boolean = false,
     var webImageScalePercent: Int = 100,
+    var webFixedHeader: Boolean = false,
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8,
     var igAudioEnabled: Boolean = false,
@@ -395,7 +396,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.40" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.41" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -462,26 +463,66 @@ class MainActivity : AppCompatActivity() {
     private fun injectAddUrlButton() {
         val parentLayout = btnPickMedia.parent as? LinearLayout ?: return
         val pickIdx = parentLayout.indexOfChild(btnPickMedia)
+        if (pickIdx < 0) return
+
+        val density = resources.displayMetrics.density
+        val gapPx = (6 * density).toInt()
+        val btnHeightPx = (44 * density).toInt()
+
+        parentLayout.removeView(btnPickMedia)
+
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (8 * density).toInt()
+                bottomMargin = (4 * density).toInt()
+            }
+        }
+
+        btnPickMedia.apply {
+            text = "📁 MEDYA"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            isAllCaps = false
+            setPadding(4, 0, 4, 0)
+            layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
+        }
 
         val btnAddUrl = Button(this).apply {
-            text = "🌐 URL EKLE"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#00897B"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
+            text = "🌐 URL"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#00897B"))
+            setPadding(4, 0, 4, 0)
+            layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
             setOnClickListener {
                 if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 showUrlConfigDialog(existingItem = null)
             }
         }
-        parentLayout.addView(btnAddUrl, (pickIdx + 1).coerceAtMost(parentLayout.childCount))
 
         val btnAddInstagram = Button(this).apply {
-            text = "📸 INSTAGRAM EKLE"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#E1306C"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
+            text = "📸 INSTAGRAM"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#E1306C"))
+            setPadding(4, 0, 4, 0)
+            layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1.15f)
             setOnClickListener {
                 if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 checkInstagramStatusAndOpenDialog(existingItem = null)
             }
         }
-        parentLayout.addView(btnAddInstagram, (pickIdx + 2).coerceAtMost(parentLayout.childCount))
+
+        actionRow.addView(btnPickMedia)
+        actionRow.addView(btnAddUrl)
+        actionRow.addView(btnAddInstagram)
+        parentLayout.addView(actionRow, pickIdx.coerceAtMost(parentLayout.childCount))
     }
 
     private fun checkInstagramStatusAndOpenDialog(existingItem: MediaItemModel?) {
@@ -655,6 +696,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUrlConfigDialog(existingItem: MediaItemModel?) {
         val isEdit = existingItem != null
+        val density = resources.displayMetrics.density
         val scrollView = ScrollView(this)
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(45, 30, 45, 15) }
         scrollView.addView(layout)
@@ -666,10 +708,15 @@ class MainActivity : AppCompatActivity() {
         }
         activeUrlInputField = edtUrl
 
-        val btnScanUrlQr = Button(this).apply {
-            text = "📷 QR"; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0288D1")); setPadding(16, 10, 16, 10)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 8 }
+        val qrBtnSize = (38 * density).toInt()
+        val btnScanUrlQr = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_camera)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0288D1"))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
+            contentDescription = "QR ile URL Oku"
+            layoutParams = LinearLayout.LayoutParams(qrBtnSize, qrBtnSize).apply { leftMargin = (8 * density).toInt() }
             setOnClickListener { urlQrLauncher.launch(ScanOptions().apply { setPrompt("URL içeren QR kodu kameraya gösterin"); setBeepEnabled(true); setOrientationLocked(false) }) }
         }
         urlRow.addView(edtUrl); urlRow.addView(btnScanUrlQr)
@@ -679,6 +726,7 @@ class MainActivity : AppCompatActivity() {
         val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions); val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx) }
         val cbAutoScroll = CheckBox(this).apply { text = "Otomatik Aşağı Kaydır"; isChecked = existingItem?.autoScroll ?: true }
         val cbScrollEnd = CheckBox(this).apply { text = "Sayfa Bitimine Kadar Aşağı Kaydır"; isChecked = existingItem?.scrollUntilEnd ?: false; setOnCheckedChangeListener { _, checked -> if (checked) cbAutoScroll.isChecked = true } }
+        val cbFixedHeader = CheckBox(this).apply { text = "Üst başlık / menü çubuğu sabit kalsın"; isChecked = existingItem?.webFixedHeader ?: false }
         val spScrollSpeed = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels); val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium"); setSelection(if (idx >= 0) idx else 2) }
         val spZoom = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels); val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100); setSelection(if (idx >= 0) idx else 8) }
         val spFontFamily = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontFamilyLabels); val idx = webFontFamilyValues.indexOf(existingItem?.webFontFamily ?: "default"); setSelection(if (idx >= 0) idx else 0) }
@@ -702,7 +750,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(TextView(this).apply { text = "Gösterim Süresi (saniye):"; setPadding(0, 12, 0, 0) }); layout.addView(edtDur)
         layout.addView(TextView(this).apply { text = "İki Medya Arası Bekleme (saniye):"; setPadding(0, 10, 0, 0) }); layout.addView(edtWait)
         layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) }); layout.addView(spAnim)
-        layout.addView(cbAutoScroll); layout.addView(cbScrollEnd)
+        layout.addView(cbAutoScroll); layout.addView(cbScrollEnd); layout.addView(cbFixedHeader)
         layout.addView(TextView(this).apply { text = "Aşağı Kaydırma Hızı:"; setPadding(0, 8, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spScrollSpeed)
         layout.addView(TextView(this).apply { text = "Sayfa Ölçeklendirme (Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spZoom)
         layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Türkçe Uyumlu Fontlar):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontFamily)
@@ -723,6 +771,7 @@ class MainActivity : AppCompatActivity() {
                 val anim = animValues[spAnim.selectedItemPosition]
                 val autoScroll = cbAutoScroll.isChecked || cbScrollEnd.isChecked
                 val scrollEnd = cbScrollEnd.isChecked
+                val fixedHeader = cbFixedHeader.isChecked
                 val scrollSpeed = scrollSpeedValues[spScrollSpeed.selectedItemPosition]
                 val zoomPct = webZoomValues[spZoom.selectedItemPosition]
                 val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]
@@ -737,7 +786,7 @@ class MainActivity : AppCompatActivity() {
                 if (isEdit && existingItem != null) {
                     existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait
                     existingItem.animation = anim; existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd
-                    existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
+                    existingItem.webFixedHeader = fixedHeader; existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
                     existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz
                     existingItem.webImageScalePercent = imgScale; existingItem.webBoldHeaders = boldHdr
                     existingItem.showQr = showQr; existingItem.qrCorner = qrCorner; existingItem.qrSizeDp = qrSize; existingItem.qrBorderDp = qrBorder
@@ -748,7 +797,7 @@ class MainActivity : AppCompatActivity() {
                         scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr,
                         qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct,
                         webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr,
-                        webImageScalePercent = imgScale
+                        webImageScalePercent = imgScale, webFixedHeader = fixedHeader
                     ))
                 }
                 activeUrlInputField = null; syncPlaylistToMenuboard()
@@ -1047,7 +1096,7 @@ class MainActivity : AppCompatActivity() {
             })
         }
 
-        val qualityLabels = arrayOf("Düşük (En Hafif)", "Orta (Dengeli)", "Yüksek (En Akıcı)")
+        val qualityLabels = arrayOf("Düşük (En Hafif)", "Orta (Dengeli)", "Yüksek (En Net & Akıcı)")
         val curQuality = (device.blurQuality ?: 1).coerceIn(0, 2)
         val txtQuality = TextView(this).apply {
             text = "Arka Plan Kalitesi: ${qualityLabels[curQuality]}"
