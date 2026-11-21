@@ -492,7 +492,6 @@ class MainActivity : AppCompatActivity() {
                     val ratio = vw.toFloat() / vh.toFloat()
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        // Android 12+: Yüksek çözünürlüklü kare + GPU RenderEffect (sıfır pikselleşme)
                         val longDim = when (blurQualityLevel) {
                             0 -> 180
                             2 -> 360
@@ -508,7 +507,6 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     } else if (isBlurProcessing.compareAndSet(false, true)) {
-                        // Android 11 ve altı: Yeterli çözünürlük + 3 geçişli gerçek Gaussian bulanıklaştırma
                         val longDim = when (blurQualityLevel) {
                             0 -> 110
                             2 -> 200
@@ -774,9 +772,9 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (blurBackgroundEnabled) {
                 val radius = when (blurIntensityLevel) {
-                    0 -> 28f  // Az bulanık (pürüzsüz cam efekti)
-                    2 -> 95f  // Çok bulanık
-                    else -> 55f // Orta bulanık
+                    0 -> 28f
+                    2 -> 95f
+                    else -> 55f
                 }
                 bgBlurImageView.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP))
             } else {
@@ -854,7 +852,6 @@ class MainActivity : AppCompatActivity() {
                 val rawBmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (rawBmp != null) {
                     val resultBmp: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        // Android 12+: Yüksek çözünürlükte ver, GPU RenderEffect pürüzsüz bulanıklaştırsın
                         val maxDim = when (quality) { 0 -> 280; 2 -> 540; else -> 400 }
                         val scale = (maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)).coerceAtMost(1f)
                         val sw = (rawBmp.width * scale).toInt().coerceAtLeast(32)
@@ -863,7 +860,6 @@ class MainActivity : AppCompatActivity() {
                         if (scaled != rawBmp) rawBmp.recycle()
                         scaled
                     } else {
-                        // Android 11 ve altı: 3 geçişli gerçek Gaussian blur
                         val maxDim = when (quality) { 0 -> 140; 2 -> 280; else -> 200 }
                         val radius = when (intensity) { 0 -> 6; 2 -> 22; else -> 12 }
                         val scale = (maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)).coerceAtMost(1f)
@@ -899,7 +895,6 @@ class MainActivity : AppCompatActivity() {
         val tmp = IntArray(w * h)
         val r = radius.coerceIn(1, 25)
 
-        // 3 geçişli kutu bulanıklığı = gerçek pürüzsüz Gaussian bulanıklık
         repeat(3) {
             for (y in 0 until h) {
                 val rowOff = y * w
@@ -1098,15 +1093,15 @@ class MainActivity : AppCompatActivity() {
         val audioEnabled = item.igAudioEnabled
         val blurBg = blurBackgroundEnabled && blurApplyInstagram
         val darkAlpha = String.format(java.util.Locale.US, "%.2f", blurDarknessPercent.coerceIn(0, 85) / 100.0)
-        val baseCSize = when (blurIntensityLevel) {
-            0 -> 48  // Az bulanık
-            2 -> 12  // Çok bulanık
-            else -> 24 // Orta bulanık
+        val videoLongDim = when (blurQualityLevel) {
+            0 -> 140  // Düşük
+            2 -> 280  // Yüksek
+            else -> 200 // Orta
         }
-        val videoCanvasSize = when (blurQualityLevel) {
-            0 -> (baseCSize * 2 / 3).coerceAtLeast(8)
-            2 -> (baseCSize * 2).coerceAtMost(128)
-            else -> baseCSize
+        val videoBlurPx = when (blurIntensityLevel) {
+            0 -> 6   // Az bulanık
+            2 -> 20  // Çok bulanık
+            else -> 12 // Orta bulanık
         }
         val photoBlurPx = when (blurIntensityLevel) {
             0 -> 12
@@ -1123,7 +1118,8 @@ class MainActivity : AppCompatActivity() {
                 var audioEnabled = $audioEnabled;
                 var blurBg = $blurBg;
                 var darkAlpha = $darkAlpha;
-                var cSize = $videoCanvasSize;
+                var vLong = $videoLongDim;
+                var vBlur = $videoBlurPx;
                 var pBlur = $photoBlurPx;
 
                 setTimeout(function() {
@@ -1141,8 +1137,8 @@ class MainActivity : AppCompatActivity() {
                         var rafId = null;
                         if (blurBg) {
                             var bgCanvas = document.createElement('canvas');
-                            bgCanvas.width = cSize;
-                            bgCanvas.height = cSize;
+                            bgCanvas.width = vLong;
+                            bgCanvas.height = vLong;
                             bgCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1;pointer-events:none;image-rendering:auto;transform:translateZ(0);';
                             ov.appendChild(bgCanvas);
 
@@ -1153,13 +1149,29 @@ class MainActivity : AppCompatActivity() {
                             }
 
                             var ctx = bgCanvas.getContext('2d', { alpha: false });
+                            var sized = false;
                             if (ctx) {
                                 ctx.imageSmoothingEnabled = true;
                                 function renderFrame() {
                                     if (bgStopped) return;
                                     try {
-                                        if (!vid.paused && !vid.ended && vid.videoWidth > 0) {
-                                            ctx.drawImage(vid, 0, 0, cSize, cSize);
+                                        if (!vid.paused && !vid.ended && vid.videoWidth > 0 && vid.videoHeight > 0) {
+                                            if (!sized) {
+                                                var ratio = vid.videoWidth / vid.videoHeight;
+                                                if (ratio >= 1) {
+                                                    bgCanvas.width = vLong;
+                                                    bgCanvas.height = Math.max(48, Math.round(vLong / ratio));
+                                                } else {
+                                                    bgCanvas.height = vLong;
+                                                    bgCanvas.width = Math.max(48, Math.round(vLong * ratio));
+                                                }
+                                                sized = true;
+                                            }
+                                            var cw = bgCanvas.width;
+                                            var ch = bgCanvas.height;
+                                            var pad = vBlur * 2;
+                                            ctx.filter = 'blur(' + vBlur + 'px)';
+                                            ctx.drawImage(vid, -pad, -pad, cw + pad * 2, ch + pad * 2);
                                         }
                                     } catch (e) {
                                         bgStopped = true;
