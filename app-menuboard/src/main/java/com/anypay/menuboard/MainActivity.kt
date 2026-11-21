@@ -101,6 +101,7 @@ data class MediaItemModel(
     val webBoldHeaders: Boolean = false,
     val webImageScalePercent: Int = 100,
     val webFixedHeader: Boolean = false,
+    val webFixedSelector: String? = "",
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false,
@@ -1094,14 +1095,14 @@ class MainActivity : AppCompatActivity() {
         val blurBg = blurBackgroundEnabled && blurApplyInstagram
         val darkAlpha = String.format(java.util.Locale.US, "%.2f", blurDarknessPercent.coerceIn(0, 85) / 100.0)
         val videoLongDim = when (blurQualityLevel) {
-            0 -> 140  // Düşük
-            2 -> 280  // Yüksek
-            else -> 200 // Orta
+            0 -> 140
+            2 -> 280
+            else -> 200
         }
         val videoBlurPx = when (blurIntensityLevel) {
-            0 -> 6   // Az bulanık
-            2 -> 20  // Çok bulanık
-            else -> 12 // Orta bulanık
+            0 -> 6
+            2 -> 20
+            else -> 12
         }
         val photoBlurPx = when (blurIntensityLevel) {
             0 -> 12
@@ -1282,13 +1283,60 @@ class MainActivity : AppCompatActivity() {
         if (imgScale in 25..250 && imgScale != 100) {
             cssRules.append("img { zoom: $imgScale% !important; } ")
         }
-        if (item.webFixedHeader) {
-            cssRules.append("header, nav, .header, .navbar, .topbar, .site-header, [role='banner'] { position: sticky !important; top: 0 !important; z-index: 99999 !important; } ")
-        }
 
-        if (cssRules.isNotEmpty() || googleFontLinkJs.isNotEmpty()) {
+        val customSelector = (item.webFixedSelector ?: "").trim().replace("'", "\\'")
+        val fixedHeaderJs = if (item.webFixedHeader) {
+            """
+            function anypayPinTopBanner() {
+                if (window._anypayHeaderPinned) return;
+                var sel = '$customSelector';
+                var el = null;
+                if (sel) {
+                    try { el = document.querySelector(sel); } catch(e) {}
+                }
+                if (!el) {
+                    var std = document.querySelectorAll('header, nav, .navbar, .site-header, .topbar, [role="banner"]');
+                    for (var i = 0; i < std.length; i++) {
+                        var r = std[i].getBoundingClientRect();
+                        if (r.top <= 20 && r.height >= 40 && r.height <= 300 && r.width >= window.innerWidth * 0.8) {
+                            el = std[i];
+                            break;
+                        }
+                    }
+                }
+                if (!el) {
+                    var cands = document.querySelectorAll('div, section');
+                    for (var j = 0; j < cands.length; j++) {
+                        var c = cands[j];
+                        var rect = c.getBoundingClientRect();
+                        if (rect.top >= -2 && rect.top <= 18 && rect.height >= 55 && rect.height <= 300 && rect.width >= window.innerWidth * 0.85) {
+                            el = c;
+                            break;
+                        }
+                    }
+                }
+                if (el) {
+                    var h = Math.ceil(el.getBoundingClientRect().height);
+                    el.style.setProperty('position', 'fixed', 'important');
+                    el.style.setProperty('top', '0px', 'important');
+                    el.style.setProperty('left', '0px', 'important');
+                    el.style.setProperty('right', '0px', 'important');
+                    el.style.setProperty('width', '100%', 'important');
+                    el.style.setProperty('z-index', '999999', 'important');
+                    el.style.setProperty('margin-top', '0px', 'important');
+                    document.body.style.setProperty('padding-top', h + 'px', 'important');
+                    window._anypayHeaderPinned = true;
+                }
+            }
+            anypayPinTopBanner();
+            setTimeout(anypayPinTopBanner, 600);
+            setTimeout(anypayPinTopBanner, 1500);
+            """.trimIndent()
+        } else ""
+
+        if (cssRules.isNotEmpty() || googleFontLinkJs.isNotEmpty() || fixedHeaderJs.isNotEmpty()) {
             val safeCss = cssRules.toString().replace("'", "\\'")
-            val js = "(function(){ $googleFontLinkJs var s = document.getElementById('anypay-custom-style'); if(!s){ s = document.createElement('style'); s.id='anypay-custom-style'; document.head.appendChild(s); } s.innerHTML = '$safeCss'; })();"
+            val js = "(function(){ $googleFontLinkJs var s = document.getElementById('anypay-custom-style'); if(!s){ s = document.createElement('style'); s.id='anypay-custom-style'; document.head.appendChild(s); } s.innerHTML = '$safeCss'; $fixedHeaderJs })();"
             view.evaluateJavascript(js, null)
         }
     }
@@ -1766,7 +1814,6 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Üst/Alt Sistem Çubuklarını Gizle (Tam Ekran Modu)
             if (uri == "/api/immersive" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() != "false"
                 immersiveModeEnabled = enabled
@@ -1778,7 +1825,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
             }
 
-            // Bulanık Arka Plan (Blur Dolgu + Koyuluk + Şiddet + Kalite + Instagram Seçeneği)
             if (uri == "/api/blur_bg" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
                 val darkness = session.parameters["darkness"]?.firstOrNull()?.toIntOrNull()?.coerceIn(0, 85) ?: blurDarknessPercent
@@ -1817,7 +1863,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
             }
 
-            // TV Modu (Yatay 16:9) / Dikey Mod (9:16) Geçişi
             if (uri == "/api/orientation" && method == Method.POST) {
                 val mode = if (session.parameters["mode"]?.firstOrNull() == "landscape") "landscape" else "portrait"
                 getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putString("screen_orientation", mode).apply()
@@ -1828,7 +1873,6 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", mode)
             }
 
-            // Kumandadan Güncelleme Tetikleme
             if (uri == "/api/update/check" && method == Method.POST) {
                 checkForUpdate(manualTrigger = true)
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "CHECKING")
