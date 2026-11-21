@@ -68,7 +68,9 @@ data class DeviceItem(
     var nameTag: String,
     var isFinding: Boolean = false,
     var isOnline: Boolean = false,
-    var lastSeenMs: Long = 0L
+    var lastSeenMs: Long = 0L,
+    var version: String = "",
+    var orientation: String = "portrait"
 )
 
 data class MediaItemModel(
@@ -354,7 +356,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.29" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.32" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -918,15 +920,62 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
-        val options = arrayOf("🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)", "📦 Uzaktan APK Gönder & Kur", "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat", "📺 Menuboard Uygulamasını Tekrar Öne Getir")
-        AlertDialog.Builder(this).setTitle("${device.nameTag} (${device.host}) Yönetimi").setItems(options) { _, which ->
+        val isLandscape = device.orientation == "landscape"
+        val tvModeOption = if (isLandscape) "📱 Dikey Moda Çevir (9:16)" else "📺 TV Moduna Çevir (16:9 Yatay)"
+        val options = arrayOf(
+            "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
+            tvModeOption,
+            "⬇️ Güncelleme İndir / Kontrol Et",
+            "📦 Uzaktan APK Gönder & Kur",
+            "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
+            "📺 Menuboard Uygulamasını Tekrar Öne Getir"
+        )
+        val verTitle = if (device.version.isNotEmpty()) " (v${device.version})" else ""
+        AlertDialog.Builder(this).setTitle("${device.nameTag}$verTitle Yönetimi").setItems(options) { _, which ->
             when (which) {
                 0 -> verifyPermissionsAndOpenTouchpad(device)
-                1 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
-                2 -> fetchAndShowInstalledApps(device)
-                3 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
+                1 -> toggleDeviceOrientation(device)
+                2 -> triggerRemoteUpdateCheck(device)
+                3 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
+                4 -> fetchAndShowInstalledApps(device)
+                5 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
             }
         }.setNegativeButton("Kapat", null).show()
+    }
+
+    private fun toggleDeviceOrientation(device: DeviceItem) {
+        val newMode = if (device.orientation == "landscape") "portrait" else "landscape"
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/orientation?mode=$newMode").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Yön değiştirme komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                if (ok) {
+                    device.orientation = newMode
+                    saveDevices()
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, if (newMode == "landscape") "📺 TV Modu (16:9 Yatay) aktif edildi!" else "📱 Dikey Mod (9:16) aktif edildi!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun triggerRemoteUpdateCheck(device: DeviceItem) {
+        Toast.makeText(this, "${device.nameTag} için güncelleme kontrolü başlatılıyor...", Toast.LENGTH_SHORT).show()
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/update/check").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                runOnUiThread {
+                    if (ok) Toast.makeText(this@MainActivity, "Güncelleme komutu gönderildi! Yeni sürüm varsa Menuboard indirip kurulumu açacaktır.", Toast.LENGTH_LONG).show()
+                    else Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce APK göndererek güncelleyin.", Toast.LENGTH_LONG).show()
+                }
+            }
+        })
     }
 
     private fun verifyPermissionsAndOpenTouchpad(device: DeviceItem) {
@@ -1270,8 +1319,20 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { deviceAdapter.notifyDataSetChanged() }
                 }
                 override fun onResponse(call: Call, response: Response) {
-                    val ok = response.isSuccessful; response.close()
-                    dev.isOnline = ok; if (ok) dev.lastSeenMs = System.currentTimeMillis()
+                    val ok = response.isSuccessful
+                    val bodyStr = response.body?.string() ?: ""
+                    response.close()
+                    dev.isOnline = ok
+                    if (ok) {
+                        dev.lastSeenMs = System.currentTimeMillis()
+                        try {
+                            val json = JSONObject(bodyStr)
+                            val ver = json.optString("version", "")
+                            if (ver.isNotEmpty()) dev.version = ver
+                            val ori = json.optString("orientation", "")
+                            if (ori.isNotEmpty()) dev.orientation = ori
+                        } catch (_: Exception) {}
+                    }
                     if (activeDevice?.id == dev.id) {
                         val wasDisc = !isConnected; updateConnectionUi(ok)
                         if (ok && (wasDisc || playlist.isEmpty())) { fetchPlaylist(); syncSefimBackupWithMenuboard() }
@@ -1544,7 +1605,9 @@ class MainActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = DeviceViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false))
         override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
             val dev = deviceList[position]
-            holder.txtDeviceTag.text = "${if (activeDevice?.id == dev.id) "✓ " else ""}${dev.nameTag}"; holder.txtDeviceIp.text = dev.host
+            val verSuffix = if (dev.isOnline && dev.version.isNotEmpty()) " (v${dev.version})" else ""
+            holder.txtDeviceTag.text = "${if (activeDevice?.id == dev.id) "✓ " else ""}${dev.nameTag}$verSuffix"
+            holder.txtDeviceIp.text = dev.host
             holder.viewStatusDot.setBackgroundColor(if (dev.isOnline) 0xFF00C853.toInt() else 0xFFD32F2F.toInt())
             holder.btnFindDevice.text = if (dev.isFinding) "Gizle" else "Bul"; holder.btnFindDevice.setBackgroundColor(if (dev.isFinding) 0xFFD32F2F.toInt() else 0xFFF57C00.toInt())
             holder.itemView.setOnClickListener { selectDevice(dev); switchTab(1) }
