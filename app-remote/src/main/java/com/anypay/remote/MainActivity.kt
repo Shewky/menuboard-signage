@@ -71,7 +71,8 @@ data class DeviceItem(
     var lastSeenMs: Long = 0L,
     var version: String? = "",
     var orientation: String? = "portrait",
-    var blurBg: Boolean = false
+    var blurBg: Boolean = false,
+    var immersiveMode: Boolean? = true
 )
 
 data class MediaItemModel(
@@ -95,7 +96,8 @@ data class MediaItemModel(
     var webBoldHeaders: Boolean = false,
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8,
-    var igAudioEnabled: Boolean = false
+    var igAudioEnabled: Boolean = false,
+    var isHidden: Boolean = false
 )
 
 data class SefimProductItem(
@@ -357,7 +359,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.34" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.35" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -924,10 +926,13 @@ class MainActivity : AppCompatActivity() {
         val isLandscape = device.orientation == "landscape"
         val tvModeOption = if (isLandscape) "📱 Dikey Moda Çevir (9:16)" else "📺 TV Moduna Çevir (16:9 Yatay)"
         val blurOption = if (device.blurBg) "⬛ Bulanık Arka Plan: AÇIK (Kapat)" else "🌫️ Bulanık Arka Plan: KAPALI (Aç)"
+        val isImmersive = device.immersiveMode != false
+        val immersiveOption = if (isImmersive) "🖥️ Tam Ekran (Çubuklar Gizli) → Göster" else "📱 Sistem Çubukları Görünür → Gizle"
         val options = arrayOf(
             "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
             tvModeOption,
             blurOption,
+            immersiveOption,
             "⬇️ Güncelleme İndir / Kontrol Et",
             "📦 Uzaktan APK Gönder & Kur",
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
@@ -939,12 +944,32 @@ class MainActivity : AppCompatActivity() {
                 0 -> verifyPermissionsAndOpenTouchpad(device)
                 1 -> toggleDeviceOrientation(device)
                 2 -> toggleDeviceBlurBackground(device)
-                3 -> triggerRemoteUpdateCheck(device)
-                4 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
-                5 -> fetchAndShowInstalledApps(device)
-                6 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
+                3 -> toggleDeviceImmersiveMode(device)
+                4 -> triggerRemoteUpdateCheck(device)
+                5 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
+                6 -> fetchAndShowInstalledApps(device)
+                7 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
             }
         }.setNegativeButton("Kapat", null).show()
+    }
+
+    private fun toggleDeviceImmersiveMode(device: DeviceItem) {
+        val newState = !(device.immersiveMode != false)
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/immersive?enabled=$newState").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Tam ekran komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                if (ok) {
+                    device.immersiveMode = newState
+                    saveDevices()
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, if (newState) "🖥️ Tam ekran modu açıldı (Çubuklar gizli)" else "📱 Sistem çubukları görünür yapıldı", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
     }
 
     private fun toggleDeviceBlurBackground(device: DeviceItem) {
@@ -1356,6 +1381,8 @@ class MainActivity : AppCompatActivity() {
                             if (ori.isNotEmpty()) dev.orientation = ori
                             val blurStr = json.optString("blurBg", "")
                             if (blurStr.isNotEmpty()) dev.blurBg = (blurStr == "true")
+                            val immStr = json.optString("immersive", "")
+                            if (immStr.isNotEmpty()) dev.immersiveMode = (immStr == "true")
                         } catch (_: Exception) {}
                     }
                     if (activeDevice?.id == dev.id) {
@@ -1662,13 +1689,48 @@ class MainActivity : AppCompatActivity() {
             val txtAnimBadge: TextView = v.findViewById(R.id.txtAnimBadge)
             val btnEdit: ImageButton = v.findViewById(R.id.btnEdit)
             val btnDelete: ImageButton = v.findViewById(R.id.btnDelete)
+            var btnToggleVisibility: ImageButton? = null
+
+            init {
+                val actionParent = btnEdit.parent as? LinearLayout
+                if (actionParent != null) {
+                    val density = v.resources.displayMetrics.density
+                    val sizePx = (40 * density).toInt()
+                    val eyeBtn = ImageButton(v.context).apply {
+                        setImageResource(android.R.drawable.ic_menu_view)
+                        setBackgroundResource(android.R.drawable.list_selector_background)
+                        scaleType = ImageView.ScaleType.CENTER_INSIDE
+                        contentDescription = "Göster / Gizle"
+                        layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
+                            marginEnd = (4 * density).toInt()
+                        }
+                    }
+                    val editIdx = actionParent.indexOfChild(btnEdit).coerceAtLeast(0)
+                    actionParent.addView(eyeBtn, editIdx)
+                    btnToggleVisibility = eyeBtn
+                }
+            }
         }
+
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = MediaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_media, parent, false))
+
         override fun onBindViewHolder(holder: MediaViewHolder, position: Int) {
             val item = playlist[position]
             val host = activeDevice?.host ?: ""
-            holder.txtFileName.text = item.fileName
+            holder.txtFileName.text = if (item.isHidden) "${item.fileName} (Gizli)" else item.fileName
             holder.txtAnimBadge.text = "Animasyon: ${animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"}"
+
+            // Göz simgesi ve öğe görünürlük durumu
+            val contentAlpha = if (item.isHidden) 0.40f else 1.0f
+            holder.imgThumb.alpha = contentAlpha
+            holder.txtFileName.alpha = contentAlpha
+            holder.txtDetails.alpha = contentAlpha
+            holder.btnToggleVisibility?.alpha = if (item.isHidden) 0.25f else 1.0f
+            holder.btnToggleVisibility?.setOnClickListener {
+                item.isHidden = !item.isHidden
+                notifyItemChanged(holder.adapterPosition)
+                syncPlaylistToMenuboard()
+            }
 
             if (item.type == "web") {
                 holder.txtTypeBadge.text = "URL"; holder.txtTypeBadge.setBackgroundColor(0xCC00897B.toInt())
