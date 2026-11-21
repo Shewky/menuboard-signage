@@ -74,6 +74,8 @@ data class DeviceItem(
     var blurBg: Boolean = false,
     var blurDarkness: Int? = 30,
     var blurIntensity: Int? = 1,
+    var blurQuality: Int? = 1,
+    var blurApplyIg: Boolean? = false,
     var immersiveMode: Boolean? = true
 )
 
@@ -96,6 +98,7 @@ data class MediaItemModel(
     var webFontFamily: String? = "default",
     var webFontSizePercent: Int = 0,
     var webBoldHeaders: Boolean = false,
+    var webImageScalePercent: Int = 100,
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8,
     var igAudioEnabled: Boolean = false,
@@ -230,14 +233,14 @@ class MainActivity : AppCompatActivity() {
     private val animOptions = arrayOf("Solma (Fade)", "Soldan Kay", "Sağdan Kay", "Yukarıdan Kay", "Aşağıdan Kay", "Yakınlaş (Zoom In)", "Uzaklaş (Zoom Out)", "Animasyonsuz")
     private val animValues = arrayOf("fade", "slide_left", "slide_right", "slide_up", "slide_down", "zoom_in", "zoom_out", "none")
 
-    private val scrollSpeedLabels = arrayOf("Yavaş", "Orta", "Hızlı")
-    private val scrollSpeedValues = arrayOf("slow", "medium", "fast")
+    private val scrollSpeedLabels = arrayOf("Yavaş", "Yavaş - Orta", "Orta", "Orta - Hızlı", "Hızlı")
+    private val scrollSpeedValues = arrayOf("slow", "slow_medium", "medium", "medium_fast", "fast")
 
     private val qrCornerLabels = arrayOf("Sağ Alt Köşe", "Sol Alt Köşe", "Sağ Üst Köşe", "Sol Üst Köşe")
     private val qrCornerValues = arrayOf("bottom_right", "bottom_left", "top_right", "top_left")
 
-    private val qrSizeLabels = arrayOf("Küçük (110dp)", "Orta (150dp)", "Büyük (190dp)", "Dev (240dp)")
-    private val qrSizeValues = arrayOf(110, 150, 190, 240)
+    private val qrSizeLabels = arrayOf("Çok Küçük (75dp)", "Küçük (110dp)", "Orta (150dp)", "Büyük (190dp)", "Dev (240dp)")
+    private val qrSizeValues = arrayOf(75, 110, 150, 190, 240)
 
     private val qrBorderLabels = arrayOf("Çerçevesiz (0dp)", "İnce (4dp)", "Orta (8dp)", "Kalın (14dp)", "Çok Kalın (22dp)")
     private val qrBorderValues = arrayOf(0, 4, 8, 14, 22)
@@ -245,11 +248,42 @@ class MainActivity : AppCompatActivity() {
     private val webZoomLabels = arrayOf("%30", "%40", "%50", "%60", "%70", "%75", "%80", "%90", "%100 (Normal)", "%110", "%125", "%140", "%150", "%175", "%200", "%225", "%250")
     private val webZoomValues = arrayOf(30, 40, 50, 60, 70, 75, 80, 90, 100, 110, 125, 140, 150, 175, 200, 225, 250)
 
-    private val webFontFamilyLabels = arrayOf("Site Varsayılanı", "Modern (Sans-Serif)", "Klasik (Serif)", "Daktilo (Monospace)", "El Yazısı (Cursive)")
-    private val webFontFamilyValues = arrayOf("default", "sans-serif", "serif", "monospace", "cursive")
+    private val webFontFamilyLabels = arrayOf(
+        "Site Varsayılanı",
+        "Roboto (Modern)",
+        "Open Sans (Ferah)",
+        "Montserrat (Şık)",
+        "Poppins (Yuvarlak)",
+        "Lato (Kurumsal)",
+        "Oswald (Dar Başlık)",
+        "Playfair Display (Lüks)",
+        "Merriweather (Klasik)",
+        "Sistem Sans-Serif",
+        "Sistem Serif",
+        "Daktilo (Monospace)",
+        "El Yazısı (Cursive)"
+    )
+    private val webFontFamilyValues = arrayOf(
+        "default",
+        "Roboto",
+        "Open Sans",
+        "Montserrat",
+        "Poppins",
+        "Lato",
+        "Oswald",
+        "Playfair Display",
+        "Merriweather",
+        "sans-serif",
+        "serif",
+        "monospace",
+        "cursive"
+    )
 
     private val webFontSizeLabels = arrayOf("Site Varsayılanı", "%85 (Küçük)", "%100 (Normal)", "%115 (Orta)", "%130 (Büyük)", "%150 (Çok Büyük)", "%175 (Dev)")
     private val webFontSizeValues = arrayOf(0, 85, 100, 115, 130, 150, 175)
+
+    private val webImageScaleLabels = arrayOf("%50 (Çok Küçük)", "%75 (Küçük)", "%100 (Normal)", "%125 (Büyük)", "%150 (Çok Büyük)", "%175", "%200 (Dev)")
+    private val webImageScaleValues = arrayOf(50, 75, 100, 125, 150, 175, 200)
 
     private val themeNames = arrayOf(
         "🖤 Koyu Lüks (Gold & Siyah)", "🤍 Modern Beyaz (Ferah)", "🔥 Restoran Ateşi (Kırmızı & Kömür)",
@@ -361,7 +395,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.36" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.40" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -645,14 +679,15 @@ class MainActivity : AppCompatActivity() {
         val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions); val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx) }
         val cbAutoScroll = CheckBox(this).apply { text = "Otomatik Aşağı Kaydır"; isChecked = existingItem?.autoScroll ?: true }
         val cbScrollEnd = CheckBox(this).apply { text = "Sayfa Bitimine Kadar Aşağı Kaydır"; isChecked = existingItem?.scrollUntilEnd ?: false; setOnCheckedChangeListener { _, checked -> if (checked) cbAutoScroll.isChecked = true } }
-        val spScrollSpeed = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels); val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium"); setSelection(if (idx >= 0) idx else 1) }
+        val spScrollSpeed = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels); val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium"); setSelection(if (idx >= 0) idx else 2) }
         val spZoom = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels); val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100); setSelection(if (idx >= 0) idx else 8) }
         val spFontFamily = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontFamilyLabels); val idx = webFontFamilyValues.indexOf(existingItem?.webFontFamily ?: "default"); setSelection(if (idx >= 0) idx else 0) }
         val spFontSize = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webFontSizeLabels); val idx = webFontSizeValues.indexOf(existingItem?.webFontSizePercent ?: 0); setSelection(if (idx >= 0) idx else 0) }
+        val spImageScale = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webImageScaleLabels); val idx = webImageScaleValues.indexOf(existingItem?.webImageScalePercent ?: 100); setSelection(if (idx >= 0) idx else 2) }
         val cbBoldHeaders = CheckBox(this).apply { text = "Sayfadaki Başlıkları Kalın (Bold) Yap"; isChecked = existingItem?.webBoldHeaders ?: false }
         val cbShowQr = CheckBox(this).apply { text = "Sayfa Linkini QR Kod Olarak Göster"; isChecked = existingItem?.showQr ?: false }
         val spQrCorner = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrCornerLabels); val idx = qrCornerValues.indexOf(existingItem?.qrCorner ?: "bottom_right"); if (idx >= 0) setSelection(idx) }
-        val spQrSize = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrSizeLabels); val idx = qrSizeValues.indexOf(existingItem?.qrSizeDp ?: 150); setSelection(if (idx >= 0) idx else 1) }
+        val spQrSize = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrSizeLabels); val idx = qrSizeValues.indexOf(existingItem?.qrSizeDp ?: 150); setSelection(if (idx >= 0) idx else 2) }
         val spQrBorder = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrBorderLabels); val idx = qrBorderValues.indexOf(existingItem?.qrBorderDp ?: 8); setSelection(if (idx >= 0) idx else 2) }
 
         val qrOptionsContainer = LinearLayout(this).apply {
@@ -670,8 +705,9 @@ class MainActivity : AppCompatActivity() {
         layout.addView(cbAutoScroll); layout.addView(cbScrollEnd)
         layout.addView(TextView(this).apply { text = "Aşağı Kaydırma Hızı:"; setPadding(0, 8, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spScrollSpeed)
         layout.addView(TextView(this).apply { text = "Sayfa Ölçeklendirme (Zoom):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spZoom)
-        layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Font):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontFamily)
+        layout.addView(TextView(this).apply { text = "Web Yazı Tipi (Türkçe Uyumlu Fontlar):"; setPadding(0, 12, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontFamily)
         layout.addView(TextView(this).apply { text = "Web Yazı Boyutu:"; setPadding(0, 10, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spFontSize)
+        layout.addView(TextView(this).apply { text = "Web Görsel Boyutu:"; setPadding(0, 10, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spImageScale)
         layout.addView(cbBoldHeaders); layout.addView(cbShowQr); layout.addView(qrOptionsContainer)
 
         AlertDialog.Builder(this)
@@ -691,6 +727,7 @@ class MainActivity : AppCompatActivity() {
                 val zoomPct = webZoomValues[spZoom.selectedItemPosition]
                 val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]
                 val fontSz = webFontSizeValues[spFontSize.selectedItemPosition]
+                val imgScale = webImageScaleValues[spImageScale.selectedItemPosition]
                 val boldHdr = cbBoldHeaders.isChecked
                 val showQr = cbShowQr.isChecked
                 val qrCorner = qrCornerValues[spQrCorner.selectedItemPosition]
@@ -701,7 +738,8 @@ class MainActivity : AppCompatActivity() {
                     existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait
                     existingItem.animation = anim; existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd
                     existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
-                    existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz; existingItem.webBoldHeaders = boldHdr
+                    existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz
+                    existingItem.webImageScalePercent = imgScale; existingItem.webBoldHeaders = boldHdr
                     existingItem.showQr = showQr; existingItem.qrCorner = qrCorner; existingItem.qrSizeDp = qrSize; existingItem.qrBorderDp = qrBorder
                 } else {
                     playlist.add(MediaItemModel(
@@ -709,7 +747,8 @@ class MainActivity : AppCompatActivity() {
                         durationSec = dur, waitAfterSec = wait, animation = anim, autoScroll = autoScroll,
                         scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr,
                         qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct,
-                        webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr
+                        webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr,
+                        webImageScalePercent = imgScale
                     ))
                 }
                 activeUrlInputField = null; syncPlaylistToMenuboard()
@@ -927,8 +966,8 @@ class MainActivity : AppCompatActivity() {
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val isLandscape = device.orientation == "landscape"
         val tvModeOption = if (isLandscape) "📱 Dikey Moda Çevir (9:16)" else "📺 TV Moduna Çevir (16:9 Yatay)"
-        val intenStr = when (device.blurIntensity ?: 1) { 0 -> "Az"; 2 -> "Çok"; else -> "Orta" }
-        val blurOption = if (device.blurBg) "🌫️ Bulanık Arka Plan: AÇIK (%${device.blurDarkness ?: 30} / $intenStr)" else "🌫️ Bulanık Arka Plan: KAPALI (Ayarla)"
+        val qualStr = when (device.blurQuality ?: 1) { 0 -> "Düşük"; 2 -> "Yüksek"; else -> "Orta" }
+        val blurOption = if (device.blurBg) "🌫️ Bulanık Arka Plan: AÇIK (%${device.blurDarkness ?: 30} / $qualStr)" else "🌫️ Bulanık Arka Plan: KAPALI (Ayarla)"
         val isImmersive = device.immersiveMode != false
         val immersiveOption = if (isImmersive) "🖥️ Tam Ekran (Çubuklar Gizli) → Göster" else "📱 Sistem Çubukları Görünür → Gizle"
         val options = arrayOf(
@@ -957,10 +996,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showBlurBackgroundDialog(device: DeviceItem) {
+        val scroll = ScrollView(this)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(50, 35, 50, 15)
         }
+        scroll.addView(layout)
 
         val cbEnable = CheckBox(this).apply {
             text = "Bulanık Arka Planı (Blur Dolgu) Etkinleştir"
@@ -972,7 +1013,7 @@ class MainActivity : AppCompatActivity() {
         val curDarkness = (device.blurDarkness ?: 30).coerceIn(0, 85)
         val txtDarkness = TextView(this).apply {
             text = "Koyuluk / Karartma: %$curDarkness (0: Açık — 85: Çok Koyu)"
-            setPadding(0, 24, 0, 8)
+            setPadding(0, 22, 0, 6)
             textSize = 13f
         }
         val seekDarkness = SeekBar(this).apply {
@@ -991,7 +1032,7 @@ class MainActivity : AppCompatActivity() {
         val curIntensity = (device.blurIntensity ?: 1).coerceIn(0, 2)
         val txtIntensity = TextView(this).apply {
             text = "Bulanıklık Şiddeti: ${intensityLabels[curIntensity]}"
-            setPadding(0, 24, 0, 8)
+            setPadding(0, 22, 0, 6)
             textSize = 13f
         }
         val seekIntensity = SeekBar(this).apply {
@@ -1006,6 +1047,32 @@ class MainActivity : AppCompatActivity() {
             })
         }
 
+        val qualityLabels = arrayOf("Düşük (En Hafif)", "Orta (Dengeli)", "Yüksek (En Akıcı)")
+        val curQuality = (device.blurQuality ?: 1).coerceIn(0, 2)
+        val txtQuality = TextView(this).apply {
+            text = "Arka Plan Kalitesi: ${qualityLabels[curQuality]}"
+            setPadding(0, 22, 0, 6)
+            textSize = 13f
+        }
+        val seekQuality = SeekBar(this).apply {
+            max = 2
+            progress = curQuality
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                    txtQuality.text = "Arka Plan Kalitesi: ${qualityLabels[progress.coerceIn(0, 2)]}"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
+
+        val cbApplyIg = CheckBox(this).apply {
+            text = "📸 Instagram medyalarını da etkilesin"
+            isChecked = device.blurApplyIg == true
+            textSize = 13f
+            setPadding(0, 18, 0, 4)
+        }
+
         val slidersBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             alpha = if (cbEnable.isChecked) 1.0f else 0.45f
@@ -1013,30 +1080,42 @@ class MainActivity : AppCompatActivity() {
             addView(seekDarkness)
             addView(txtIntensity)
             addView(seekIntensity)
+            addView(txtQuality)
+            addView(seekQuality)
+            addView(cbApplyIg)
         }
-        cbEnable.setOnCheckedChangeListener { _, checked ->
-            slidersBox.alpha = if (checked) 1.0f else 0.45f
-            seekDarkness.isEnabled = checked
-            seekIntensity.isEnabled = checked
+        fun setControlsEnabled(enabled: Boolean) {
+            slidersBox.alpha = if (enabled) 1.0f else 0.45f
+            seekDarkness.isEnabled = enabled
+            seekIntensity.isEnabled = enabled
+            seekQuality.isEnabled = enabled
+            cbApplyIg.isEnabled = enabled
         }
-        seekDarkness.isEnabled = cbEnable.isChecked
-        seekIntensity.isEnabled = cbEnable.isChecked
+        setControlsEnabled(cbEnable.isChecked)
+        cbEnable.setOnCheckedChangeListener { _, checked -> setControlsEnabled(checked) }
 
         layout.addView(cbEnable)
         layout.addView(slidersBox)
 
         AlertDialog.Builder(this)
             .setTitle("🌫️ Bulanık Arka Plan Ayarları")
-            .setView(layout)
+            .setView(scroll)
             .setPositiveButton("Uygula") { _, _ ->
-                applyDeviceBlurBackground(device, cbEnable.isChecked, seekDarkness.progress, seekIntensity.progress)
+                applyDeviceBlurBackground(
+                    device,
+                    cbEnable.isChecked,
+                    seekDarkness.progress,
+                    seekIntensity.progress,
+                    seekQuality.progress,
+                    cbApplyIg.isChecked
+                )
             }
             .setNegativeButton("İptal", null)
             .show()
     }
 
-    private fun applyDeviceBlurBackground(device: DeviceItem, enabled: Boolean, darkness: Int, intensity: Int) {
-        val url = "http://${device.host}/api/blur_bg?enabled=$enabled&darkness=$darkness&intensity=$intensity"
+    private fun applyDeviceBlurBackground(device: DeviceItem, enabled: Boolean, darkness: Int, intensity: Int, quality: Int, applyIg: Boolean) {
+        val url = "http://${device.host}/api/blur_bg?enabled=$enabled&darkness=$darkness&intensity=$intensity&quality=$quality&ig=$applyIg"
         httpClient.newCall(Request.Builder().url(url).post("".toRequestBody(null)).build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread { Toast.makeText(this@MainActivity, "Bulanık arka plan ayarları gönderilemedi!", Toast.LENGTH_SHORT).show() }
@@ -1047,12 +1126,14 @@ class MainActivity : AppCompatActivity() {
                     device.blurBg = enabled
                     device.blurDarkness = darkness
                     device.blurIntensity = intensity
+                    device.blurQuality = quality
+                    device.blurApplyIg = applyIg
                     saveDevices()
-                    val intenStr = when (intensity) { 0 -> "Az"; 2 -> "Çok"; else -> "Orta" }
+                    val qualStr = when (quality) { 0 -> "Düşük"; 2 -> "Yüksek"; else -> "Orta" }
                     runOnUiThread {
                         Toast.makeText(
                             this@MainActivity,
-                            if (enabled) "🌫️ Bulanık arka plan güncellendi (%$darkness / $intenStr)" else "⬛ Bulanık arka plan kapatıldı!",
+                            if (enabled) "🌫️ Bulanık arka plan güncellendi (%$darkness / $qualStr)" else "⬛ Bulanık arka plan kapatıldı!",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -1474,6 +1555,10 @@ class MainActivity : AppCompatActivity() {
                             if (darkStr.isNotEmpty()) dev.blurDarkness = darkStr.toIntOrNull() ?: 30
                             val intenStr = json.optString("blurIntensity", "")
                             if (intenStr.isNotEmpty()) dev.blurIntensity = intenStr.toIntOrNull() ?: 1
+                            val qualStr = json.optString("blurQuality", "")
+                            if (qualStr.isNotEmpty()) dev.blurQuality = qualStr.toIntOrNull() ?: 1
+                            val igStr = json.optString("blurIg", "")
+                            if (igStr.isNotEmpty()) dev.blurApplyIg = (igStr == "true")
                             val immStr = json.optString("immersive", "")
                             if (immStr.isNotEmpty()) dev.immersiveMode = (immStr == "true")
                         } catch (_: Exception) {}
