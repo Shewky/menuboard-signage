@@ -26,6 +26,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.TextureView
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -46,6 +47,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.google.gson.Gson
@@ -407,6 +409,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mediaContainer: FrameLayout
     private lateinit var bgBlurImageView: ImageView
+    private lateinit var videoTextureView: TextureView
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
     private lateinit var imgLiveStream: ImageView
@@ -451,12 +454,39 @@ class MainActivity : AppCompatActivity() {
     private var blurIntensityLevel = 1 // 0: Az, 1: Orta, 2: Çok
     private var immersiveModeEnabled = true
 
+    private var currentVideoWidth = 0
+    private var currentVideoHeight = 0
+
     private var awaitingSequentialPermissionChain = false
 
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
     private val hideCursorRunnable = Runnable {
         animatedOverlayView.showCursor = false
         animatedOverlayView.invalidate()
+    }
+
+    private val videoBlurRunnable = object : Runnable {
+        override fun run() {
+            if (!blurBackgroundEnabled || isScreenSharing || videoTextureView.visibility != View.VISIBLE) return
+            val player = exoPlayer
+            if (player != null && player.isPlaying && videoTextureView.isAvailable) {
+                val sampleSize = when (blurIntensityLevel) {
+                    0 -> 48  // Az bulanık
+                    2 -> 12  // Çok bulanık
+                    else -> 24 // Orta bulanık
+                }
+                try {
+                    val frame = videoTextureView.getBitmap(sampleSize, sampleSize)
+                    if (frame != null) {
+                        bgBlurImageView.setImageBitmap(frame)
+                        if (bgBlurImageView.visibility != View.VISIBLE) {
+                            bgBlurImageView.visibility = View.VISIBLE
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            handler.postDelayed(this, 40L) // ~25 FPS akıcı ve hafif
+        }
     }
 
     private val webScrollRunnable = object : Runnable {
@@ -524,7 +554,7 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
-        setupBlurBackgroundView()
+        setupBlurBackgroundAndVideoSurface()
         setupWebPlayerAndQrOverlay()
 
         val rootFrame = mediaContainer.parent as? FrameLayout ?: mediaContainer
@@ -599,7 +629,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupBlurBackgroundView() {
+    private fun updateVideoTextureSize() {
+        if (currentVideoWidth <= 0 || currentVideoHeight <= 0) return
+        val containerW = mediaContainer.width
+        val containerH = mediaContainer.height
+        if (containerW <= 0 || containerH <= 0) return
+
+        val videoRatio = currentVideoWidth.toFloat() / currentVideoHeight.toFloat()
+        val containerRatio = containerW.toFloat() / containerH.toFloat()
+
+        val targetW: Int
+        val targetH: Int
+        if (videoRatio > containerRatio) {
+            targetW = containerW
+            targetH = (containerW / videoRatio).toInt()
+        } else {
+            targetH = containerH
+            targetW = (containerH * videoRatio).toInt()
+        }
+
+        videoTextureView.layoutParams = FrameLayout.LayoutParams(targetW, targetH, Gravity.CENTER)
+    }
+
+    private fun setupBlurBackgroundAndVideoSurface() {
         bgBlurImageView = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
@@ -610,12 +662,27 @@ class MainActivity : AppCompatActivity() {
             0,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         )
+
+        videoTextureView = TextureView(this).apply {
+            visibility = View.GONE
+        }
+        mediaContainer.addView(
+            videoTextureView,
+            1,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER)
+        )
+
+        mediaContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (videoTextureView.visibility == View.VISIBLE) {
+                updateVideoTextureSize()
+            }
+        }
+
         imageView.setBackgroundColor(Color.TRANSPARENT)
-        playerView.setBackgroundColor(Color.TRANSPARENT)
-        playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+        playerView.visibility = View.GONE
     }
 
-    private fun applyBlurBackgroundForFile(file: File, isVideo: Boolean) {
+    private fun applyBlurBackgroundForImageFile(file: File) {
         if (!blurBackgroundEnabled) {
             bgBlurImageView.visibility = View.GONE
             bgBlurImageView.setImageDrawable(null)
@@ -626,22 +693,8 @@ class MainActivity : AppCompatActivity() {
         val intensity = blurIntensityLevel
         Thread {
             try {
-                val rawBmp: Bitmap? = if (isVideo) {
-                    val retriever = MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(file.absolutePath)
-                        retriever.getFrameAtTime(1000000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                            ?: retriever.getFrameAtTime(0L)
-                    } catch (_: Exception) {
-                        null
-                    } finally {
-                        try { retriever.release() } catch (_: Exception) {}
-                    }
-                } else {
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                    BitmapFactory.decodeFile(file.absolutePath, opts)
-                }
-
+                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                val rawBmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (rawBmp != null) {
                     val (maxDim, radius) = when (intensity) {
                         0 -> Pair(160, 3)  // Az Bulanık
@@ -1211,10 +1264,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun initPlayer() {
         exoPlayer = ExoPlayer.Builder(this).build().apply {
-            playerView.player = this
-            playerView.useController = false
+            setVideoTextureView(videoTextureView)
             addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) scheduleNextMedia() }
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    if (videoSize.width > 0 && videoSize.height > 0) {
+                        currentVideoWidth = (videoSize.width * videoSize.pixelWidthHeightRatio).toInt()
+                        currentVideoHeight = videoSize.height
+                        updateVideoTextureSize()
+                    }
+                }
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED) scheduleNextMedia()
+                }
             })
         }
     }
@@ -1282,12 +1343,14 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(mediaEndRunnable)
         handler.removeCallbacks(webScrollRunnable)
         handler.removeCallbacks(igSafetyRunnable)
+        handler.removeCallbacks(videoBlurRunnable)
         igPostUrls.clear()
         webScrollActive = false
         activeWebItem = null
         exoPlayer?.stop(); exoPlayer?.clearMediaItems()
         bgBlurImageView.visibility = View.GONE
         bgBlurImageView.setImageDrawable(null)
+        videoTextureView.visibility = View.GONE
         playerView.visibility = View.GONE
         imageView.visibility = View.GONE
         imgLiveStream.visibility = View.GONE
@@ -1321,6 +1384,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(mediaEndRunnable)
         handler.removeCallbacks(webScrollRunnable)
         handler.removeCallbacks(igSafetyRunnable)
+        handler.removeCallbacks(videoBlurRunnable)
         igPostUrls.clear()
         webScrollActive = false
         activeWebItem = null
@@ -1333,6 +1397,7 @@ class MainActivity : AppCompatActivity() {
         if (item.type == "instagram") {
             exoPlayer?.stop()
             bgBlurImageView.visibility = View.GONE
+            videoTextureView.visibility = View.GONE
             playerView.visibility = View.GONE
             imageView.visibility = View.GONE
             webQrContainer.visibility = View.GONE
@@ -1378,6 +1443,7 @@ class MainActivity : AppCompatActivity() {
         if (item.type == "web") {
             exoPlayer?.stop()
             bgBlurImageView.visibility = View.GONE
+            videoTextureView.visibility = View.GONE
             playerView.visibility = View.GONE
             imageView.visibility = View.GONE
             webView.visibility = View.VISIBLE
@@ -1436,19 +1502,25 @@ class MainActivity : AppCompatActivity() {
 
         if (item.type == "video") {
             imageView.visibility = View.GONE
-            playerView.visibility = View.VISIBLE
-            playerView.setBackgroundColor(Color.TRANSPARENT)
-            playerView.setShutterBackgroundColor(Color.TRANSPARENT)
-            applyBlurBackgroundForFile(file, isVideo = true)
+            playerView.visibility = View.GONE
+            videoTextureView.visibility = View.VISIBLE
+            if (blurBackgroundEnabled) {
+                updateBlurDarknessFilter()
+                handler.post(videoBlurRunnable)
+            } else {
+                bgBlurImageView.visibility = View.GONE
+                bgBlurImageView.setImageDrawable(null)
+            }
             exoPlayer?.stop(); exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file))); exoPlayer?.prepare(); exoPlayer?.play()
             if (item.durationSec > 0) handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
         } else {
             exoPlayer?.stop()
+            videoTextureView.visibility = View.GONE
             playerView.visibility = View.GONE
             imageView.visibility = View.VISIBLE
             imageView.scaleType = ImageView.ScaleType.FIT_CENTER
             imageView.setBackgroundColor(Color.TRANSPARENT)
-            applyBlurBackgroundForFile(file, isVideo = false)
+            applyBlurBackgroundForImageFile(file)
             imageView.setImageURI(null); imageView.setImageURI(Uri.fromFile(file))
             handler.postDelayed(mediaEndRunnable, (if (item.durationSec > 0) item.durationSec else 10) * 1000L)
         }
@@ -1517,6 +1589,7 @@ class MainActivity : AppCompatActivity() {
                     if (!isScreenSharing && qrOverlay.visibility != View.VISIBLE && activeList.isNotEmpty()) {
                         playItem(currentIndex % activeList.size)
                     } else if (!enabled) {
+                        handler.removeCallbacks(videoBlurRunnable)
                         bgBlurImageView.visibility = View.GONE
                         bgBlurImageView.setImageDrawable(null)
                     }
@@ -1834,6 +1907,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(ipCheckRunnable)
         handler.removeCallbacks(webScrollRunnable)
         handler.removeCallbacks(igSafetyRunnable)
+        handler.removeCallbacks(videoBlurRunnable)
         httpServer?.stop()
         exoPlayer?.release()
     }
