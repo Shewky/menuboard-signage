@@ -11,8 +11,8 @@ android {
         applicationId = "com.anypay.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 138
-        versionName = "1.38"
+        versionCode = 140
+        versionName = "1.40"
     }
 
     signingConfigs {
