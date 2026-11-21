@@ -102,6 +102,8 @@ data class MediaItemModel(
     val webImageScalePercent: Int = 100,
     val webFixedHeader: Boolean = false,
     val webFixedSelector: String? = "",
+    val webFixedHeaderTextEnabled: Boolean = false,
+    val webFixedHeaderText: String? = "",
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false,
@@ -1284,12 +1286,17 @@ class MainActivity : AppCompatActivity() {
             cssRules.append("img { zoom: $imgScale% !important; } ")
         }
 
-        val customSelector = (item.webFixedSelector ?: "").trim().replace("'", "\\'")
+        val customSelector = (item.webFixedSelector ?: "").trim().replace("\\", "\\\\").replace("'", "\\'")
+        val fixedHeaderText = if (item.webFixedHeaderTextEnabled) {
+            (item.webFixedHeaderText ?: "").trim().take(60).replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+        } else ""
+
         val fixedHeaderJs = if (item.webFixedHeader) {
             """
             function anypayPinTopBanner() {
                 if (window._anypayHeaderPinned) return;
                 var sel = '$customSelector';
+                var fixedTxt = '$fixedHeaderText';
                 var el = null;
                 if (sel) {
                     try { el = document.querySelector(sel); } catch(e) {}
@@ -1325,6 +1332,13 @@ class MainActivity : AppCompatActivity() {
                     el.style.setProperty('z-index', '999999', 'important');
                     el.style.setProperty('margin-top', '0px', 'important');
                     document.body.style.setProperty('padding-top', h + 'px', 'important');
+                    if (fixedTxt && !document.getElementById('anypay-fixed-banner-text')) {
+                        var txtDiv = document.createElement('div');
+                        txtDiv.id = 'anypay-fixed-banner-text';
+                        txtDiv.textContent = fixedTxt;
+                        txtDiv.style.cssText = 'position:absolute !important;left:8px !important;right:8px !important;bottom:2px !important;text-align:center !important;font-size:11px !important;font-weight:700 !important;letter-spacing:0.6px !important;line-height:1.1 !important;color:#333 !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;pointer-events:none !important;z-index:1000000 !important;';
+                        el.appendChild(txtDiv);
+                    }
                     window._anypayHeaderPinned = true;
                 }
             }
