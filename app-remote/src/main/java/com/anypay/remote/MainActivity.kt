@@ -72,6 +72,8 @@ data class DeviceItem(
     var version: String? = "",
     var orientation: String? = "portrait",
     var blurBg: Boolean = false,
+    var blurDarkness: Int? = 30,
+    var blurIntensity: Int? = 1,
     var immersiveMode: Boolean? = true
 )
 
@@ -359,7 +361,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.35" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.36" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -925,7 +927,8 @@ class MainActivity : AppCompatActivity() {
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val isLandscape = device.orientation == "landscape"
         val tvModeOption = if (isLandscape) "📱 Dikey Moda Çevir (9:16)" else "📺 TV Moduna Çevir (16:9 Yatay)"
-        val blurOption = if (device.blurBg) "⬛ Bulanık Arka Plan: AÇIK (Kapat)" else "🌫️ Bulanık Arka Plan: KAPALI (Aç)"
+        val intenStr = when (device.blurIntensity ?: 1) { 0 -> "Az"; 2 -> "Çok"; else -> "Orta" }
+        val blurOption = if (device.blurBg) "🌫️ Bulanık Arka Plan: AÇIK (%${device.blurDarkness ?: 30} / $intenStr)" else "🌫️ Bulanık Arka Plan: KAPALI (Ayarla)"
         val isImmersive = device.immersiveMode != false
         val immersiveOption = if (isImmersive) "🖥️ Tam Ekran (Çubuklar Gizli) → Göster" else "📱 Sistem Çubukları Görünür → Gizle"
         val options = arrayOf(
@@ -943,7 +946,7 @@ class MainActivity : AppCompatActivity() {
             when (which) {
                 0 -> verifyPermissionsAndOpenTouchpad(device)
                 1 -> toggleDeviceOrientation(device)
-                2 -> toggleDeviceBlurBackground(device)
+                2 -> showBlurBackgroundDialog(device)
                 3 -> toggleDeviceImmersiveMode(device)
                 4 -> triggerRemoteUpdateCheck(device)
                 5 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
@@ -951,6 +954,111 @@ class MainActivity : AppCompatActivity() {
                 7 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
             }
         }.setNegativeButton("Kapat", null).show()
+    }
+
+    private fun showBlurBackgroundDialog(device: DeviceItem) {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 35, 50, 15)
+        }
+
+        val cbEnable = CheckBox(this).apply {
+            text = "Bulanık Arka Planı (Blur Dolgu) Etkinleştir"
+            isChecked = device.blurBg
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val curDarkness = (device.blurDarkness ?: 30).coerceIn(0, 85)
+        val txtDarkness = TextView(this).apply {
+            text = "Koyuluk / Karartma: %$curDarkness (0: Açık — 85: Çok Koyu)"
+            setPadding(0, 24, 0, 8)
+            textSize = 13f
+        }
+        val seekDarkness = SeekBar(this).apply {
+            max = 85
+            progress = curDarkness
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                    txtDarkness.text = "Koyuluk / Karartma: %$progress (0: Açık — 85: Çok Koyu)"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
+
+        val intensityLabels = arrayOf("Az", "Orta", "Çok")
+        val curIntensity = (device.blurIntensity ?: 1).coerceIn(0, 2)
+        val txtIntensity = TextView(this).apply {
+            text = "Bulanıklık Şiddeti: ${intensityLabels[curIntensity]}"
+            setPadding(0, 24, 0, 8)
+            textSize = 13f
+        }
+        val seekIntensity = SeekBar(this).apply {
+            max = 2
+            progress = curIntensity
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                    txtIntensity.text = "Bulanıklık Şiddeti: ${intensityLabels[progress.coerceIn(0, 2)]}"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
+
+        val slidersBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            alpha = if (cbEnable.isChecked) 1.0f else 0.45f
+            addView(txtDarkness)
+            addView(seekDarkness)
+            addView(txtIntensity)
+            addView(seekIntensity)
+        }
+        cbEnable.setOnCheckedChangeListener { _, checked ->
+            slidersBox.alpha = if (checked) 1.0f else 0.45f
+            seekDarkness.isEnabled = checked
+            seekIntensity.isEnabled = checked
+        }
+        seekDarkness.isEnabled = cbEnable.isChecked
+        seekIntensity.isEnabled = cbEnable.isChecked
+
+        layout.addView(cbEnable)
+        layout.addView(slidersBox)
+
+        AlertDialog.Builder(this)
+            .setTitle("🌫️ Bulanık Arka Plan Ayarları")
+            .setView(layout)
+            .setPositiveButton("Uygula") { _, _ ->
+                applyDeviceBlurBackground(device, cbEnable.isChecked, seekDarkness.progress, seekIntensity.progress)
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun applyDeviceBlurBackground(device: DeviceItem, enabled: Boolean, darkness: Int, intensity: Int) {
+        val url = "http://${device.host}/api/blur_bg?enabled=$enabled&darkness=$darkness&intensity=$intensity"
+        httpClient.newCall(Request.Builder().url(url).post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Bulanık arka plan ayarları gönderilemedi!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                if (ok) {
+                    device.blurBg = enabled
+                    device.blurDarkness = darkness
+                    device.blurIntensity = intensity
+                    saveDevices()
+                    val intenStr = when (intensity) { 0 -> "Az"; 2 -> "Çok"; else -> "Orta" }
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (enabled) "🌫️ Bulanık arka plan güncellendi (%$darkness / $intenStr)" else "⬛ Bulanık arka plan kapatıldı!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        })
     }
 
     private fun toggleDeviceImmersiveMode(device: DeviceItem) {
@@ -966,25 +1074,6 @@ class MainActivity : AppCompatActivity() {
                     saveDevices()
                     runOnUiThread {
                         Toast.makeText(this@MainActivity, if (newState) "🖥️ Tam ekran modu açıldı (Çubuklar gizli)" else "📱 Sistem çubukları görünür yapıldı", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        })
-    }
-
-    private fun toggleDeviceBlurBackground(device: DeviceItem) {
-        val newState = !device.blurBg
-        httpClient.newCall(Request.Builder().url("http://${device.host}/api/blur_bg?enabled=$newState").post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Bulanık arka plan komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
-            override fun onResponse(call: Call, response: Response) {
-                val ok = response.isSuccessful; response.close()
-                if (ok) {
-                    device.blurBg = newState
-                    saveDevices()
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, if (newState) "🌫️ Bulanık arka plan (Blur dolgu) açıldı!" else "⬛ Bulanık arka plan kapatıldı!", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -1381,6 +1470,10 @@ class MainActivity : AppCompatActivity() {
                             if (ori.isNotEmpty()) dev.orientation = ori
                             val blurStr = json.optString("blurBg", "")
                             if (blurStr.isNotEmpty()) dev.blurBg = (blurStr == "true")
+                            val darkStr = json.optString("blurDarkness", "")
+                            if (darkStr.isNotEmpty()) dev.blurDarkness = darkStr.toIntOrNull() ?: 30
+                            val intenStr = json.optString("blurIntensity", "")
+                            if (intenStr.isNotEmpty()) dev.blurIntensity = intenStr.toIntOrNull() ?: 1
                             val immStr = json.optString("immersive", "")
                             if (immStr.isNotEmpty()) dev.immersiveMode = (immStr == "true")
                         } catch (_: Exception) {}
@@ -1720,7 +1813,6 @@ class MainActivity : AppCompatActivity() {
             holder.txtFileName.text = if (item.isHidden) "${item.fileName} (Gizli)" else item.fileName
             holder.txtAnimBadge.text = "Animasyon: ${animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"}"
 
-            // Göz simgesi ve öğe görünürlük durumu
             val contentAlpha = if (item.isHidden) 0.40f else 1.0f
             holder.imgThumb.alpha = contentAlpha
             holder.txtFileName.alpha = contentAlpha
