@@ -23,11 +23,13 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
@@ -94,6 +96,7 @@ data class MediaItemModel(
     val webFontFamily: String? = "default",
     val webFontSizePercent: Int = 0,
     val webBoldHeaders: Boolean = false,
+    val webImageScalePercent: Int = 100,
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false,
@@ -452,6 +455,8 @@ class MainActivity : AppCompatActivity() {
     private var blurBackgroundEnabled = false
     private var blurDarknessPercent = 30
     private var blurIntensityLevel = 1 // 0: Az, 1: Orta, 2: Çok
+    private var blurQualityLevel = 1   // 0: Düşük, 1: Orta, 2: Yüksek
+    private var blurApplyInstagram = false
     private var immersiveModeEnabled = true
 
     private var currentVideoWidth = 0
@@ -469,12 +474,22 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (!blurBackgroundEnabled || isScreenSharing || videoTextureView.visibility != View.VISIBLE) return
             val player = exoPlayer
+            val baseSample = when (blurIntensityLevel) {
+                0 -> 48  // Az bulanık
+                2 -> 12  // Çok bulanık
+                else -> 24 // Orta bulanık
+            }
+            val sampleSize = when (blurQualityLevel) {
+                0 -> (baseSample * 2 / 3).coerceAtLeast(8)
+                2 -> (baseSample * 3 / 2).coerceAtMost(96)
+                else -> baseSample
+            }
+            val delayMs = when (blurQualityLevel) {
+                0 -> 80L  // Düşük (~12 FPS)
+                2 -> 22L  // Yüksek (~45 FPS)
+                else -> 40L // Orta (~25 FPS)
+            }
             if (player != null && player.isPlaying && videoTextureView.isAvailable) {
-                val sampleSize = when (blurIntensityLevel) {
-                    0 -> 48  // Az bulanık
-                    2 -> 12  // Çok bulanık
-                    else -> 24 // Orta bulanık
-                }
                 try {
                     val frame = videoTextureView.getBitmap(sampleSize, sampleSize)
                     if (frame != null) {
@@ -485,7 +500,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 } catch (_: Exception) {}
             }
-            handler.postDelayed(this, 40L) // ~25 FPS akıcı ve hafif
+            handler.postDelayed(this, delayMs)
         }
     }
 
@@ -495,8 +510,10 @@ class MainActivity : AppCompatActivity() {
             val item = activeWebItem ?: return
 
             val (stepPx, delayMs) = when (item.webScrollSpeed) {
-                "slow" -> Pair(1, 32L)
-                "fast" -> Pair(6, 22L)
+                "slow" -> Pair(1, 34L)
+                "slow_medium" -> Pair(2, 30L)
+                "medium_fast" -> Pair(5, 25L)
+                "fast" -> Pair(7, 20L)
                 else -> Pair(3, 28L)
             }
 
@@ -533,6 +550,8 @@ class MainActivity : AppCompatActivity() {
         blurBackgroundEnabled = prefs.getBoolean("blur_bg_enabled", false)
         blurDarknessPercent = prefs.getInt("blur_darkness", 30).coerceIn(0, 85)
         blurIntensityLevel = prefs.getInt("blur_intensity", 1).coerceIn(0, 2)
+        blurQualityLevel = prefs.getInt("blur_quality", 1).coerceIn(0, 2)
+        blurApplyInstagram = prefs.getBoolean("blur_apply_ig", false)
         immersiveModeEnabled = prefs.getBoolean("immersive_mode", true)
         applyScreenOrientation(screenOrientationMode)
 
@@ -554,6 +573,7 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
+        updateWelcomeScreenLayout()
         setupBlurBackgroundAndVideoSurface()
         setupWebPlayerAndQrOverlay()
 
@@ -584,6 +604,44 @@ class MainActivity : AppCompatActivity() {
         startUdpBeacon()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun updateWelcomeScreenLayout() {
+        if (!::qrOverlay.isInitialized) return
+        val isLandscape = screenOrientationMode == "landscape"
+        val density = resources.displayMetrics.density
+
+        // QR boyutunu TV (yatay) modunda ekrana sığacak şekilde küçült
+        val qrSizePx = ((if (isLandscape) 155 else 240) * density).toInt()
+        imgQrCode.layoutParams = imgQrCode.layoutParams.apply {
+            width = qrSizePx
+            height = qrSizePx
+        }
+
+        // Başlık metnini güncelle ve yatay modda yazı boyutlarını sığacak şekilde ayarla
+        fun styleWelcomeViews(v: View) {
+            if (v is TextView && v !is Button) {
+                val curTxt = v.text?.toString() ?: ""
+                if (curTxt.contains("ANYPAY", ignoreCase = true)) {
+                    v.text = "MENUBOARD YAYIN SİSTEMİ"
+                }
+                when (v.id) {
+                    R.id.txtIpAddress -> v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 16f else 20f)
+                    R.id.txtStatus -> v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 12f else 15f)
+                    else -> {
+                        if (v.text?.toString()?.contains("MENUBOARD", ignoreCase = true) == true) {
+                            v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 20f else 28f)
+                        }
+                    }
+                }
+            }
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) {
+                    styleWelcomeViews(v.getChildAt(i))
+                }
+            }
+        }
+        styleWelcomeViews(qrOverlay)
     }
 
     private fun getActivePlaylist(): List<MediaItemModel> = playlist.filter { !it.isHidden }
@@ -691,15 +749,26 @@ class MainActivity : AppCompatActivity() {
         updateBlurDarknessFilter()
         val expectedFileName = file.name
         val intensity = blurIntensityLevel
+        val quality = blurQualityLevel
         Thread {
             try {
-                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                val sampleFactor = when (quality) {
+                    0 -> 6
+                    2 -> 2
+                    else -> 4
+                }
+                val opts = BitmapFactory.Options().apply { inSampleSize = sampleFactor }
                 val rawBmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (rawBmp != null) {
-                    val (maxDim, radius) = when (intensity) {
+                    val (baseMaxDim, radius) = when (intensity) {
                         0 -> Pair(160, 3)  // Az Bulanık
                         2 -> Pair(48, 10)  // Çok Bulanık
                         else -> Pair(96, 6) // Orta Bulanık
+                    }
+                    val maxDim = when (quality) {
+                        0 -> (baseMaxDim * 2 / 3).coerceAtLeast(32)
+                        2 -> (baseMaxDim * 3 / 2).coerceAtMost(240)
+                        else -> baseMaxDim
                     }
                     val scale = maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)
                     val sw = (rawBmp.width * scale).toInt().coerceAtLeast(16)
@@ -776,6 +845,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+        updateWelcomeScreenLayout()
     }
 
     private fun setupWebPlayerAndQrOverlay() {
@@ -915,12 +985,17 @@ class MainActivity : AppCompatActivity() {
         val filter = item.igMediaFilter ?: "all"
         val slideMs = (if (item.igSlideSec > 0) item.igSlideSec else 8) * 1000
         val audioEnabled = item.igAudioEnabled
-        val blurBg = blurBackgroundEnabled
+        val blurBg = blurBackgroundEnabled && blurApplyInstagram
         val darkAlpha = String.format(java.util.Locale.US, "%.2f", blurDarknessPercent.coerceIn(0, 85) / 100.0)
-        val videoCanvasSize = when (blurIntensityLevel) {
+        val baseCSize = when (blurIntensityLevel) {
             0 -> 36  // Az bulanık
             2 -> 10  // Çok bulanık
             else -> 18 // Orta bulanık
+        }
+        val videoCanvasSize = when (blurQualityLevel) {
+            0 -> (baseCSize * 2 / 3).coerceAtLeast(8)
+            2 -> (baseCSize * 3 / 2).coerceAtMost(64)
+            else -> baseCSize
         }
         val photoBlurPx = when (blurIntensityLevel) {
             0 -> 12
@@ -1066,15 +1141,28 @@ class MainActivity : AppCompatActivity() {
     private fun injectWebCustomStyles(view: WebView, item: MediaItemModel) {
         val cssRules = StringBuilder()
         val fontFamily = item.webFontFamily ?: "default"
+        val googleFonts = setOf("Roboto", "Open Sans", "Montserrat", "Poppins", "Lato", "Oswald", "Playfair Display", "Merriweather")
+
+        val googleFontLinkJs = if (fontFamily in googleFonts) {
+            val encodedFont = fontFamily.replace(" ", "+")
+            "if(!document.getElementById('anypay-gfont')){ var l=document.createElement('link'); l.id='anypay-gfont'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=$encodedFont:wght@400;700;900&subset=latin-ext&display=swap'; document.head.appendChild(l); }"
+        } else ""
+
         if (fontFamily != "default" && fontFamily.isNotEmpty()) {
-            cssRules.append("body, p, div, span, li, td, th, a, h1, h2, h3, h4, h5, h6 { font-family: $fontFamily !important; } ")
+            val cssFont = if (fontFamily in googleFonts) "'$fontFamily', sans-serif" else fontFamily
+            cssRules.append("body, p, div, span, li, td, th, a, h1, h2, h3, h4, h5, h6 { font-family: $cssFont !important; } ")
         }
         if (item.webBoldHeaders) {
             cssRules.append("h1, h2, h3, h4, h5, h6, strong, b, .title, .header, [class*='title'], [class*='head'] { font-weight: 900 !important; } ")
         }
-        if (cssRules.isNotEmpty()) {
+        val imgScale = item.webImageScalePercent
+        if (imgScale in 25..250 && imgScale != 100) {
+            cssRules.append("img { zoom: $imgScale% !important; } ")
+        }
+
+        if (cssRules.isNotEmpty() || googleFontLinkJs.isNotEmpty()) {
             val safeCss = cssRules.toString().replace("'", "\\'")
-            val js = "(function(){ var s = document.getElementById('anypay-custom-style'); if(!s){ s = document.createElement('style'); s.id='anypay-custom-style'; document.head.appendChild(s); } s.innerHTML = '$safeCss'; })();"
+            val js = "(function(){ $googleFontLinkJs var s = document.getElementById('anypay-custom-style'); if(!s){ s = document.createElement('style'); s.id='anypay-custom-style'; document.head.appendChild(s); } s.innerHTML = '$safeCss'; })();"
             view.evaluateJavascript(js, null)
         }
     }
@@ -1168,7 +1256,7 @@ class MainActivity : AppCompatActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) nm.createNotificationChannel(NotificationChannel(chId, "Menuboard Öne Getirme", NotificationManager.IMPORTANCE_HIGH))
                     val notif = NotificationCompat.Builder(applicationContext, chId)
                         .setSmallIcon(android.R.drawable.ic_media_play)
-                        .setContentTitle("Anypay Menuboard")
+                        .setContentTitle("Menuboard Yayın Sistemi")
                         .setContentText("Menuboard ekranı öne getiriliyor...")
                         .setPriority(NotificationCompat.PRIORITY_MAX)
                         .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -1336,7 +1424,7 @@ class MainActivity : AppCompatActivity() {
         try { imgQrCode.setImageBitmap(BarcodeEncoder().encodeBitmap("{\"id\":\"$id\",\"tag\":\"$deviceTag\",\"ip\":\"$ip\",\"port\":8080}", BarcodeFormat.QR_CODE, 500, 500)) } catch (_: Exception) {}
     }
 
-    private fun showQrOverlay() { stopAllPlayback(); imgCornerLogo.visibility = View.GONE; qrOverlay.visibility = View.VISIBLE }
+    private fun showQrOverlay() { stopAllPlayback(); imgCornerLogo.visibility = View.GONE; qrOverlay.visibility = View.VISIBLE; updateWelcomeScreenLayout() }
     private fun hideQrOverlay() { qrOverlay.visibility = View.GONE; imgCornerLogo.visibility = View.VISIBLE }
 
     private fun stopAllPlayback() {
@@ -1461,7 +1549,7 @@ class MainActivity : AppCompatActivity() {
             if (item.showQr) {
                 try {
                     val density = resources.displayMetrics.density
-                    val qrSizePx = ((if (item.qrSizeDp in 60..400) item.qrSizeDp else 150) * density).toInt()
+                    val qrSizePx = ((if (item.qrSizeDp in 50..400) item.qrSizeDp else 150) * density).toInt()
                     val borderPx = ((if (item.qrBorderDp in 0..40) item.qrBorderDp else 8) * density).toInt()
                     val marginPx = (20 * density).toInt()
 
@@ -1564,25 +1652,31 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
             }
 
-            // Bulanık Arka Plan (Blur Dolgu + Koyuluk + Şiddet)
+            // Bulanık Arka Plan (Blur Dolgu + Koyuluk + Şiddet + Kalite + Instagram Seçeneği)
             if (uri == "/api/blur_bg" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
                 val darkness = session.parameters["darkness"]?.firstOrNull()?.toIntOrNull()?.coerceIn(0, 85) ?: blurDarknessPercent
                 val intensity = session.parameters["intensity"]?.firstOrNull()?.toIntOrNull()?.coerceIn(0, 2) ?: blurIntensityLevel
+                val quality = session.parameters["quality"]?.firstOrNull()?.toIntOrNull()?.coerceIn(0, 2) ?: blurQualityLevel
+                val applyIg = session.parameters["ig"]?.firstOrNull()?.let { it == "true" } ?: blurApplyInstagram
                 blurBackgroundEnabled = enabled
                 blurDarknessPercent = darkness
                 blurIntensityLevel = intensity
+                blurQualityLevel = quality
+                blurApplyInstagram = applyIg
                 getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit()
                     .putBoolean("blur_bg_enabled", enabled)
                     .putInt("blur_darkness", darkness)
                     .putInt("blur_intensity", intensity)
+                    .putInt("blur_quality", quality)
+                    .putBoolean("blur_apply_ig", applyIg)
                     .apply()
                 runOnUiThread {
                     updateBlurDarknessFilter()
-                    val intenLabel = when (intensity) { 0 -> "Az"; 2 -> "Çok"; else -> "Orta" }
+                    val qualLabel = when (quality) { 0 -> "Düşük"; 2 -> "Yüksek"; else -> "Orta" }
                     Toast.makeText(
                         this@MainActivity,
-                        if (enabled) "🌫️ Bulanık Arka Plan: Koyuluk %$darkness | Şiddet: $intenLabel" else "⬛ Bulanık Arka Plan Kapatıldı",
+                        if (enabled) "🌫️ Bulanık Arka Plan: %$darkness | Kalite: $qualLabel" else "⬛ Bulanık Arka Plan Kapatıldı",
                         Toast.LENGTH_SHORT
                     ).show()
                     val activeList = getActivePlaylist()
@@ -1842,6 +1936,8 @@ class MainActivity : AppCompatActivity() {
                             "blurBg" to blurBackgroundEnabled.toString(),
                             "blurDarkness" to blurDarknessPercent.toString(),
                             "blurIntensity" to blurIntensityLevel.toString(),
+                            "blurQuality" to blurQualityLevel.toString(),
+                            "blurIg" to blurApplyInstagram.toString(),
                             "immersive" to immersiveModeEnabled.toString()
                         )
                     )
