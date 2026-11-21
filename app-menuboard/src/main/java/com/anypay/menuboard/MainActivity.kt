@@ -447,6 +447,8 @@ class MainActivity : AppCompatActivity() {
     private var activeBgObject = "none"
     private var screenOrientationMode = "portrait"
     private var blurBackgroundEnabled = false
+    private var blurDarknessPercent = 30
+    private var blurIntensityLevel = 1 // 0: Az, 1: Orta, 2: Çok
     private var immersiveModeEnabled = true
 
     private var awaitingSequentialPermissionChain = false
@@ -499,6 +501,8 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
         screenOrientationMode = prefs.getString("screen_orientation", "portrait") ?: "portrait"
         blurBackgroundEnabled = prefs.getBoolean("blur_bg_enabled", false)
+        blurDarknessPercent = prefs.getInt("blur_darkness", 30).coerceIn(0, 85)
+        blurIntensityLevel = prefs.getInt("blur_intensity", 1).coerceIn(0, 2)
         immersiveModeEnabled = prefs.getBoolean("immersive_mode", true)
         applyScreenOrientation(screenOrientationMode)
 
@@ -586,12 +590,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateBlurDarknessFilter() {
+        val alpha = (blurDarknessPercent.coerceIn(0, 85) * 255) / 100
+        if (alpha > 0) {
+            bgBlurImageView.setColorFilter(Color.argb(alpha, 0, 0, 0), PorterDuff.Mode.SRC_OVER)
+        } else {
+            bgBlurImageView.clearColorFilter()
+        }
+    }
+
     private fun setupBlurBackgroundView() {
         bgBlurImageView = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
-            setColorFilter(Color.argb(75, 0, 0, 0), PorterDuff.Mode.SRC_OVER)
         }
+        updateBlurDarknessFilter()
         mediaContainer.addView(
             bgBlurImageView,
             0,
@@ -608,7 +621,9 @@ class MainActivity : AppCompatActivity() {
             bgBlurImageView.setImageDrawable(null)
             return
         }
+        updateBlurDarknessFilter()
         val expectedFileName = file.name
+        val intensity = blurIntensityLevel
         Thread {
             try {
                 val rawBmp: Bitmap? = if (isVideo) {
@@ -628,12 +643,16 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (rawBmp != null) {
-                    val maxDim = 96
+                    val (maxDim, radius) = when (intensity) {
+                        0 -> Pair(160, 3)  // Az Bulanık
+                        2 -> Pair(48, 10)  // Çok Bulanık
+                        else -> Pair(96, 6) // Orta Bulanık
+                    }
                     val scale = maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)
                     val sw = (rawBmp.width * scale).toInt().coerceAtLeast(16)
                     val sh = (rawBmp.height * scale).toInt().coerceAtLeast(16)
                     val small = Bitmap.createScaledBitmap(rawBmp, sw, sh, true)
-                    val blurred = fastBlur(small, 6)
+                    val blurred = fastBlur(small, radius)
                     if (small != rawBmp) small.recycle()
                     rawBmp.recycle()
 
@@ -641,6 +660,7 @@ class MainActivity : AppCompatActivity() {
                         val activeList = getActivePlaylist()
                         val currentItem = if (activeList.isNotEmpty()) activeList[currentIndex % activeList.size] else null
                         if (blurBackgroundEnabled && !isScreenSharing && currentItem?.fileName == expectedFileName) {
+                            updateBlurDarknessFilter()
                             bgBlurImageView.setImageBitmap(blurred)
                             bgBlurImageView.visibility = View.VISIBLE
                         }
@@ -843,6 +863,17 @@ class MainActivity : AppCompatActivity() {
         val slideMs = (if (item.igSlideSec > 0) item.igSlideSec else 8) * 1000
         val audioEnabled = item.igAudioEnabled
         val blurBg = blurBackgroundEnabled
+        val darkAlpha = String.format(java.util.Locale.US, "%.2f", blurDarknessPercent.coerceIn(0, 85) / 100.0)
+        val videoCanvasSize = when (blurIntensityLevel) {
+            0 -> 36  // Az bulanık
+            2 -> 10  // Çok bulanık
+            else -> 18 // Orta bulanık
+        }
+        val photoBlurPx = when (blurIntensityLevel) {
+            0 -> 12
+            2 -> 40
+            else -> 24
+        }
 
         val js = """
             (function() {
@@ -852,6 +883,9 @@ class MainActivity : AppCompatActivity() {
                 var slideMs = $slideMs;
                 var audioEnabled = $audioEnabled;
                 var blurBg = $blurBg;
+                var darkAlpha = $darkAlpha;
+                var cSize = $videoCanvasSize;
+                var pBlur = $photoBlurPx;
 
                 setTimeout(function() {
                     var vid = document.querySelector('video');
@@ -864,23 +898,32 @@ class MainActivity : AppCompatActivity() {
                         ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;overflow:hidden;';
                         document.body.appendChild(ov);
 
+                        var drawBg = null;
                         if (blurBg) {
+                            // Kasmayan GPU ölçeklemeli hafif bulanık arka plan (CSS blur yok!)
                             var bgCanvas = document.createElement('canvas');
-                            bgCanvas.width = 64;
-                            bgCanvas.height = 64;
-                            bgCanvas.style.cssText = 'position:absolute;top:-20px;left:-20px;width:calc(100vw + 40px);height:calc(100vh + 40px);object-fit:cover;filter:blur(26px) brightness(0.65);z-index:1;pointer-events:none;';
+                            bgCanvas.width = cSize;
+                            bgCanvas.height = cSize;
+                            bgCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1;pointer-events:none;image-rendering:auto;';
                             ov.appendChild(bgCanvas);
+
+                            if (darkAlpha > 0) {
+                                var dim = document.createElement('div');
+                                dim.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,' + darkAlpha + ');z-index:2;pointer-events:none;';
+                                ov.appendChild(dim);
+                            }
+
                             var ctx = bgCanvas.getContext('2d');
-                            var drawBg = setInterval(function() {
+                            drawBg = setInterval(function() {
                                 try {
                                     if (!vid.paused && !vid.ended && vid.videoWidth > 0) {
-                                        ctx.drawImage(vid, 0, 0, 64, 64);
+                                        ctx.drawImage(vid, 0, 0, cSize, cSize);
                                     }
                                 } catch (e) { clearInterval(drawBg); }
-                            }, 180);
+                            }, 250);
                         }
 
-                        vid.style.cssText = 'width:100vw !important;height:100vh !important;max-width:100vw !important;max-height:100vh !important;object-fit:contain !important;background:transparent !important;position:relative !important;z-index:2 !important;display:block !important;visibility:visible !important;opacity:1 !important;';
+                        vid.style.cssText = 'width:100vw !important;height:100vh !important;max-width:100vw !important;max-height:100vh !important;object-fit:contain !important;background:transparent !important;position:relative !important;z-index:3 !important;display:block !important;visibility:visible !important;opacity:1 !important;';
                         vid.setAttribute('playsinline', '');
                         vid.setAttribute('webkit-playsinline', '');
                         vid.loop = false;
@@ -889,17 +932,15 @@ class MainActivity : AppCompatActivity() {
 
                         ov.appendChild(vid);
 
-                        vid.onended = function() {
+                        function finishVideo() {
+                            if (drawBg) { clearInterval(drawBg); drawBg = null; }
                             if (window.AnypayIg) window.AnypayIg.nextPost();
-                        };
-                        vid.onerror = function() {
-                            if (window.AnypayIg) window.AnypayIg.nextPost();
-                        };
+                        }
+                        vid.onended = finishVideo;
+                        vid.onerror = finishVideo;
                         vid.play().catch(function() {
                             vid.muted = true;
-                            vid.play().catch(function() {
-                                if (window.AnypayIg) window.AnypayIg.nextPost();
-                            });
+                            vid.play().catch(finishVideo);
                         });
                         return;
                     }
@@ -926,12 +967,17 @@ class MainActivity : AppCompatActivity() {
                         if (blurBg) {
                             var bgIm = document.createElement('img');
                             bgIm.src = bestImg.src;
-                            bgIm.style.cssText = 'position:absolute;top:-20px;left:-20px;width:calc(100vw + 40px);height:calc(100vh + 40px);object-fit:cover;filter:blur(28px) brightness(0.65);z-index:1;';
+                            bgIm.style.cssText = 'position:absolute;top:-20px;left:-20px;width:calc(100vw + 40px);height:calc(100vh + 40px);object-fit:cover;filter:blur(' + pBlur + 'px);z-index:1;';
                             ovImg.appendChild(bgIm);
+                            if (darkAlpha > 0) {
+                                var dimImg = document.createElement('div');
+                                dimImg.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,' + darkAlpha + ');z-index:2;';
+                                ovImg.appendChild(dimImg);
+                            }
                         }
                         var el = document.createElement('img');
                         el.src = bestImg.src;
-                        el.style.cssText = 'position:relative;z-index:2;width:100vw;height:100vh;object-fit:contain;';
+                        el.style.cssText = 'position:relative;z-index:3;width:100vw;height:100vh;object-fit:contain;';
                         ovImg.appendChild(el);
                         document.body.appendChild(ovImg);
                         setTimeout(function() {
@@ -1428,13 +1474,27 @@ class MainActivity : AppCompatActivity() {
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
             }
 
-            // Bulanık Arka Plan (Blur Dolgu) Aç/Kapat
+            // Bulanık Arka Plan (Blur Dolgu + Koyuluk + Şiddet)
             if (uri == "/api/blur_bg" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
+                val darkness = session.parameters["darkness"]?.firstOrNull()?.toIntOrNull()?.coerceIn(0, 85) ?: blurDarknessPercent
+                val intensity = session.parameters["intensity"]?.firstOrNull()?.toIntOrNull()?.coerceIn(0, 2) ?: blurIntensityLevel
                 blurBackgroundEnabled = enabled
-                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putBoolean("blur_bg_enabled", enabled).apply()
+                blurDarknessPercent = darkness
+                blurIntensityLevel = intensity
+                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit()
+                    .putBoolean("blur_bg_enabled", enabled)
+                    .putInt("blur_darkness", darkness)
+                    .putInt("blur_intensity", intensity)
+                    .apply()
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, if (enabled) "🌫️ Bulanık Arka Plan Aktif" else "⬛ Siyah Arka Plan Aktif", Toast.LENGTH_SHORT).show()
+                    updateBlurDarknessFilter()
+                    val intenLabel = when (intensity) { 0 -> "Az"; 2 -> "Çok"; else -> "Orta" }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (enabled) "🌫️ Bulanık Arka Plan: Koyuluk %$darkness | Şiddet: $intenLabel" else "⬛ Bulanık Arka Plan Kapatıldı",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     val activeList = getActivePlaylist()
                     if (!isScreenSharing && qrOverlay.visibility != View.VISIBLE && activeList.isNotEmpty()) {
                         playItem(currentIndex % activeList.size)
@@ -1689,6 +1749,8 @@ class MainActivity : AppCompatActivity() {
                             "version" to curVer,
                             "orientation" to screenOrientationMode,
                             "blurBg" to blurBackgroundEnabled.toString(),
+                            "blurDarkness" to blurDarknessPercent.toString(),
+                            "blurIntensity" to blurIntensityLevel.toString(),
                             "immersive" to immersiveModeEnabled.toString()
                         )
                     )
