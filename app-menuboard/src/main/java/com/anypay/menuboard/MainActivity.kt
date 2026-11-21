@@ -27,6 +27,8 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.animation.*
 import android.webkit.CookieManager
@@ -92,7 +94,8 @@ data class MediaItemModel(
     val webBoldHeaders: Boolean = false,
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
-    val igAudioEnabled: Boolean = false
+    val igAudioEnabled: Boolean = false,
+    val isHidden: Boolean = false
 )
 
 data class InstalledAppInfo(
@@ -444,6 +447,7 @@ class MainActivity : AppCompatActivity() {
     private var activeBgObject = "none"
     private var screenOrientationMode = "portrait"
     private var blurBackgroundEnabled = false
+    private var immersiveModeEnabled = true
 
     private var awaitingSequentialPermissionChain = false
 
@@ -495,9 +499,11 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
         screenOrientationMode = prefs.getString("screen_orientation", "portrait") ?: "portrait"
         blurBackgroundEnabled = prefs.getBoolean("blur_bg_enabled", false)
+        immersiveModeEnabled = prefs.getBoolean("immersive_mode", true)
         applyScreenOrientation(screenOrientationMode)
 
         setContentView(R.layout.activity_main)
+        applyImmersiveMode(immersiveModeEnabled)
         currentTaskId = taskId
 
         mediaContainer = findViewById(R.id.mediaContainer)
@@ -534,7 +540,7 @@ class MainActivity : AppCompatActivity() {
 
         btnSettings.setOnClickListener { showQrOverlay() }
         btnCloseQr.setOnClickListener {
-            if (playlist.isNotEmpty()) {
+            if (getActivePlaylist().isNotEmpty()) {
                 hideQrOverlay()
                 startPlayback()
             }
@@ -544,6 +550,40 @@ class MainActivity : AppCompatActivity() {
         startUdpBeacon()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun getActivePlaylist(): List<MediaItemModel> = playlist.filter { !it.isHidden }
+
+    private fun applyImmersiveMode(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(!enabled)
+            val controller = window.insetsController
+            if (enabled) {
+                controller?.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                controller?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = if (enabled) {
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+            } else {
+                View.SYSTEM_UI_FLAG_VISIBLE
+            }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyImmersiveMode(immersiveModeEnabled)
+        }
     }
 
     private fun setupBlurBackgroundView() {
@@ -598,7 +638,8 @@ class MainActivity : AppCompatActivity() {
                     rawBmp.recycle()
 
                     runOnUiThread {
-                        val currentItem = playlist.getOrNull(currentIndex % playlist.size.coerceAtLeast(1))
+                        val activeList = getActivePlaylist()
+                        val currentItem = if (activeList.isNotEmpty()) activeList[currentIndex % activeList.size] else null
                         if (blurBackgroundEnabled && !isScreenSharing && currentItem?.fileName == expectedFileName) {
                             bgBlurImageView.setImageBitmap(blurred)
                             bgBlurImageView.visibility = View.VISIBLE
@@ -924,6 +965,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         currentTaskId = taskId
+        applyImmersiveMode(immersiveModeEnabled)
         if (awaitingSequentialPermissionChain) {
             val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
             val hasAcc = isAccessibilityServiceEnabled()
@@ -1125,7 +1167,7 @@ class MainActivity : AppCompatActivity() {
             val type = object : TypeToken<MutableList<MediaItemModel>>() {}.type
             playlist = gson.fromJson(json, type)
         }
-        if (playlist.isNotEmpty()) { hideQrOverlay(); startPlayback() } else showQrOverlay()
+        if (getActivePlaylist().isNotEmpty()) { hideQrOverlay(); startPlayback() } else showQrOverlay()
     }
 
     private fun startLocalServer() {
@@ -1191,8 +1233,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun startPlayback() {
         if (isScreenSharing) return
-        if (playlist.isEmpty()) { showQrOverlay(); return }
-        playItem(currentIndex % playlist.size)
+        val activeList = getActivePlaylist()
+        if (activeList.isEmpty()) { showQrOverlay(); return }
+        playItem(currentIndex % activeList.size)
     }
 
     private fun applyTransitionAnimation(animationType: String) {
@@ -1218,9 +1261,10 @@ class MainActivity : AppCompatActivity() {
         webScrollActive = false
         activeWebItem = null
 
-        if (playlist.isEmpty()) return
-        currentIndex = index
-        val item = playlist[index]
+        val activeList = getActivePlaylist()
+        if (activeList.isEmpty()) { showQrOverlay(); return }
+        currentIndex = index % activeList.size
+        val item = activeList[currentIndex]
 
         if (item.type == "instagram") {
             exoPlayer?.stop()
@@ -1350,14 +1394,20 @@ class MainActivity : AppCompatActivity() {
     private fun scheduleNextMedia() {
         if (isScreenSharing) return
         stopAllPlayback()
-        if (playlist.isEmpty()) return
-        val waitTime = playlist[currentIndex % playlist.size].waitAfterSec * 1000L
-        handler.postDelayed({ currentIndex = (currentIndex + 1) % playlist.size; playItem(currentIndex) }, waitTime)
+        val activeList = getActivePlaylist()
+        if (activeList.isEmpty()) { showQrOverlay(); return }
+        val waitTime = activeList[currentIndex % activeList.size].waitAfterSec * 1000L
+        handler.postDelayed({
+            val freshActive = getActivePlaylist()
+            if (freshActive.isEmpty()) { showQrOverlay(); return@postDelayed }
+            currentIndex = (currentIndex + 1) % freshActive.size
+            playItem(currentIndex)
+        }, waitTime)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (qrOverlay.visibility == View.VISIBLE && playlist.isNotEmpty()) { hideQrOverlay(); startPlayback() }
+        if (qrOverlay.visibility == View.VISIBLE && getActivePlaylist().isNotEmpty()) { hideQrOverlay(); startPlayback() }
         else super.onBackPressed()
     }
 
@@ -1366,6 +1416,18 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
+            // Üst/Alt Sistem Çubuklarını Gizle (Tam Ekran Modu)
+            if (uri == "/api/immersive" && method == Method.POST) {
+                val enabled = session.parameters["enabled"]?.firstOrNull() != "false"
+                immersiveModeEnabled = enabled
+                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putBoolean("immersive_mode", enabled).apply()
+                runOnUiThread {
+                    applyImmersiveMode(enabled)
+                    Toast.makeText(this@MainActivity, if (enabled) "🖥️ Tam Ekran Modu (Çubuklar Gizli)" else "📱 Sistem Çubukları Gösteriliyor", Toast.LENGTH_SHORT).show()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
+            }
+
             // Bulanık Arka Plan (Blur Dolgu) Aç/Kapat
             if (uri == "/api/blur_bg" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
@@ -1373,8 +1435,9 @@ class MainActivity : AppCompatActivity() {
                 getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putBoolean("blur_bg_enabled", enabled).apply()
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, if (enabled) "🌫️ Bulanık Arka Plan Aktif" else "⬛ Siyah Arka Plan Aktif", Toast.LENGTH_SHORT).show()
-                    if (!isScreenSharing && qrOverlay.visibility != View.VISIBLE && playlist.isNotEmpty()) {
-                        playItem(currentIndex % playlist.size)
+                    val activeList = getActivePlaylist()
+                    if (!isScreenSharing && qrOverlay.visibility != View.VISIBLE && activeList.isNotEmpty()) {
+                        playItem(currentIndex % activeList.size)
                     } else if (!enabled) {
                         bgBlurImageView.visibility = View.GONE
                         bgBlurImageView.setImageDrawable(null)
@@ -1582,7 +1645,7 @@ class MainActivity : AppCompatActivity() {
 
             if (uri == "/api/screen/stop" && method == Method.POST) {
                 isScreenSharing = false
-                runOnUiThread { imgLiveStream.visibility = View.GONE; if (playlist.isNotEmpty()) { hideQrOverlay(); startPlayback() } else showQrOverlay() }
+                runOnUiThread { imgLiveStream.visibility = View.GONE; if (getActivePlaylist().isNotEmpty()) { hideQrOverlay(); startPlayback() } else showQrOverlay() }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STOPPED")
             }
 
@@ -1625,7 +1688,8 @@ class MainActivity : AppCompatActivity() {
                             "serviceActive" to (MenuboardControlService.instance != null).toString(),
                             "version" to curVer,
                             "orientation" to screenOrientationMode,
-                            "blurBg" to blurBackgroundEnabled.toString()
+                            "blurBg" to blurBackgroundEnabled.toString(),
+                            "immersive" to immersiveModeEnabled.toString()
                         )
                     )
                 )
@@ -1640,7 +1704,15 @@ class MainActivity : AppCompatActivity() {
                 val postData = files["postData"] ?: ""
                 playlist = gson.fromJson(postData, object : TypeToken<MutableList<MediaItemModel>>() {}.type)
                 getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putString("playlist_json", postData).apply()
-                runOnUiThread { hideQrOverlay(); currentIndex = 0; startPlayback() }
+                runOnUiThread {
+                    if (getActivePlaylist().isNotEmpty()) {
+                        hideQrOverlay()
+                        currentIndex = 0
+                        startPlayback()
+                    } else {
+                        showQrOverlay()
+                    }
+                }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
