@@ -69,8 +69,8 @@ data class DeviceItem(
     var isFinding: Boolean = false,
     var isOnline: Boolean = false,
     var lastSeenMs: Long = 0L,
-    var version: String = "",
-    var orientation: String = "portrait"
+    var version: String? = "",
+    var orientation: String? = "portrait"
 )
 
 data class MediaItemModel(
@@ -356,7 +356,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.32" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.33" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -930,7 +930,7 @@ class MainActivity : AppCompatActivity() {
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
             "📺 Menuboard Uygulamasını Tekrar Öne Getir"
         )
-        val verTitle = if (device.version.isNotEmpty()) " (v${device.version})" else ""
+        val verTitle = if (!device.version.isNullOrEmpty()) " (v${device.version})" else ""
         AlertDialog.Builder(this).setTitle("${device.nameTag}$verTitle Yönetimi").setItems(options) { _, which ->
             when (which) {
                 0 -> verifyPermissionsAndOpenTouchpad(device)
@@ -1605,7 +1605,7 @@ class MainActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = DeviceViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false))
         override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
             val dev = deviceList[position]
-            val verSuffix = if (dev.isOnline && dev.version.isNotEmpty()) " (v${dev.version})" else ""
+            val verSuffix = if (dev.isOnline && !dev.version.isNullOrEmpty()) " (v${dev.version})" else ""
             holder.txtDeviceTag.text = "${if (activeDevice?.id == dev.id) "✓ " else ""}${dev.nameTag}$verSuffix"
             holder.txtDeviceIp.text = dev.host
             holder.viewStatusDot.setBackgroundColor(if (dev.isOnline) 0xFF00C853.toInt() else 0xFFD32F2F.toInt())
