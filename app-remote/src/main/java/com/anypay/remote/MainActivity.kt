@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.Editable
+import android.text.InputFilter
 import android.text.InputType
 import android.text.TextWatcher
 import android.util.Base64
@@ -101,6 +102,8 @@ data class MediaItemModel(
     var webImageScalePercent: Int = 100,
     var webFixedHeader: Boolean = false,
     var webFixedSelector: String? = "",
+    var webFixedHeaderTextEnabled: Boolean = false,
+    var webFixedHeaderText: String? = "",
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8,
     var igAudioEnabled: Boolean = false,
@@ -397,7 +400,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.44" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.45" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -727,6 +730,7 @@ class MainActivity : AppCompatActivity() {
         val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions); val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx) }
         val cbAutoScroll = CheckBox(this).apply { text = "Otomatik Aşağı Kaydır"; isChecked = existingItem?.autoScroll ?: true }
         val cbScrollEnd = CheckBox(this).apply { text = "Sayfa Bitimine Kadar Aşağı Kaydır"; isChecked = existingItem?.scrollUntilEnd ?: false; setOnCheckedChangeListener { _, checked -> if (checked) cbAutoScroll.isChecked = true } }
+
         val cbFixedHeader = CheckBox(this).apply { text = "Üst başlık / menü çubuğu sabit kalsın"; isChecked = existingItem?.webFixedHeader ?: false }
         val edtFixedSelector = EditText(this).apply {
             hint = "Özel CSS Seçici (Boş = Otomatik)"
@@ -734,13 +738,33 @@ class MainActivity : AppCompatActivity() {
             setSingleLine(true)
             setText(existingItem?.webFixedSelector ?: "")
         }
+        val cbFixedHeaderText = CheckBox(this).apply {
+            text = "Sabit üst metin ayarla"
+            isChecked = existingItem?.webFixedHeaderTextEnabled ?: false
+            textSize = 13f
+        }
+        val edtFixedHeaderText = EditText(this).apply {
+            hint = "Örn: FİYATLARIMIZA KDV DAHİLDİR (Maks. 50 krk)"
+            textSize = 12.5f
+            setSingleLine(true)
+            filters = arrayOf(InputFilter.LengthFilter(50))
+            setText(existingItem?.webFixedHeaderText ?: "")
+            visibility = if (cbFixedHeaderText.isChecked) View.VISIBLE else View.GONE
+        }
+        cbFixedHeaderText.setOnCheckedChangeListener { _, checked ->
+            edtFixedHeaderText.visibility = if (checked) View.VISIBLE else View.GONE
+        }
+
         val fixedSelectorContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = if (cbFixedHeader.isChecked) View.VISIBLE else View.GONE
             setPadding(24, 2, 0, 8)
+            addView(cbFixedHeaderText)
+            addView(edtFixedHeaderText)
             addView(TextView(this@MainActivity).apply {
                 text = "Özel Sabitlenecek Alan (İsteğe Bağlı CSS Seçici):"
                 textSize = 11.5f
+                setPadding(0, 6, 0, 0)
             })
             addView(edtFixedSelector)
         }
@@ -794,6 +818,8 @@ class MainActivity : AppCompatActivity() {
                 val scrollEnd = cbScrollEnd.isChecked
                 val fixedHeader = cbFixedHeader.isChecked
                 val fixedSelector = edtFixedSelector.text.toString().trim()
+                val fixedHeaderTextEnabled = fixedHeader && cbFixedHeaderText.isChecked
+                val fixedHeaderText = edtFixedHeaderText.text.toString().trim().take(50)
                 val scrollSpeed = scrollSpeedValues[spScrollSpeed.selectedItemPosition]
                 val zoomPct = webZoomValues[spZoom.selectedItemPosition]
                 val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]
@@ -809,6 +835,7 @@ class MainActivity : AppCompatActivity() {
                     existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait
                     existingItem.animation = anim; existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd
                     existingItem.webFixedHeader = fixedHeader; existingItem.webFixedSelector = fixedSelector
+                    existingItem.webFixedHeaderTextEnabled = fixedHeaderTextEnabled; existingItem.webFixedHeaderText = fixedHeaderText
                     existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
                     existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz
                     existingItem.webImageScalePercent = imgScale; existingItem.webBoldHeaders = boldHdr
@@ -820,7 +847,8 @@ class MainActivity : AppCompatActivity() {
                         scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr,
                         qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct,
                         webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr,
-                        webImageScalePercent = imgScale, webFixedHeader = fixedHeader, webFixedSelector = fixedSelector
+                        webImageScalePercent = imgScale, webFixedHeader = fixedHeader, webFixedSelector = fixedSelector,
+                        webFixedHeaderTextEnabled = fixedHeaderTextEnabled, webFixedHeaderText = fixedHeaderText
                     ))
                 }
                 activeUrlInputField = null; syncPlaylistToMenuboard()
