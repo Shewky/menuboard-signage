@@ -70,7 +70,8 @@ data class DeviceItem(
     var isOnline: Boolean = false,
     var lastSeenMs: Long = 0L,
     var version: String? = "",
-    var orientation: String? = "portrait"
+    var orientation: String? = "portrait",
+    var blurBg: Boolean = false
 )
 
 data class MediaItemModel(
@@ -356,7 +357,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.33" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.34" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -922,9 +923,11 @@ class MainActivity : AppCompatActivity() {
     private fun showDeviceAdvancedMenu(device: DeviceItem) {
         val isLandscape = device.orientation == "landscape"
         val tvModeOption = if (isLandscape) "📱 Dikey Moda Çevir (9:16)" else "📺 TV Moduna Çevir (16:9 Yatay)"
+        val blurOption = if (device.blurBg) "⬛ Bulanık Arka Plan: AÇIK (Kapat)" else "🌫️ Bulanık Arka Plan: KAPALI (Aç)"
         val options = arrayOf(
             "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
             tvModeOption,
+            blurOption,
             "⬇️ Güncelleme İndir / Kontrol Et",
             "📦 Uzaktan APK Gönder & Kur",
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
@@ -935,12 +938,32 @@ class MainActivity : AppCompatActivity() {
             when (which) {
                 0 -> verifyPermissionsAndOpenTouchpad(device)
                 1 -> toggleDeviceOrientation(device)
-                2 -> triggerRemoteUpdateCheck(device)
-                3 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
-                4 -> fetchAndShowInstalledApps(device)
-                5 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
+                2 -> toggleDeviceBlurBackground(device)
+                3 -> triggerRemoteUpdateCheck(device)
+                4 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
+                5 -> fetchAndShowInstalledApps(device)
+                6 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
             }
         }.setNegativeButton("Kapat", null).show()
+    }
+
+    private fun toggleDeviceBlurBackground(device: DeviceItem) {
+        val newState = !device.blurBg
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/blur_bg?enabled=$newState").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Bulanık arka plan komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                if (ok) {
+                    device.blurBg = newState
+                    saveDevices()
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, if (newState) "🌫️ Bulanık arka plan (Blur dolgu) açıldı!" else "⬛ Bulanık arka plan kapatıldı!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
     }
 
     private fun toggleDeviceOrientation(device: DeviceItem) {
@@ -1331,6 +1354,8 @@ class MainActivity : AppCompatActivity() {
                             if (ver.isNotEmpty()) dev.version = ver
                             val ori = json.optString("orientation", "")
                             if (ori.isNotEmpty()) dev.orientation = ori
+                            val blurStr = json.optString("blurBg", "")
+                            if (blurStr.isNotEmpty()) dev.blurBg = (blurStr == "true")
                         } catch (_: Exception) {}
                     }
                     if (activeDevice?.id == dev.id) {
