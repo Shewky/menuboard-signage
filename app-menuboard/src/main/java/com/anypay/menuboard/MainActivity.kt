@@ -42,6 +42,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -97,6 +98,7 @@ data class MediaItemModel(
     val webFontSizePercent: Int = 0,
     val webBoldHeaders: Boolean = false,
     val webImageScalePercent: Int = 100,
+    val webFixedHeader: Boolean = false,
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false,
@@ -474,24 +476,38 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (!blurBackgroundEnabled || isScreenSharing || videoTextureView.visibility != View.VISIBLE) return
             val player = exoPlayer
-            val baseSample = when (blurIntensityLevel) {
-                0 -> 48  // Az bulanık
-                2 -> 12  // Çok bulanık
-                else -> 24 // Orta bulanık
+            // Bulanıklık şiddetine göre temel çözünürlük (Az bulanık = daha net, Çok bulanık = daha yumuşak)
+            val baseDim = when (blurIntensityLevel) {
+                0 -> 140 // Az bulanık
+                2 -> 24  // Çok bulanık
+                else -> 64 // Orta bulanık
             }
-            val sampleSize = when (blurQualityLevel) {
-                0 -> (baseSample * 2 / 3).coerceAtLeast(8)
-                2 -> (baseSample * 3 / 2).coerceAtMost(96)
-                else -> baseSample
+            // Kalite seçimine göre çözünürlük çarpanı ve FPS
+            val longDim = when (blurQualityLevel) {
+                0 -> (baseDim * 0.6f).toInt().coerceAtLeast(16)
+                2 -> (baseDim * 2.0f).toInt().coerceAtMost(320)
+                else -> baseDim
             }
             val delayMs = when (blurQualityLevel) {
-                0 -> 80L  // Düşük (~12 FPS)
+                0 -> 75L  // Düşük (~13 FPS)
                 2 -> 22L  // Yüksek (~45 FPS)
-                else -> 40L // Orta (~25 FPS)
+                else -> 38L // Orta (~26 FPS)
             }
             if (player != null && player.isPlaying && videoTextureView.isAvailable) {
                 try {
-                    val frame = videoTextureView.getBitmap(sampleSize, sampleSize)
+                    val vw = videoTextureView.width.coerceAtLeast(1)
+                    val vh = videoTextureView.height.coerceAtLeast(1)
+                    val ratio = vw.toFloat() / vh.toFloat()
+                    val bw: Int
+                    val bh: Int
+                    if (ratio >= 1f) {
+                        bw = longDim
+                        bh = (longDim / ratio).toInt().coerceAtLeast(12)
+                    } else {
+                        bh = longDim
+                        bw = (longDim * ratio).toInt().coerceAtLeast(12)
+                    }
+                    val frame = videoTextureView.getBitmap(bw, bh)
                     if (frame != null) {
                         bgBlurImageView.setImageBitmap(frame)
                         if (bgBlurImageView.visibility != View.VISIBLE) {
@@ -611,27 +627,68 @@ class MainActivity : AppCompatActivity() {
         val isLandscape = screenOrientationMode == "landscape"
         val density = resources.displayMetrics.density
 
-        // QR boyutunu TV (yatay) modunda ekrana sığacak şekilde küçült
-        val qrSizePx = ((if (isLandscape) 155 else 240) * density).toInt()
-        imgQrCode.layoutParams = imgQrCode.layoutParams.apply {
+        // Karşılama kutusunun iç boşluklarını yatay modda kompakt hale getir
+        val padH = ((if (isLandscape) 16 else 24) * density).toInt()
+        val padV = ((if (isLandscape) 8 else 24) * density).toInt()
+        qrOverlay.setPadding(padH, padV, padH, padV)
+
+        // QR kod boyutunu TV (yatay) modunda ekrana sığacak şekilde ayarla
+        val qrSizePx = ((if (isLandscape) 130 else 230) * density).toInt()
+        imgQrCode.layoutParams = (imgQrCode.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
+            width = qrSizePx
+            height = qrSizePx
+            topMargin = ((if (isLandscape) 4 else 16) * density).toInt()
+            bottomMargin = ((if (isLandscape) 4 else 16) * density).toInt()
+        } ?: imgQrCode.layoutParams.apply {
             width = qrSizePx
             height = qrSizePx
         }
 
-        // Başlık metnini güncelle ve yatay modda yazı boyutlarını sığacak şekilde ayarla
+        // Oynatmaya Dön butonunu yatay modda kompaktlaştır
+        btnCloseQr.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 13f else 15f)
+        btnCloseQr.setPadding(
+            ((if (isLandscape) 20 else 28) * density).toInt(),
+            ((if (isLandscape) 6 else 12) * density).toInt(),
+            ((if (isLandscape) 20 else 28) * density).toInt(),
+            ((if (isLandscape) 6 else 12) * density).toInt()
+        )
+        (btnCloseQr.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
+            topMargin = ((if (isLandscape) 4 else 14) * density).toInt()
+            bottomMargin = ((if (isLandscape) 4 else 10) * density).toInt()
+        }
+
+        // Tüm alt öğeleri tara: başlığı ortala, logoyu ve yazıları yatay moda sığdır
         fun styleWelcomeViews(v: View) {
-            if (v is TextView && v !is Button) {
+            if (v is ImageView && v.id != R.id.imgQrCode) {
+                val logoH = ((if (isLandscape) 34 else 56) * density).toInt()
+                v.layoutParams = (v.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
+                    height = logoH
+                    topMargin = ((if (isLandscape) 4 else 12) * density).toInt()
+                    bottomMargin = ((if (isLandscape) 2 else 8) * density).toInt()
+                } ?: v.layoutParams.apply { height = logoH }
+            } else if (v is TextView && v !is Button) {
+                v.gravity = Gravity.CENTER
+                v.textAlignment = View.TEXT_ALIGNMENT_CENTER
                 val curTxt = v.text?.toString() ?: ""
-                if (curTxt.contains("ANYPAY", ignoreCase = true)) {
+                if (curTxt.contains("ANYPAY", ignoreCase = true) || curTxt.contains("MENUBOARD YAYIN", ignoreCase = true)) {
                     v.text = "MENUBOARD YAYIN SİSTEMİ"
-                }
-                when (v.id) {
-                    R.id.txtIpAddress -> v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 16f else 20f)
-                    R.id.txtStatus -> v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 12f else 15f)
-                    else -> {
-                        if (v.text?.toString()?.contains("MENUBOARD", ignoreCase = true) == true) {
-                            v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 20f else 28f)
-                        }
+                    v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 19f else 26f)
+                    (v.layoutParams as? LinearLayout.LayoutParams)?.apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        topMargin = ((if (isLandscape) 2 else 8) * density).toInt()
+                        bottomMargin = ((if (isLandscape) 4 else 12) * density).toInt()
+                    }
+                } else if (v.id == R.id.txtIpAddress) {
+                    v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 15f else 20f)
+                    (v.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
+                        topMargin = ((if (isLandscape) 2 else 8) * density).toInt()
+                        bottomMargin = ((if (isLandscape) 2 else 6) * density).toInt()
+                    }
+                } else if (v.id == R.id.txtStatus) {
+                    v.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isLandscape) 11f else 14f)
+                    (v.layoutParams as? ViewGroup.MarginLayoutParams)?.apply {
+                        topMargin = ((if (isLandscape) 2 else 6) * density).toInt()
+                        bottomMargin = ((if (isLandscape) 4 else 10) * density).toInt()
                     }
                 }
             }
@@ -642,6 +699,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         styleWelcomeViews(qrOverlay)
+        qrOverlay.requestLayout()
     }
 
     private fun getActivePlaylist(): List<MediaItemModel> = playlist.filter { !it.isHidden }
@@ -761,13 +819,13 @@ class MainActivity : AppCompatActivity() {
                 val rawBmp = BitmapFactory.decodeFile(file.absolutePath, opts)
                 if (rawBmp != null) {
                     val (baseMaxDim, radius) = when (intensity) {
-                        0 -> Pair(160, 3)  // Az Bulanık
-                        2 -> Pair(48, 10)  // Çok Bulanık
-                        else -> Pair(96, 6) // Orta Bulanık
+                        0 -> Pair(220, 2)  // Az Bulanık (daha net)
+                        2 -> Pair(64, 12)  // Çok Bulanık
+                        else -> Pair(128, 6) // Orta Bulanık
                     }
                     val maxDim = when (quality) {
-                        0 -> (baseMaxDim * 2 / 3).coerceAtLeast(32)
-                        2 -> (baseMaxDim * 3 / 2).coerceAtMost(240)
+                        0 -> (baseMaxDim * 0.65f).toInt().coerceAtLeast(32)
+                        2 -> (baseMaxDim * 1.8f).toInt().coerceAtMost(380)
                         else -> baseMaxDim
                     }
                     val scale = maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)
@@ -988,13 +1046,13 @@ class MainActivity : AppCompatActivity() {
         val blurBg = blurBackgroundEnabled && blurApplyInstagram
         val darkAlpha = String.format(java.util.Locale.US, "%.2f", blurDarknessPercent.coerceIn(0, 85) / 100.0)
         val baseCSize = when (blurIntensityLevel) {
-            0 -> 36  // Az bulanık
-            2 -> 10  // Çok bulanık
-            else -> 18 // Orta bulanık
+            0 -> 48  // Az bulanık
+            2 -> 12  // Çok bulanık
+            else -> 24 // Orta bulanık
         }
         val videoCanvasSize = when (blurQualityLevel) {
             0 -> (baseCSize * 2 / 3).coerceAtLeast(8)
-            2 -> (baseCSize * 3 / 2).coerceAtMost(64)
+            2 -> (baseCSize * 2).coerceAtMost(128)
             else -> baseCSize
         }
         val photoBlurPx = when (blurIntensityLevel) {
@@ -1158,6 +1216,9 @@ class MainActivity : AppCompatActivity() {
         val imgScale = item.webImageScalePercent
         if (imgScale in 25..250 && imgScale != 100) {
             cssRules.append("img { zoom: $imgScale% !important; } ")
+        }
+        if (item.webFixedHeader) {
+            cssRules.append("header, nav, .header, .navbar, .topbar, .site-header, [role='banner'] { position: sticky !important; top: 0 !important; z-index: 99999 !important; } ")
         }
 
         if (cssRules.isNotEmpty() || googleFontLinkJs.isNotEmpty()) {
