@@ -403,6 +403,7 @@ class MainActivity : AppCompatActivity() {
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
 
     private lateinit var mediaContainer: FrameLayout
+    private lateinit var bgBlurImageView: ImageView
     private lateinit var playerView: PlayerView
     private lateinit var imageView: ImageView
     private lateinit var imgLiveStream: ImageView
@@ -442,6 +443,7 @@ class MainActivity : AppCompatActivity() {
     private var currentKnownIp = ""
     private var activeBgObject = "none"
     private var screenOrientationMode = "portrait"
+    private var blurBackgroundEnabled = false
 
     private var awaitingSequentialPermissionChain = false
 
@@ -490,9 +492,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Kayıtlı ekran yönünü (Dikey 9:16 veya TV Modu Yatay 16:9) uygula
         val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
         screenOrientationMode = prefs.getString("screen_orientation", "portrait") ?: "portrait"
+        blurBackgroundEnabled = prefs.getBoolean("blur_bg_enabled", false)
         applyScreenOrientation(screenOrientationMode)
 
         setContentView(R.layout.activity_main)
@@ -512,6 +514,7 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
+        setupBlurBackgroundView()
         setupWebPlayerAndQrOverlay()
 
         val rootFrame = mediaContainer.parent as? FrameLayout ?: mediaContainer
@@ -541,6 +544,115 @@ class MainActivity : AppCompatActivity() {
         startUdpBeacon()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun setupBlurBackgroundView() {
+        bgBlurImageView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = View.GONE
+            setColorFilter(Color.argb(75, 0, 0, 0), PorterDuff.Mode.SRC_OVER)
+        }
+        mediaContainer.addView(
+            bgBlurImageView,
+            0,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        imageView.setBackgroundColor(Color.TRANSPARENT)
+        playerView.setBackgroundColor(Color.TRANSPARENT)
+        playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+    }
+
+    private fun applyBlurBackgroundForFile(file: File, isVideo: Boolean) {
+        if (!blurBackgroundEnabled) {
+            bgBlurImageView.visibility = View.GONE
+            bgBlurImageView.setImageDrawable(null)
+            return
+        }
+        val expectedFileName = file.name
+        Thread {
+            try {
+                val rawBmp: Bitmap? = if (isVideo) {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(file.absolutePath)
+                        retriever.getFrameAtTime(1000000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            ?: retriever.getFrameAtTime(0L)
+                    } catch (_: Exception) {
+                        null
+                    } finally {
+                        try { retriever.release() } catch (_: Exception) {}
+                    }
+                } else {
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    BitmapFactory.decodeFile(file.absolutePath, opts)
+                }
+
+                if (rawBmp != null) {
+                    val maxDim = 96
+                    val scale = maxDim.toFloat() / maxOf(rawBmp.width, rawBmp.height).coerceAtLeast(1)
+                    val sw = (rawBmp.width * scale).toInt().coerceAtLeast(16)
+                    val sh = (rawBmp.height * scale).toInt().coerceAtLeast(16)
+                    val small = Bitmap.createScaledBitmap(rawBmp, sw, sh, true)
+                    val blurred = fastBlur(small, 6)
+                    if (small != rawBmp) small.recycle()
+                    rawBmp.recycle()
+
+                    runOnUiThread {
+                        val currentItem = playlist.getOrNull(currentIndex % playlist.size.coerceAtLeast(1))
+                        if (blurBackgroundEnabled && !isScreenSharing && currentItem?.fileName == expectedFileName) {
+                            bgBlurImageView.setImageBitmap(blurred)
+                            bgBlurImageView.visibility = View.VISIBLE
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }.start()
+    }
+
+    private fun fastBlur(source: Bitmap, radius: Int): Bitmap {
+        val w = source.width.coerceAtLeast(1)
+        val h = source.height.coerceAtLeast(1)
+        val bmp = source.copy(Bitmap.Config.ARGB_8888, true)
+        val pix = IntArray(w * h)
+        bmp.getPixels(pix, 0, w, 0, 0, w, h)
+        val tmp = IntArray(w * h)
+        val r = radius.coerceIn(1, 20)
+
+        repeat(2) {
+            for (y in 0 until h) {
+                val rowOff = y * w
+                for (x in 0 until w) {
+                    var rSum = 0; var gSum = 0; var bSum = 0; var count = 0
+                    val xStart = (x - r).coerceAtLeast(0)
+                    val xEnd = (x + r).coerceAtMost(w - 1)
+                    for (i in xStart..xEnd) {
+                        val c = pix[rowOff + i]
+                        rSum += (c shr 16) and 0xFF
+                        gSum += (c shr 8) and 0xFF
+                        bSum += c and 0xFF
+                        count++
+                    }
+                    tmp[rowOff + x] = (0xFF shl 24) or ((rSum / count) shl 16) or ((gSum / count) shl 8) or (bSum / count)
+                }
+            }
+            for (x in 0 until w) {
+                for (y in 0 until h) {
+                    var rSum = 0; var gSum = 0; var bSum = 0; var count = 0
+                    val yStart = (y - r).coerceAtLeast(0)
+                    val yEnd = (y + r).coerceAtMost(h - 1)
+                    for (i in yStart..yEnd) {
+                        val c = tmp[i * w + x]
+                        rSum += (c shr 16) and 0xFF
+                        gSum += (c shr 8) and 0xFF
+                        bSum += c and 0xFF
+                        count++
+                    }
+                    pix[y * w + x] = (0xFF shl 24) or ((rSum / count) shl 16) or ((gSum / count) shl 8) or (bSum / count)
+                }
+            }
+        }
+        bmp.setPixels(pix, 0, w, 0, 0, w, h)
+        return bmp
     }
 
     private fun applyScreenOrientation(mode: String) {
@@ -689,6 +801,7 @@ class MainActivity : AppCompatActivity() {
         val filter = item.igMediaFilter ?: "all"
         val slideMs = (if (item.igSlideSec > 0) item.igSlideSec else 8) * 1000
         val audioEnabled = item.igAudioEnabled
+        val blurBg = blurBackgroundEnabled
 
         val js = """
             (function() {
@@ -697,6 +810,7 @@ class MainActivity : AppCompatActivity() {
                 var filter = '$filter';
                 var slideMs = $slideMs;
                 var audioEnabled = $audioEnabled;
+                var blurBg = $blurBg;
 
                 setTimeout(function() {
                     var vid = document.querySelector('video');
@@ -709,7 +823,23 @@ class MainActivity : AppCompatActivity() {
                         ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;overflow:hidden;';
                         document.body.appendChild(ov);
 
-                        vid.style.cssText = 'width:100vw !important;height:100vh !important;max-width:100vw !important;max-height:100vh !important;object-fit:contain !important;background:#000 !important;position:relative !important;display:block !important;visibility:visible !important;opacity:1 !important;';
+                        if (blurBg) {
+                            var bgCanvas = document.createElement('canvas');
+                            bgCanvas.width = 64;
+                            bgCanvas.height = 64;
+                            bgCanvas.style.cssText = 'position:absolute;top:-20px;left:-20px;width:calc(100vw + 40px);height:calc(100vh + 40px);object-fit:cover;filter:blur(26px) brightness(0.65);z-index:1;pointer-events:none;';
+                            ov.appendChild(bgCanvas);
+                            var ctx = bgCanvas.getContext('2d');
+                            var drawBg = setInterval(function() {
+                                try {
+                                    if (!vid.paused && !vid.ended && vid.videoWidth > 0) {
+                                        ctx.drawImage(vid, 0, 0, 64, 64);
+                                    }
+                                } catch (e) { clearInterval(drawBg); }
+                            }, 180);
+                        }
+
+                        vid.style.cssText = 'width:100vw !important;height:100vh !important;max-width:100vw !important;max-height:100vh !important;object-fit:contain !important;background:transparent !important;position:relative !important;z-index:2 !important;display:block !important;visibility:visible !important;opacity:1 !important;';
                         vid.setAttribute('playsinline', '');
                         vid.setAttribute('webkit-playsinline', '');
                         vid.loop = false;
@@ -751,10 +881,16 @@ class MainActivity : AppCompatActivity() {
 
                     if (bestImg && bestImg.src) {
                         var ovImg = document.createElement('div');
-                        ovImg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+                        ovImg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;overflow:hidden;';
+                        if (blurBg) {
+                            var bgIm = document.createElement('img');
+                            bgIm.src = bestImg.src;
+                            bgIm.style.cssText = 'position:absolute;top:-20px;left:-20px;width:calc(100vw + 40px);height:calc(100vh + 40px);object-fit:cover;filter:blur(28px) brightness(0.65);z-index:1;';
+                            ovImg.appendChild(bgIm);
+                        }
                         var el = document.createElement('img');
                         el.src = bestImg.src;
-                        el.style.cssText = 'width:100vw;height:100vh;object-fit:contain;';
+                        el.style.cssText = 'position:relative;z-index:2;width:100vw;height:100vh;object-fit:contain;';
                         ovImg.appendChild(el);
                         document.body.appendChild(ovImg);
                         setTimeout(function() {
@@ -1044,6 +1180,8 @@ class MainActivity : AppCompatActivity() {
         webScrollActive = false
         activeWebItem = null
         exoPlayer?.stop(); exoPlayer?.clearMediaItems()
+        bgBlurImageView.visibility = View.GONE
+        bgBlurImageView.setImageDrawable(null)
         playerView.visibility = View.GONE
         imageView.visibility = View.GONE
         imgLiveStream.visibility = View.GONE
@@ -1086,6 +1224,7 @@ class MainActivity : AppCompatActivity() {
 
         if (item.type == "instagram") {
             exoPlayer?.stop()
+            bgBlurImageView.visibility = View.GONE
             playerView.visibility = View.GONE
             imageView.visibility = View.GONE
             webQrContainer.visibility = View.GONE
@@ -1130,6 +1269,7 @@ class MainActivity : AppCompatActivity() {
 
         if (item.type == "web") {
             exoPlayer?.stop()
+            bgBlurImageView.visibility = View.GONE
             playerView.visibility = View.GONE
             imageView.visibility = View.GONE
             webView.visibility = View.VISIBLE
@@ -1187,11 +1327,20 @@ class MainActivity : AppCompatActivity() {
         applyTransitionAnimation(item.animation)
 
         if (item.type == "video") {
-            imageView.visibility = View.GONE; playerView.visibility = View.VISIBLE
+            imageView.visibility = View.GONE
+            playerView.visibility = View.VISIBLE
+            playerView.setBackgroundColor(Color.TRANSPARENT)
+            playerView.setShutterBackgroundColor(Color.TRANSPARENT)
+            applyBlurBackgroundForFile(file, isVideo = true)
             exoPlayer?.stop(); exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file))); exoPlayer?.prepare(); exoPlayer?.play()
             if (item.durationSec > 0) handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
         } else {
-            exoPlayer?.stop(); playerView.visibility = View.GONE; imageView.visibility = View.VISIBLE
+            exoPlayer?.stop()
+            playerView.visibility = View.GONE
+            imageView.visibility = View.VISIBLE
+            imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+            imageView.setBackgroundColor(Color.TRANSPARENT)
+            applyBlurBackgroundForFile(file, isVideo = false)
             imageView.setImageURI(null); imageView.setImageURI(Uri.fromFile(file))
             handler.postDelayed(mediaEndRunnable, (if (item.durationSec > 0) item.durationSec else 10) * 1000L)
         }
@@ -1216,6 +1365,23 @@ class MainActivity : AppCompatActivity() {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
+
+            // Bulanık Arka Plan (Blur Dolgu) Aç/Kapat
+            if (uri == "/api/blur_bg" && method == Method.POST) {
+                val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
+                blurBackgroundEnabled = enabled
+                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putBoolean("blur_bg_enabled", enabled).apply()
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, if (enabled) "🌫️ Bulanık Arka Plan Aktif" else "⬛ Siyah Arka Plan Aktif", Toast.LENGTH_SHORT).show()
+                    if (!isScreenSharing && qrOverlay.visibility != View.VISIBLE && playlist.isNotEmpty()) {
+                        playItem(currentIndex % playlist.size)
+                    } else if (!enabled) {
+                        bgBlurImageView.visibility = View.GONE
+                        bgBlurImageView.setImageDrawable(null)
+                    }
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
+            }
 
             // TV Modu (Yatay 16:9) / Dikey Mod (9:16) Geçişi
             if (uri == "/api/orientation" && method == Method.POST) {
@@ -1458,7 +1624,8 @@ class MainActivity : AppCompatActivity() {
                             "bgObject" to activeBgObject,
                             "serviceActive" to (MenuboardControlService.instance != null).toString(),
                             "version" to curVer,
-                            "orientation" to screenOrientationMode
+                            "orientation" to screenOrientationMode,
+                            "blurBg" to blurBackgroundEnabled.toString()
                         )
                     )
                 )
