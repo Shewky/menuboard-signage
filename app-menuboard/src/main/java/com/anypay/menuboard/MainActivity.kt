@@ -23,6 +23,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -439,6 +440,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var imgWebQr: ImageView
     private var activeWebItem: MediaItemModel? = null
     private var webScrollActive = false
+    private var webScrollBottomStrikes = 0
 
     private var igPostUrls = mutableListOf<String>()
     private var igPostIndex = 0
@@ -484,9 +486,9 @@ class MainActivity : AppCompatActivity() {
             if (!blurBackgroundEnabled || isScreenSharing || videoTextureView.visibility != View.VISIBLE) return
             val player = exoPlayer
             val delayMs = when (blurQualityLevel) {
-                0 -> 70L  // Düşük (~14 FPS)
-                2 -> 22L  // Yüksek (~45 FPS)
-                else -> 38L // Orta (~26 FPS)
+                0 -> 70L
+                2 -> 22L
+                else -> 38L
             }
             if (player != null && player.isPlaying && videoTextureView.isAvailable) {
                 try {
@@ -567,13 +569,21 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (webView.canScrollVertically(1)) {
+                webScrollBottomStrikes = 0
                 webView.scrollBy(0, stepPx)
                 handler.postDelayed(this, delayMs)
             } else {
                 if (item.scrollUntilEnd) {
-                    webScrollActive = false
-                    handler.removeCallbacks(mediaEndRunnable)
-                    handler.postDelayed(mediaEndRunnable, 2500L)
+                    webScrollBottomStrikes++
+                    // Lazy-load içerikler yüklenirken erken kesilmemesi için 3 kez (toplam ~1.5 sn) doğrula
+                    if (webScrollBottomStrikes < 3) {
+                        handler.postDelayed(this, 500L)
+                    } else {
+                        webScrollActive = false
+                        webScrollBottomStrikes = 0
+                        handler.removeCallbacks(mediaEndRunnable)
+                        handler.postDelayed(mediaEndRunnable, 2500L)
+                    }
                 }
             }
         }
@@ -653,6 +663,35 @@ class MainActivity : AppCompatActivity() {
         startUdpBeacon()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun getRealScreenSize(): Pair<Int, Int> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            Pair(bounds.width(), bounds.height())
+        } else {
+            val dm = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(dm)
+            Pair(dm.widthPixels, dm.heightPixels)
+        }
+    }
+
+    private fun restartMenuboardApp() {
+        runOnUiThread {
+            Toast.makeText(this, "🔄 Menuboard yeniden başlatılıyor...", Toast.LENGTH_SHORT).show()
+            handler.postDelayed({
+                try {
+                    isBroadcasting = false
+                    httpServer?.stop()
+                    exoPlayer?.release()
+                    val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                    val restartIntent = Intent.makeRestartActivityTask(launchIntent?.component)
+                    startActivity(restartIntent)
+                    Runtime.getRuntime().exit(0)
+                } catch (_: Exception) {}
+            }, 350L)
+        }
     }
 
     private fun updateWelcomeScreenLayout() {
@@ -761,7 +800,7 @@ class MainActivity : AppCompatActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            applyImmersiveMode(immersiveModeEnabled)
+            applyImmersiveMode(if (isScreenSharing) true else immersiveModeEnabled)
         }
     }
 
@@ -1011,6 +1050,7 @@ class MainActivity : AppCompatActivity() {
                             injectWebCustomStyles(view, item)
                             if (item.autoScroll || item.scrollUntilEnd) {
                                 handler.removeCallbacks(webScrollRunnable)
+                                webScrollBottomStrikes = 0
                                 webScrollActive = true
                                 handler.postDelayed(webScrollRunnable, 2000L)
                             }
@@ -1358,7 +1398,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         currentTaskId = taskId
-        applyImmersiveMode(immersiveModeEnabled)
+        applyImmersiveMode(if (isScreenSharing) true else immersiveModeEnabled)
         if (awaitingSequentialPermissionChain) {
             val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
             val hasAcc = isAccessibilityServiceEnabled()
@@ -1622,6 +1662,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(videoBlurRunnable)
         igPostUrls.clear()
         webScrollActive = false
+        webScrollBottomStrikes = 0
         activeWebItem = null
         exoPlayer?.stop(); exoPlayer?.clearMediaItems()
         bgBlurImageView.visibility = View.GONE
@@ -1663,6 +1704,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(videoBlurRunnable)
         igPostUrls.clear()
         webScrollActive = false
+        webScrollBottomStrikes = 0
         activeWebItem = null
 
         val activeList = getActivePlaylist()
@@ -1709,7 +1751,7 @@ class MainActivity : AppCompatActivity() {
             webView.loadUrl("https://www.instagram.com/$cleanUser/")
             applyTransitionAnimation(item.animation)
 
-            if (item.scrollUntilEnd) handler.postDelayed(mediaEndRunnable, 300000L)
+            if (item.scrollUntilEnd) handler.postDelayed(mediaEndRunnable, 1800000L)
             else handler.postDelayed(mediaEndRunnable, (if (item.durationSec > 0) item.durationSec else 30) * 1000L)
 
             animatedOverlayView.bringToFront()
@@ -1763,7 +1805,8 @@ class MainActivity : AppCompatActivity() {
                 webQrContainer.visibility = View.GONE
             }
 
-            if (item.scrollUntilEnd) handler.postDelayed(mediaEndRunnable, 300000L)
+            // Uzun sayfalarda erken kesilmemesi için 30 dk güvenlik süresi (sayfa bitince otomatik geçer)
+            if (item.scrollUntilEnd) handler.postDelayed(mediaEndRunnable, 1800000L)
             else handler.postDelayed(mediaEndRunnable, (if (item.durationSec > 0) item.durationSec else 20) * 1000L)
 
             animatedOverlayView.bringToFront()
@@ -1827,6 +1870,12 @@ class MainActivity : AppCompatActivity() {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri
             val method = session.method
+
+            // Menuboard Uygulamasını Yeniden Başlat
+            if (uri == "/api/restart" && method == Method.POST) {
+                restartMenuboardApp()
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", "RESTARTING")
+            }
 
             if (uri == "/api/immersive" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() != "false"
@@ -1937,9 +1986,9 @@ class MainActivity : AppCompatActivity() {
                         val dy = session.parameters["dy"]?.firstOrNull()?.toFloatOrNull() ?: 0f
                         if (svc != null) svc.moveCursorBy(dx, dy)
                         else runOnUiThread {
-                            val dm = resources.displayMetrics
-                            animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(10f, dm.widthPixels - 20f)
-                            animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(10f, dm.heightPixels - 20f)
+                            val (realW, realH) = getRealScreenSize()
+                            animatedOverlayView.cursorX = (animatedOverlayView.cursorX + dx).coerceIn(0f, (realW - 4).toFloat())
+                            animatedOverlayView.cursorY = (animatedOverlayView.cursorY + dy).coerceIn(0f, (realH - 4).toFloat())
                             animatedOverlayView.showCursor = true; animatedOverlayView.bringToFront(); animatedOverlayView.invalidate()
                             handler.removeCallbacks(hideCursorRunnable); handler.postDelayed(hideCursorRunnable, 8000L)
                         }
@@ -2068,13 +2117,32 @@ class MainActivity : AppCompatActivity() {
 
             if (uri == "/api/screen/start" && method == Method.POST) {
                 isScreenSharing = true
-                runOnUiThread { stopAllPlayback(); qrOverlay.visibility = View.GONE; imgLiveStream.visibility = View.VISIBLE; imgLiveStream.bringToFront() }
+                runOnUiThread {
+                    stopAllPlayback()
+                    applyImmersiveMode(true)
+                    qrOverlay.visibility = View.GONE
+                    imgCornerLogo.visibility = View.GONE
+                    btnSettings.visibility = View.GONE
+                    imgLiveStream.setBackgroundColor(Color.BLACK)
+                    imgLiveStream.scaleType = ImageView.ScaleType.FIT_CENTER
+                    imgLiveStream.layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    imgLiveStream.visibility = View.VISIBLE
+                    imgLiveStream.bringToFront()
+                }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STARTED")
             }
 
             if (uri == "/api/screen/stop" && method == Method.POST) {
                 isScreenSharing = false
-                runOnUiThread { imgLiveStream.visibility = View.GONE; if (getActivePlaylist().isNotEmpty()) { hideQrOverlay(); startPlayback() } else showQrOverlay() }
+                runOnUiThread {
+                    imgLiveStream.visibility = View.GONE
+                    btnSettings.visibility = View.VISIBLE
+                    applyImmersiveMode(immersiveModeEnabled)
+                    if (getActivePlaylist().isNotEmpty()) { hideQrOverlay(); startPlayback() } else showQrOverlay()
+                }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "SCREEN_STOPPED")
             }
 
@@ -2085,7 +2153,13 @@ class MainActivity : AppCompatActivity() {
                     while (totalRead < contentLength) { val r = input.read(buffer, totalRead, contentLength - totalRead); if (r <= 0) break; totalRead += r }
                     if (totalRead > 0) {
                         val bitmap = BitmapFactory.decodeByteArray(buffer, 0, totalRead)
-                        if (bitmap != null) runOnUiThread { if (isScreenSharing) { if (qrOverlay.visibility == View.VISIBLE) qrOverlay.visibility = View.GONE; imgLiveStream.visibility = View.VISIBLE; imgLiveStream.setImageBitmap(bitmap) } }
+                        if (bitmap != null) runOnUiThread {
+                            if (isScreenSharing) {
+                                if (qrOverlay.visibility == View.VISIBLE) qrOverlay.visibility = View.GONE
+                                imgLiveStream.visibility = View.VISIBLE
+                                imgLiveStream.setImageBitmap(bitmap)
+                            }
+                        }
                     }
                 }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
