@@ -193,6 +193,9 @@ class MainActivity : AppCompatActivity() {
     private var playlist = mutableListOf<MediaItemModel>()
 
     private var activeUrlInputField: EditText? = null
+    private var pendingUploadMediaUri: Uri? = null
+    private var activeUploadFileLabel: TextView? = null
+    private var activeUploadDurEdit: EditText? = null
 
     private lateinit var edtRestaurantName: EditText
     private lateinit var edtMenuPageDuration: EditText
@@ -341,7 +344,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val pickMediaLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (res.resultCode == Activity.RESULT_OK && res.data?.data != null) uploadMediaFile(res.data!!.data!!)
+        if (res.resultCode == Activity.RESULT_OK && res.data?.data != null) {
+            val uri = res.data!!.data!!
+            pendingUploadMediaUri = uri
+            val mime = contentResolver.getType(uri) ?: ""
+            val isVideo = mime.startsWith("video")
+            var displayName = "Seçilen Medya"
+            contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (c.moveToFirst() && idx >= 0) displayName = c.getString(idx)
+            }
+            activeUploadFileLabel?.text = "✅ Seçilen: $displayName (${if (isVideo) "Video" else "Resim"})"
+            activeUploadFileLabel?.setTextColor(Color.parseColor("#2E7D32"))
+            activeUploadDurEdit?.setText(if (isVideo) "0" else "10")
+        }
     }
 
     private val pickProductPhotoLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
@@ -400,11 +416,12 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.45" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.46" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
 
+        hideLegacyMediaParamInputs()
         injectAddUrlButton()
         setupDynamicSefimTabAndControls()
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
@@ -434,7 +451,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnPickMedia.setOnClickListener {
             if (activeDevice == null) { Toast.makeText(this, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            pickMediaLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"; putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*")) })
+            showUploadMediaDialog()
         }
 
         findViewById<ImageView?>(R.id.imgFooterLogo)?.setOnClickListener { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.interfon.com.tr"))) }
@@ -443,6 +460,119 @@ class MainActivity : AppCompatActivity() {
 
         if (deviceList.isNotEmpty() && activeDevice == null) selectDevice(deviceList.first())
         startUdpListener(); checkForUpdate()
+    }
+
+    private fun hideLegacyMediaParamInputs() {
+        val protectedViews = setOf<View>(btnToggleScreenShare, btnPickMedia, recyclerViewPlaylist)
+        fun containsProtected(vg: ViewGroup): Boolean {
+            for (i in 0 until vg.childCount) {
+                val c = vg.getChildAt(i)
+                if (c in protectedViews) return true
+                if (c is ViewGroup && containsProtected(c)) return true
+            }
+            return false
+        }
+        listOf<View>(edtDuration, edtWaitAfter, spinnerAnim).forEach { v ->
+            v.visibility = View.GONE
+            val p = v.parent as? ViewGroup
+            if (p != null && p != panelTabMedia && !containsProtected(p)) {
+                p.visibility = View.GONE
+            } else if (p != null) {
+                val idx = p.indexOfChild(v)
+                if (idx > 0) {
+                    val prev = p.getChildAt(idx - 1)
+                    if (prev is TextView && prev !is Button) {
+                        prev.visibility = View.GONE
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showUploadMediaDialog() {
+        pendingUploadMediaUri = null
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 30, 50, 15)
+        }
+
+        val btnChooseFile = Button(this).apply {
+            text = "📂 Telefonundan Medya Seç"
+            isAllCaps = false
+            textSize = 13.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#1976D2"))
+            setOnClickListener {
+                pickMediaLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+                })
+            }
+        }
+
+        val txtSelected = TextView(this).apply {
+            text = "Henüz fotoğraf veya video seçilmedi"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#666666"))
+            setPadding(0, 12, 0, 16)
+        }
+        activeUploadFileLabel = txtSelected
+
+        val edtDur = EditText(this).apply {
+            hint = "Süre (0 = video tamamı, resim için 10)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText("10")
+        }
+        activeUploadDurEdit = edtDur
+
+        val edtWait = EditText(this).apply {
+            hint = "Ara Bekleme (sn)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText("0")
+        }
+
+        val spAnim = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
+        }
+
+        layout.addView(btnChooseFile)
+        layout.addView(txtSelected)
+        layout.addView(TextView(this).apply { text = "Oynatma Süresi (sn):" })
+        layout.addView(edtDur)
+        layout.addView(TextView(this).apply { text = "Ara Bekleme (sn):"; setPadding(0, 10, 0, 0) })
+        layout.addView(edtWait)
+        layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) })
+        layout.addView(spAnim)
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("📁 Medya Yükle")
+            .setView(layout)
+            .setPositiveButton("Yükle", null)
+            .setNegativeButton("İptal", null)
+            .create()
+
+        dlg.setOnDismissListener {
+            activeUploadFileLabel = null
+            activeUploadDurEdit = null
+        }
+
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selectedUri = pendingUploadMediaUri
+                if (selectedUri == null) {
+                    Toast.makeText(this, "Lütfen önce telefonunuzdan bir fotoğraf veya video seçin!", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val dur = edtDur.text.toString().toIntOrNull() ?: 0
+                val wait = edtWait.text.toString().toIntOrNull() ?: 0
+                val anim = animValues[spAnim.selectedItemPosition]
+                dlg.dismiss()
+                uploadMediaFile(selectedUri, dur, wait, anim)
+            }
+        }
+        dlg.show()
     }
 
     private fun handleLockedSefimTabClick() {
@@ -1078,7 +1208,8 @@ class MainActivity : AppCompatActivity() {
             "⬇️ Güncelleme İndir / Kontrol Et",
             "📦 Uzaktan APK Gönder & Kur",
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
-            "📺 Menuboard Uygulamasını Tekrar Öne Getir"
+            "📺 Menuboard Uygulamasını Tekrar Öne Getir",
+            "🔄 Menuboard Uygulamasını Restart Et"
         )
         val verTitle = if (!device.version.isNullOrEmpty()) " (v${device.version})" else ""
         AlertDialog.Builder(this).setTitle("${device.nameTag}$verTitle Yönetimi").setItems(options) { _, which ->
@@ -1091,8 +1222,25 @@ class MainActivity : AppCompatActivity() {
                 5 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
                 6 -> fetchAndShowInstalledApps(device)
                 7 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
+                8 -> triggerRemoteRestart(device)
             }
         }.setNegativeButton("Kapat", null).show()
+    }
+
+    private fun triggerRemoteRestart(device: DeviceItem) {
+        Toast.makeText(this, "${device.nameTag} yeniden başlatılıyor...", Toast.LENGTH_SHORT).show()
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/restart").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Yeniden başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                runOnUiThread {
+                    if (ok) Toast.makeText(this@MainActivity, "🔄 Menuboard kapanıp otomatik tekrar açılıyor...", Toast.LENGTH_LONG).show()
+                    else Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce güncelleyin.", Toast.LENGTH_LONG).show()
+                }
+            }
+        })
     }
 
     private fun showBlurBackgroundDialog(device: DeviceItem) {
@@ -1792,7 +1940,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun uploadMediaFile(uri: Uri) {
+    private fun uploadMediaFile(uri: Uri, durationSec: Int, waitAfterSec: Int, animation: String) {
         val host = activeDevice?.host ?: return
         val contentResolver = applicationContext.contentResolver
         val isVideo = (contentResolver.getType(uri) ?: "").startsWith("video")
@@ -1826,7 +1974,7 @@ class MainActivity : AppCompatActivity() {
                 val ok = response.isSuccessful; response.close()
                 runOnUiThread { uploadProgressBar?.visibility = View.GONE }
                 if (ok) {
-                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = fileName, type = if (isVideo) "video" else "image", durationSec = edtDuration.text.toString().toIntOrNull() ?: 0, waitAfterSec = edtWaitAfter.text.toString().toIntOrNull() ?: 0, animation = animValues[spinnerAnim.selectedItemPosition], fileDurationSec = fileDurSec))
+                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = fileName, type = if (isVideo) "video" else "image", durationSec = durationSec, waitAfterSec = waitAfterSec, animation = animation, fileDurationSec = fileDurSec))
                     syncPlaylistToMenuboard()
                 } else runOnUiThread { Toast.makeText(this@MainActivity, "Sunucu dosyayı kaydedemedi!", Toast.LENGTH_SHORT).show() }
             }
