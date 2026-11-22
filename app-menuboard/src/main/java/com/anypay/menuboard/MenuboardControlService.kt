@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -64,12 +65,32 @@ class MenuboardControlService : AccessibilityService() {
         }
     }
 
+    private fun updateRealScreenSize() {
+        val wm = windowManager ?: (getSystemService(WINDOW_SERVICE) as? WindowManager)
+        if (wm != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bounds = wm.maximumWindowMetrics.bounds
+                screenW = bounds.width()
+                screenH = bounds.height()
+            } else {
+                val dm = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                wm.defaultDisplay.getRealMetrics(dm)
+                screenW = dm.widthPixels
+                screenH = dm.heightPixels
+            }
+        } else {
+            val dm = resources.displayMetrics
+            screenW = dm.widthPixels
+            screenH = dm.heightPixels
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        val dm = resources.displayMetrics
-        screenW = dm.widthPixels
-        screenH = dm.heightPixels
+        windowManager = getSystemService(WINDOW_SERVICE) as? WindowManager
+        updateRealScreenSize()
         cursorX = screenW / 2f
         cursorY = screenH / 2f
         attachGlobalCursorOverlay()
@@ -93,26 +114,30 @@ class MenuboardControlService : AccessibilityService() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
-            try {
-                val params = WindowManager.LayoutParams(
+            fun buildParams(type: Int): WindowManager.LayoutParams {
+                return WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,
-                    primaryType,
+                    type,
                     flags,
                     PixelFormat.TRANSLUCENT
-                ).apply { gravity = Gravity.TOP or Gravity.START }
-                windowManager?.addView(view, params)
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        fitInsetsTypes = 0
+                    }
+                }
+            }
+
+            try {
+                windowManager?.addView(view, buildParams(primaryType))
                 cursorView = view
             } catch (_: Exception) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Settings.canDrawOverlays(this)) {
-                    val fallbackParams = WindowManager.LayoutParams(
-                        WindowManager.LayoutParams.MATCH_PARENT,
-                        WindowManager.LayoutParams.MATCH_PARENT,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                        flags,
-                        PixelFormat.TRANSLUCENT
-                    ).apply { gravity = Gravity.TOP or Gravity.START }
-                    windowManager?.addView(view, fallbackParams)
+                    windowManager?.addView(view, buildParams(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY))
                     cursorView = view
                 }
             }
@@ -123,11 +148,9 @@ class MenuboardControlService : AccessibilityService() {
     fun moveCursorBy(dx: Float, dy: Float) {
         mainHandler.post {
             if (cursorView == null) attachGlobalCursorOverlay()
-            val dm = resources.displayMetrics
-            screenW = dm.widthPixels
-            screenH = dm.heightPixels
-            cursorX = (cursorX + dx).coerceIn(5f, screenW - 15f)
-            cursorY = (cursorY + dy).coerceIn(5f, screenH - 15f)
+            updateRealScreenSize()
+            cursorX = (cursorX + dx).coerceIn(0f, (screenW - 2).toFloat())
+            cursorY = (cursorY + dy).coerceIn(0f, (screenH - 2).toFloat())
             cursorView?.visibility = View.VISIBLE
             cursorView?.bringToFront()
             cursorView?.invalidate()
@@ -142,10 +165,7 @@ class MenuboardControlService : AccessibilityService() {
             val x = cursorX.toInt()
             val y = cursorY.toInt()
 
-            // 1. Önce o koordinattaki AccessibilityNodeInfo düğümünü bulup doğrudan sistem ACTION_CLICK göndermeyi dene
             val clickedViaNode = tryClickAccessibilityNodeAt(x, y)
-
-            // 2. İmleç katmanını (Overlay) 90ms gizle ki sistem pencereleri dokunuşu 'Obscured' (Engellenmiş) saymasın!
             cursorView?.visibility = View.GONE
 
             mainHandler.postDelayed({
@@ -203,7 +223,8 @@ class MenuboardControlService : AccessibilityService() {
     fun scrollAtCursor(scrollDy: Float) {
         mainHandler.post {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val endY = (cursorY + scrollDy).coerceIn(60f, screenH - 60f)
+                updateRealScreenSize()
+                val endY = (cursorY + scrollDy).coerceIn(10f, (screenH - 10).toFloat())
                 val path = Path().apply {
                     moveTo(cursorX, cursorY)
                     lineTo(cursorX, endY)
