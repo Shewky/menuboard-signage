@@ -258,34 +258,13 @@ class MainActivity : AppCompatActivity() {
     private val webZoomValues = arrayOf(30, 40, 50, 60, 70, 75, 80, 90, 100, 110, 125, 140, 150, 175, 200, 225, 250)
 
     private val webFontFamilyLabels = arrayOf(
-        "Site Varsayılanı",
-        "Roboto (Modern)",
-        "Open Sans (Ferah)",
-        "Montserrat (Şık)",
-        "Poppins (Yuvarlak)",
-        "Lato (Kurumsal)",
-        "Oswald (Dar Başlık)",
-        "Playfair Display (Lüks)",
-        "Merriweather (Klasik)",
-        "Sistem Sans-Serif",
-        "Sistem Serif",
-        "Daktilo (Monospace)",
-        "El Yazısı (Cursive)"
+        "Site Varsayılanı", "Roboto (Modern)", "Open Sans (Ferah)", "Montserrat (Şık)",
+        "Poppins (Yuvarlak)", "Lato (Kurumsal)", "Oswald (Dar Başlık)", "Playfair Display (Lüks)",
+        "Merriweather (Klasik)", "Sistem Sans-Serif", "Sistem Serif", "Daktilo (Monospace)", "El Yazısı (Cursive)"
     )
     private val webFontFamilyValues = arrayOf(
-        "default",
-        "Roboto",
-        "Open Sans",
-        "Montserrat",
-        "Poppins",
-        "Lato",
-        "Oswald",
-        "Playfair Display",
-        "Merriweather",
-        "sans-serif",
-        "serif",
-        "monospace",
-        "cursive"
+        "default", "Roboto", "Open Sans", "Montserrat", "Poppins", "Lato", "Oswald",
+        "Playfair Display", "Merriweather", "sans-serif", "serif", "monospace", "cursive"
     )
 
     private val webFontSizeLabels = arrayOf("Site Varsayılanı", "%85 (Küçük)", "%100 (Normal)", "%115 (Orta)", "%130 (Büyük)", "%150 (Çok Büyük)", "%175 (Dev)")
@@ -417,7 +396,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.47" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.50" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -476,15 +455,12 @@ class MainActivity : AppCompatActivity() {
         listOf<View>(edtDuration, edtWaitAfter, spinnerAnim).forEach { v ->
             v.visibility = View.GONE
             val p = v.parent as? ViewGroup
-            if (p != null && p != panelTabMedia && !containsProtected(p)) {
-                p.visibility = View.GONE
-            } else if (p != null) {
+            if (p != null && p != panelTabMedia && !containsProtected(p)) p.visibility = View.GONE
+            else if (p != null) {
                 val idx = p.indexOfChild(v)
                 if (idx > 0) {
                     val prev = p.getChildAt(idx - 1)
-                    if (prev is TextView && prev !is Button) {
-                        prev.visibility = View.GONE
-                    }
+                    if (prev is TextView && prev !is Button) prev.visibility = View.GONE
                 }
             }
         }
@@ -492,85 +468,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUploadMediaDialog() {
         pendingUploadMediaUri = null
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(50, 30, 50, 15)
-        }
-
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(50, 30, 50, 15) }
         val btnChooseFile = Button(this).apply {
-            text = "📂 Telefonundan Medya Seç"
-            isAllCaps = false
-            textSize = 13.5f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#1976D2"))
-            setOnClickListener {
-                pickMediaLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
-                })
-            }
+            text = "📂 Telefonundan Medya Seç"; isAllCaps = false; textSize = 13.5f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#1976D2"))
+            setOnClickListener { pickMediaLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"; putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*")) }) }
         }
-
-        val txtSelected = TextView(this).apply {
-            text = "Henüz fotoğraf veya video seçilmedi"
-            textSize = 12.5f
-            setTextColor(Color.parseColor("#666666"))
-            setPadding(0, 12, 0, 16)
-        }
+        val txtSelected = TextView(this).apply { text = "Henüz fotoğraf veya video seçilmedi"; textSize = 12.5f; setTextColor(Color.parseColor("#666666")); setPadding(0, 12, 0, 16) }
         activeUploadFileLabel = txtSelected
-
-        val edtDur = EditText(this).apply {
-            hint = "Süre (0 = video tamamı, resim için 10)"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText("10")
-        }
+        val edtDur = EditText(this).apply { hint = "Süre (0 = video tamamı, resim için 10)"; inputType = InputType.TYPE_CLASS_NUMBER; setText("10") }
         activeUploadDurEdit = edtDur
+        val edtWait = EditText(this).apply { hint = "Ara Bekleme (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText("0") }
+        val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions) }
 
-        val edtWait = EditText(this).apply {
-            hint = "Ara Bekleme (sn)"
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText("0")
-        }
+        layout.addView(btnChooseFile); layout.addView(txtSelected)
+        layout.addView(TextView(this).apply { text = "Oynatma Süresi (sn):" }); layout.addView(edtDur)
+        layout.addView(TextView(this).apply { text = "Ara Bekleme (sn):"; setPadding(0, 10, 0, 0) }); layout.addView(edtWait)
+        layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) }); layout.addView(spAnim)
 
-        val spAnim = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
-        }
-
-        layout.addView(btnChooseFile)
-        layout.addView(txtSelected)
-        layout.addView(TextView(this).apply { text = "Oynatma Süresi (sn):" })
-        layout.addView(edtDur)
-        layout.addView(TextView(this).apply { text = "Ara Bekleme (sn):"; setPadding(0, 10, 0, 0) })
-        layout.addView(edtWait)
-        layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) })
-        layout.addView(spAnim)
-
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("📁 Medya Yükle")
-            .setView(layout)
-            .setPositiveButton("Yükle", null)
-            .setNegativeButton("İptal", null)
-            .create()
-
-        dlg.setOnDismissListener {
-            activeUploadFileLabel = null
-            activeUploadDurEdit = null
-        }
-
+        val dlg = AlertDialog.Builder(this).setTitle("📁 Medya Yükle").setView(layout).setPositiveButton("Yükle", null).setNegativeButton("İptal", null).create()
+        dlg.setOnDismissListener { activeUploadFileLabel = null; activeUploadDurEdit = null }
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val selectedUri = pendingUploadMediaUri
-                if (selectedUri == null) {
-                    Toast.makeText(this, "Lütfen önce telefonunuzdan bir fotoğraf veya video seçin!", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
+                if (selectedUri == null) { Toast.makeText(this, "Lütfen önce telefonunuzdan bir fotoğraf veya video seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 val dur = edtDur.text.toString().toIntOrNull() ?: 0
                 val wait = edtWait.text.toString().toIntOrNull() ?: 0
                 val anim = animValues[spAnim.selectedItemPosition]
-                dlg.dismiss()
-                uploadMediaFile(selectedUri, dur, wait, anim)
+                dlg.dismiss(); uploadMediaFile(selectedUri, dur, wait, anim)
             }
         }
         dlg.show()
@@ -603,60 +528,35 @@ class MainActivity : AppCompatActivity() {
         val density = resources.displayMetrics.density
         val gapPx = (6 * density).toInt()
         val btnHeightPx = (44 * density).toInt()
-
         parentLayout.removeView(btnPickMedia)
 
         val actionRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = (8 * density).toInt()
-                bottomMargin = (4 * density).toInt()
-            }
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (8 * density).toInt(); bottomMargin = (4 * density).toInt() }
         }
-
         btnPickMedia.apply {
-            text = "📁 MEDYA"
-            textSize = 11.5f
-            typeface = Typeface.DEFAULT_BOLD
-            isAllCaps = false
-            setPadding(4, 0, 4, 0)
+            text = "📁 MEDYA"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setPadding(4, 0, 4, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
         }
-
         val btnAddUrl = Button(this).apply {
-            text = "🌐 URL"
-            textSize = 11.5f
-            typeface = Typeface.DEFAULT_BOLD
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#00897B"))
-            setPadding(4, 0, 4, 0)
+            text = "🌐 URL"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#00897B")); setPadding(4, 0, 4, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
             setOnClickListener {
                 if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 showUrlConfigDialog(existingItem = null)
             }
         }
-
         val btnAddInstagram = Button(this).apply {
-            text = "📸 INSTAGRAM"
-            textSize = 11.5f
-            typeface = Typeface.DEFAULT_BOLD
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#E1306C"))
-            setPadding(4, 0, 4, 0)
+            text = "📸 INSTAGRAM"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#E1306C")); setPadding(4, 0, 4, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1.15f)
             setOnClickListener {
                 if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                 checkInstagramStatusAndOpenDialog(existingItem = null)
             }
         }
-
-        actionRow.addView(btnPickMedia)
-        actionRow.addView(btnAddUrl)
-        actionRow.addView(btnAddInstagram)
+        actionRow.addView(btnPickMedia); actionRow.addView(btnAddUrl); actionRow.addView(btnAddInstagram)
         parentLayout.addView(actionRow, pickIdx.coerceAtMost(parentLayout.childCount))
     }
 
@@ -676,114 +576,65 @@ class MainActivity : AppCompatActivity() {
         val isEdit = existingItem != null
         val igFilterLabels = arrayOf("Tümü (Fotoğraf + Video)", "Sadece Fotoğraflar", "Sadece Videolar")
         val igFilterValues = arrayOf("all", "photo", "video")
-
         val scrollView = ScrollView(this)
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(45, 30, 45, 15) }
         scrollView.addView(layout)
 
         val txtSessionStatus = TextView(this).apply { textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, 12) }
         val edtUsername = EditText(this).apply { hint = "Instagram Kullanıcı Adı (Örn: ornekrestoran)"; setSingleLine(true); setText(existingItem?.fileName ?: "") }
-        val spFilter = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, igFilterLabels)
-            val idx = igFilterValues.indexOf(existingItem?.igMediaFilter ?: "all"); if (idx >= 0) setSelection(idx)
-        }
+        val spFilter = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, igFilterLabels); val idx = igFilterValues.indexOf(existingItem?.igMediaFilter ?: "all"); if (idx >= 0) setSelection(idx) }
         val cbUntilEnd = CheckBox(this).apply { text = "Tüm medyalar bitene kadar oynatmaya devam et"; isChecked = existingItem?.scrollUntilEnd ?: true }
         val cbAudio = CheckBox(this).apply { text = "🔊 Videoları Sesli Oynat"; isChecked = existingItem?.igAudioEnabled ?: false }
         val edtDur = EditText(this).apply { hint = "Oynatma Süresi (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.durationSec ?: 60).toString()) }
         val edtSlideSec = EditText(this).apply { hint = "Fotoğraf Başına Süre (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText((existingItem?.igSlideSec ?: 8).toString()) }
-        val spAnim = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions)
-            val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx)
-        }
+        val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions); val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx) }
 
         val formContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(TextView(this@MainActivity).apply { text = "Instagram Kullanıcı Adı:"; typeface = Typeface.DEFAULT_BOLD; setPadding(0, 12, 0, 0) })
-            addView(edtUsername)
-            addView(TextView(this@MainActivity).apply { text = "Medya Filtresi:"; setPadding(0, 10, 0, 0) })
-            addView(spFilter)
-            addView(cbUntilEnd)
-            addView(cbAudio)
-            addView(TextView(this@MainActivity).apply { text = "Şu Kadar Saniye Oynat (Yukarıdaki seçili değilse):"; setPadding(0, 8, 0, 0) })
-            addView(edtDur)
-            addView(TextView(this@MainActivity).apply { text = "Fotoğraf Başına Bekleme Süresi (sn):"; setPadding(0, 8, 0, 0) })
-            addView(edtSlideSec)
-            addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:"; setPadding(0, 8, 0, 0) })
-            addView(spAnim)
+            addView(TextView(this@MainActivity).apply { text = "Instagram Kullanıcı Adı:"; typeface = Typeface.DEFAULT_BOLD; setPadding(0, 12, 0, 0) }); addView(edtUsername)
+            addView(TextView(this@MainActivity).apply { text = "Medya Filtresi:"; setPadding(0, 10, 0, 0) }); addView(spFilter)
+            addView(cbUntilEnd); addView(cbAudio)
+            addView(TextView(this@MainActivity).apply { text = "Şu Kadar Saniye Oynat:"; setPadding(0, 8, 0, 0) }); addView(edtDur)
+            addView(TextView(this@MainActivity).apply { text = "Fotoğraf Başına Bekleme Süresi (sn):"; setPadding(0, 8, 0, 0) }); addView(edtSlideSec)
+            addView(TextView(this@MainActivity).apply { text = "Giriş Animasyonu:"; setPadding(0, 8, 0, 0) }); addView(spAnim)
         }
 
         fun updateSessionUi(active: Boolean) {
-            if (active) {
-                txtSessionStatus.text = "🟢 Menuboard Instagram Oturumu: AKTİF"
-                txtSessionStatus.setTextColor(Color.parseColor("#2E7D32"))
-                formContainer.visibility = View.VISIBLE
-            } else {
-                txtSessionStatus.text = "🔴 Menuboard Instagram Oturumu: YOK (Önce oturum açın)"
-                txtSessionStatus.setTextColor(Color.parseColor("#D32F2F"))
-                formContainer.visibility = View.GONE
-            }
+            if (active) { txtSessionStatus.text = "🟢 Menuboard Instagram Oturumu: AKTİF"; txtSessionStatus.setTextColor(Color.parseColor("#2E7D32")); formContainer.visibility = View.VISIBLE }
+            else { txtSessionStatus.text = "🔴 Menuboard Instagram Oturumu: YOK (Önce oturum açın)"; txtSessionStatus.setTextColor(Color.parseColor("#D32F2F")); formContainer.visibility = View.GONE }
         }
         updateSessionUi(initialSessionActive)
 
         val btnLoginIg = Button(this).apply {
             text = if (initialSessionActive) "🔄 Instagram Oturumunu Yenile" else "🔑 Instagram Oturumu Aç"
             isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#E1306C"))
-            setOnClickListener {
-                openInstagramLoginAndSyncCookie { success ->
-                    if (success) { text = "🔄 Instagram Oturumunu Yenile"; updateSessionUi(true) }
-                }
-            }
+            setOnClickListener { openInstagramLoginAndSyncCookie { ok -> if (ok) { text = "🔄 Instagram Oturumunu Yenile"; updateSessionUi(true) } } }
         }
-
         layout.addView(txtSessionStatus); layout.addView(btnLoginIg); layout.addView(formContainer)
 
-        AlertDialog.Builder(this)
-            .setTitle(if (isEdit) "📸 Instagram Ayarlarını Düzenle" else "📸 Instagram Ekle")
-            .setView(scrollView)
+        AlertDialog.Builder(this).setTitle(if (isEdit) "📸 Instagram Ayarlarını Düzenle" else "📸 Instagram Ekle").setView(scrollView)
             .setPositiveButton(if (isEdit) "Kaydet" else "Ekle ve Yayınla") { _, _ ->
                 val user = edtUsername.text.toString().trim()
                 if (user.isEmpty()) { Toast.makeText(this, "Lütfen kullanıcı adı girin!", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                val dur = edtDur.text.toString().toIntOrNull() ?: 60
-                val slideSec = edtSlideSec.text.toString().toIntOrNull() ?: 8
-                val filter = igFilterValues[spFilter.selectedItemPosition]
-                val untilEnd = cbUntilEnd.isChecked
-                val audioOn = cbAudio.isChecked
-                val anim = animValues[spAnim.selectedItemPosition]
-
+                val dur = edtDur.text.toString().toIntOrNull() ?: 60; val slideSec = edtSlideSec.text.toString().toIntOrNull() ?: 8
+                val filter = igFilterValues[spFilter.selectedItemPosition]; val untilEnd = cbUntilEnd.isChecked; val audioOn = cbAudio.isChecked; val anim = animValues[spAnim.selectedItemPosition]
                 if (isEdit && existingItem != null) {
                     existingItem.fileName = user; existingItem.durationSec = dur; existingItem.scrollUntilEnd = untilEnd
-                    existingItem.igMediaFilter = filter; existingItem.igSlideSec = slideSec; existingItem.animation = anim
-                    existingItem.igAudioEnabled = audioOn
+                    existingItem.igMediaFilter = filter; existingItem.igSlideSec = slideSec; existingItem.animation = anim; existingItem.igAudioEnabled = audioOn
                 } else {
                     playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = user, type = "instagram", durationSec = dur, waitAfterSec = 0, animation = anim, scrollUntilEnd = untilEnd, igMediaFilter = filter, igSlideSec = slideSec, igAudioEnabled = audioOn))
                 }
                 syncPlaylistToMenuboard()
-            }
-            .setNegativeButton("İptal", null)
-            .show()
+            }.setNegativeButton("İptal", null).show()
     }
 
     private fun openInstagramLoginAndSyncCookie(onResult: (Boolean) -> Unit) {
         val host = activeDevice?.host ?: return
-        var loginDialog: AlertDialog? = null
-        var synced = false
-
+        var loginDialog: AlertDialog? = null; var synced = false
         val webView = WebView(this).apply {
-            isFocusable = true
-            isFocusableInTouchMode = true
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            val cm = CookieManager.getInstance()
-            cm.setAcceptCookie(true)
-            cm.setAcceptThirdPartyCookies(this, true)
-
-            setOnTouchListener { v, event ->
-                if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_UP) {
-                    if (!v.hasFocus()) v.requestFocus()
-                }
-                false
-            }
-
+            isFocusable = true; isFocusableInTouchMode = true; settings.javaScriptEnabled = true; settings.domStorageEnabled = true
+            val cm = CookieManager.getInstance(); cm.setAcceptCookie(true); cm.setAcceptThirdPartyCookies(this, true)
+            setOnTouchListener { v, event -> if ((event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_UP) && !v.hasFocus()) v.requestFocus(); false }
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
@@ -791,22 +642,12 @@ class MainActivity : AppCompatActivity() {
                     val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com") ?: ""
                     if (cookies.contains("sessionid=")) {
                         synced = true
-                        val payload = JSONObject().apply {
-                            put("cookie", cookies)
-                            put("userAgent", settings.userAgentString ?: "")
-                        }.toString()
-                        val req = Request.Builder().url("http://$host/api/instagram/cookie").post(payload.toRequestBody("application/json".toMediaTypeOrNull())).build()
-                        httpClient.newCall(req).enqueue(object : Callback {
-                            override fun onFailure(call: Call, e: IOException) {
-                                runOnUiThread { Toast.makeText(this@MainActivity, "Oturum Menuboard'a aktarılamadı!", Toast.LENGTH_LONG).show(); onResult(false) }
-                            }
+                        val payload = JSONObject().apply { put("cookie", cookies); put("userAgent", settings.userAgentString ?: "") }.toString()
+                        httpClient.newCall(Request.Builder().url("http://$host/api/instagram/cookie").post(payload.toRequestBody("application/json".toMediaTypeOrNull())).build()).enqueue(object : Callback {
+                            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Oturum Menuboard'a aktarılamadı!", Toast.LENGTH_LONG).show(); onResult(false) } }
                             override fun onResponse(call: Call, response: Response) {
                                 val ok = response.isSuccessful; response.close()
-                                runOnUiThread {
-                                    loginDialog?.dismiss()
-                                    Toast.makeText(this@MainActivity, "Instagram oturumu Menuboard'a başarıyla aktarıldı!", Toast.LENGTH_LONG).show()
-                                    onResult(ok)
-                                }
+                                runOnUiThread { loginDialog?.dismiss(); Toast.makeText(this@MainActivity, "Instagram oturumu aktarıldı!", Toast.LENGTH_LONG).show(); onResult(ok) }
                             }
                         })
                     }
@@ -814,12 +655,7 @@ class MainActivity : AppCompatActivity() {
             }
             loadUrl("https://www.instagram.com/accounts/login/")
         }
-
-        val container = FrameLayout(this).apply {
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200)
-            addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200))
-        }
-
+        val container = FrameLayout(this).apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200); addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1200)) }
         loginDialog = AlertDialog.Builder(this).setTitle("🔑 Instagram Giriş").setView(container).setNegativeButton("Kapat", null).create()
         loginDialog.setOnShowListener {
             loginDialog?.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
@@ -837,20 +673,12 @@ class MainActivity : AppCompatActivity() {
         scrollView.addView(layout)
 
         val urlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val edtUrl = EditText(this).apply {
-            hint = "Örn: https://www.ornekmenu.com"; inputType = InputType.TYPE_TEXT_VARIATION_URI; setSingleLine(true)
-            setText(existingItem?.fileName ?: ""); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
+        val edtUrl = EditText(this).apply { hint = "Örn: https://www.ornekmenu.com"; inputType = InputType.TYPE_TEXT_VARIATION_URI; setSingleLine(true); setText(existingItem?.fileName ?: ""); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) }
         activeUrlInputField = edtUrl
-
         val qrBtnSize = (38 * density).toInt()
         val btnScanUrlQr = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_camera)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0288D1"))
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
-            contentDescription = "QR ile URL Oku"
+            setImageResource(android.R.drawable.ic_menu_camera); setColorFilter(Color.WHITE); setBackgroundColor(Color.parseColor("#0288D1"))
+            scaleType = ImageView.ScaleType.CENTER_INSIDE; setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
             layoutParams = LinearLayout.LayoutParams(qrBtnSize, qrBtnSize).apply { leftMargin = (8 * density).toInt() }
             setOnClickListener { urlQrLauncher.launch(ScanOptions().apply { setPrompt("URL içeren QR kodu kameraya gösterin"); setBeepEnabled(true); setOrientationLocked(false) }) }
         }
@@ -861,47 +689,21 @@ class MainActivity : AppCompatActivity() {
         val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions); val idx = animValues.indexOf(existingItem?.animation ?: "fade"); if (idx >= 0) setSelection(idx) }
         val cbAutoScroll = CheckBox(this).apply { text = "Otomatik Aşağı Kaydır"; isChecked = existingItem?.autoScroll ?: true }
         val cbScrollEnd = CheckBox(this).apply { text = "Sayfa Bitimine Kadar Aşağı Kaydır"; isChecked = existingItem?.scrollUntilEnd ?: false; setOnCheckedChangeListener { _, checked -> if (checked) cbAutoScroll.isChecked = true } }
-
         val cbFixedHeader = CheckBox(this).apply { text = "Üst başlık / menü çubuğu sabit kalsın"; isChecked = existingItem?.webFixedHeader ?: false }
-        val edtFixedSelector = EditText(this).apply {
-            hint = "Özel CSS Seçici (Boş = Otomatik)"
-            textSize = 12.5f
-            setSingleLine(true)
-            setText(existingItem?.webFixedSelector ?: "")
-        }
-        val cbFixedHeaderText = CheckBox(this).apply {
-            text = "Sabit üst metin ayarla"
-            isChecked = existingItem?.webFixedHeaderTextEnabled ?: false
-            textSize = 13f
-        }
+        val edtFixedSelector = EditText(this).apply { hint = "Özel CSS Seçici (Boş = Otomatik)"; textSize = 12.5f; setSingleLine(true); setText(existingItem?.webFixedSelector ?: "") }
+        val cbFixedHeaderText = CheckBox(this).apply { text = "Sabit üst metin ayarla"; isChecked = existingItem?.webFixedHeaderTextEnabled ?: false; textSize = 13f }
         val edtFixedHeaderText = EditText(this).apply {
-            hint = "Örn: FİYATLARIMIZA KDV DAHİLDİR (Maks. 50 krk)"
-            textSize = 12.5f
-            setSingleLine(true)
-            filters = arrayOf(InputFilter.LengthFilter(50))
-            setText(existingItem?.webFixedHeaderText ?: "")
+            hint = "Örn: FİYATLARIMIZA KDV DAHİLDİR (Maks. 50 krk)"; textSize = 12.5f; setSingleLine(true)
+            filters = arrayOf(InputFilter.LengthFilter(50)); setText(existingItem?.webFixedHeaderText ?: "")
             visibility = if (cbFixedHeaderText.isChecked) View.VISIBLE else View.GONE
         }
-        cbFixedHeaderText.setOnCheckedChangeListener { _, checked ->
-            edtFixedHeaderText.visibility = if (checked) View.VISIBLE else View.GONE
-        }
-
+        cbFixedHeaderText.setOnCheckedChangeListener { _, checked -> edtFixedHeaderText.visibility = if (checked) View.VISIBLE else View.GONE }
         val fixedSelectorContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = if (cbFixedHeader.isChecked) View.VISIBLE else View.GONE
-            setPadding(24, 2, 0, 8)
-            addView(cbFixedHeaderText)
-            addView(edtFixedHeaderText)
-            addView(TextView(this@MainActivity).apply {
-                text = "Özel Sabitlenecek Alan (İsteğe Bağlı CSS Seçici):"
-                textSize = 11.5f
-                setPadding(0, 6, 0, 0)
-            })
-            addView(edtFixedSelector)
+            orientation = LinearLayout.VERTICAL; visibility = if (cbFixedHeader.isChecked) View.VISIBLE else View.GONE; setPadding(24, 2, 0, 8)
+            addView(cbFixedHeaderText); addView(edtFixedHeaderText)
+            addView(TextView(this@MainActivity).apply { text = "Özel Sabitlenecek Alan (İsteğe Bağlı CSS Seçici):"; textSize = 11.5f; setPadding(0, 6, 0, 0) }); addView(edtFixedSelector)
         }
-        cbFixedHeader.setOnCheckedChangeListener { _, checked ->
-            fixedSelectorContainer.visibility = if (checked) View.VISIBLE else View.GONE
-        }
+        cbFixedHeader.setOnCheckedChangeListener { _, checked -> fixedSelectorContainer.visibility = if (checked) View.VISIBLE else View.GONE }
 
         val spScrollSpeed = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, scrollSpeedLabels); val idx = scrollSpeedValues.indexOf(existingItem?.webScrollSpeed ?: "medium"); setSelection(if (idx >= 0) idx else 2) }
         val spZoom = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, webZoomLabels); val idx = webZoomValues.indexOf(existingItem?.webZoomPercent ?: 100); setSelection(if (idx >= 0) idx else 8) }
@@ -913,7 +715,6 @@ class MainActivity : AppCompatActivity() {
         val spQrCorner = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrCornerLabels); val idx = qrCornerValues.indexOf(existingItem?.qrCorner ?: "bottom_right"); if (idx >= 0) setSelection(idx) }
         val spQrSize = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrSizeLabels); val idx = qrSizeValues.indexOf(existingItem?.qrSizeDp ?: 150); setSelection(if (idx >= 0) idx else 2) }
         val spQrBorder = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, qrBorderLabels); val idx = qrBorderValues.indexOf(existingItem?.qrBorderDp ?: 8); setSelection(if (idx >= 0) idx else 2) }
-
         val qrOptionsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; visibility = if (cbShowQr.isChecked) View.VISIBLE else View.GONE; setPadding(24, 6, 0, 6)
             addView(TextView(this@MainActivity).apply { text = "QR Kod Köşesi:"; textSize = 12f }); addView(spQrCorner)
@@ -934,59 +735,31 @@ class MainActivity : AppCompatActivity() {
         layout.addView(TextView(this).apply { text = "Web Görsel Boyutu:"; setPadding(0, 10, 0, 0); typeface = Typeface.DEFAULT_BOLD }); layout.addView(spImageScale)
         layout.addView(cbBoldHeaders); layout.addView(cbShowQr); layout.addView(qrOptionsContainer)
 
-        AlertDialog.Builder(this)
-            .setTitle(if (isEdit) "🌐 URL Ayarlarını Düzenle" else "🌐 Yeni URL Ekle")
-            .setView(scrollView)
+        AlertDialog.Builder(this).setTitle(if (isEdit) "🌐 URL Ayarlarını Düzenle" else "🌐 Yeni URL Ekle").setView(scrollView)
             .setPositiveButton(if (isEdit) "Kaydet" else "Ekle ve Yayınla") { _, _ ->
                 var rawUrl = edtUrl.text.toString().trim()
                 if (rawUrl.isEmpty()) { Toast.makeText(this, "Lütfen geçerli bir URL girin!", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                 if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) rawUrl = "https://$rawUrl"
-
-                val dur = edtDur.text.toString().toIntOrNull() ?: 20
-                val wait = edtWait.text.toString().toIntOrNull() ?: 0
-                val anim = animValues[spAnim.selectedItemPosition]
-                val autoScroll = cbAutoScroll.isChecked || cbScrollEnd.isChecked
-                val scrollEnd = cbScrollEnd.isChecked
-                val fixedHeader = cbFixedHeader.isChecked
-                val fixedSelector = edtFixedSelector.text.toString().trim()
-                val fixedHeaderTextEnabled = fixedHeader && cbFixedHeaderText.isChecked
-                val fixedHeaderText = edtFixedHeaderText.text.toString().trim().take(50)
-                val scrollSpeed = scrollSpeedValues[spScrollSpeed.selectedItemPosition]
-                val zoomPct = webZoomValues[spZoom.selectedItemPosition]
-                val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]
-                val fontSz = webFontSizeValues[spFontSize.selectedItemPosition]
-                val imgScale = webImageScaleValues[spImageScale.selectedItemPosition]
-                val boldHdr = cbBoldHeaders.isChecked
-                val showQr = cbShowQr.isChecked
-                val qrCorner = qrCornerValues[spQrCorner.selectedItemPosition]
-                val qrSize = qrSizeValues[spQrSize.selectedItemPosition]
-                val qrBorder = qrBorderValues[spQrBorder.selectedItemPosition]
+                val dur = edtDur.text.toString().toIntOrNull() ?: 20; val wait = edtWait.text.toString().toIntOrNull() ?: 0
+                val anim = animValues[spAnim.selectedItemPosition]; val autoScroll = cbAutoScroll.isChecked || cbScrollEnd.isChecked; val scrollEnd = cbScrollEnd.isChecked
+                val fixedHeader = cbFixedHeader.isChecked; val fixedSelector = edtFixedSelector.text.toString().trim()
+                val fixedHeaderTextEnabled = fixedHeader && cbFixedHeaderText.isChecked; val fixedHeaderText = edtFixedHeaderText.text.toString().trim().take(50)
+                val scrollSpeed = scrollSpeedValues[spScrollSpeed.selectedItemPosition]; val zoomPct = webZoomValues[spZoom.selectedItemPosition]
+                val fontFam = webFontFamilyValues[spFontFamily.selectedItemPosition]; val fontSz = webFontSizeValues[spFontSize.selectedItemPosition]
+                val imgScale = webImageScaleValues[spImageScale.selectedItemPosition]; val boldHdr = cbBoldHeaders.isChecked
+                val showQr = cbShowQr.isChecked; val qrCorner = qrCornerValues[spQrCorner.selectedItemPosition]; val qrSize = qrSizeValues[spQrSize.selectedItemPosition]; val qrBorder = qrBorderValues[spQrBorder.selectedItemPosition]
 
                 if (isEdit && existingItem != null) {
-                    existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait
-                    existingItem.animation = anim; existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd
-                    existingItem.webFixedHeader = fixedHeader; existingItem.webFixedSelector = fixedSelector
-                    existingItem.webFixedHeaderTextEnabled = fixedHeaderTextEnabled; existingItem.webFixedHeaderText = fixedHeaderText
-                    existingItem.webScrollSpeed = scrollSpeed; existingItem.webZoomPercent = zoomPct
-                    existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz
-                    existingItem.webImageScalePercent = imgScale; existingItem.webBoldHeaders = boldHdr
-                    existingItem.showQr = showQr; existingItem.qrCorner = qrCorner; existingItem.qrSizeDp = qrSize; existingItem.qrBorderDp = qrBorder
+                    existingItem.fileName = rawUrl; existingItem.durationSec = dur; existingItem.waitAfterSec = wait; existingItem.animation = anim
+                    existingItem.autoScroll = autoScroll; existingItem.scrollUntilEnd = scrollEnd; existingItem.webFixedHeader = fixedHeader; existingItem.webFixedSelector = fixedSelector
+                    existingItem.webFixedHeaderTextEnabled = fixedHeaderTextEnabled; existingItem.webFixedHeaderText = fixedHeaderText; existingItem.webScrollSpeed = scrollSpeed
+                    existingItem.webZoomPercent = zoomPct; existingItem.webFontFamily = fontFam; existingItem.webFontSizePercent = fontSz; existingItem.webImageScalePercent = imgScale
+                    existingItem.webBoldHeaders = boldHdr; existingItem.showQr = showQr; existingItem.qrCorner = qrCorner; existingItem.qrSizeDp = qrSize; existingItem.qrBorderDp = qrBorder
                 } else {
-                    playlist.add(MediaItemModel(
-                        id = System.currentTimeMillis().toString(), fileName = rawUrl, type = "web",
-                        durationSec = dur, waitAfterSec = wait, animation = anim, autoScroll = autoScroll,
-                        scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr,
-                        qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct,
-                        webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr,
-                        webImageScalePercent = imgScale, webFixedHeader = fixedHeader, webFixedSelector = fixedSelector,
-                        webFixedHeaderTextEnabled = fixedHeaderTextEnabled, webFixedHeaderText = fixedHeaderText
-                    ))
+                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = rawUrl, type = "web", durationSec = dur, waitAfterSec = wait, animation = anim, autoScroll = autoScroll, scrollUntilEnd = scrollEnd, webScrollSpeed = scrollSpeed, showQr = showQr, qrCorner = qrCorner, qrSizeDp = qrSize, qrBorderDp = qrBorder, webZoomPercent = zoomPct, webFontFamily = fontFam, webFontSizePercent = fontSz, webBoldHeaders = boldHdr, webImageScalePercent = imgScale, webFixedHeader = fixedHeader, webFixedSelector = fixedSelector, webFixedHeaderTextEnabled = fixedHeaderTextEnabled, webFixedHeaderText = fixedHeaderText))
                 }
                 activeUrlInputField = null; syncPlaylistToMenuboard()
-            }
-            .setNegativeButton("İptal") { _, _ -> activeUrlInputField = null }
-            .setOnDismissListener { activeUrlInputField = null }
-            .show()
+            }.setNegativeButton("İptal") { _, _ -> activeUrlInputField = null }.setOnDismissListener { activeUrlInputField = null }.show()
     }
 
     private fun setupDynamicSefimTabAndControls() {
@@ -998,14 +771,11 @@ class MainActivity : AppCompatActivity() {
             setBackgroundResource(android.R.drawable.list_selector_background)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f); topTabsBar?.addView(this)
         }
-
         val mainRoot = panelTabDevices.parent as? LinearLayout
         val existingPanelSefimId = resources.getIdentifier("panelTabSefim", "id", packageName)
         if (existingPanelSefimId != 0) findViewById<View>(existingPanelSefimId)?.let { mainRoot?.removeView(it) }
-
         val wrapper = FrameLayout(this).apply { visibility = View.GONE; layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f) }
-        mainRoot?.addView(wrapper, ((mainRoot.childCount) - 1).coerceAtLeast(2))
-        panelTabSefimWrapper = wrapper
+        mainRoot?.addView(wrapper, ((mainRoot.childCount) - 1).coerceAtLeast(2)); panelTabSefimWrapper = wrapper
 
         sefimScrollView = NestedScrollView(this).apply { isFillViewport = true; layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
         val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 16, 20, 30); layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
@@ -1022,7 +792,6 @@ class MainActivity : AppCompatActivity() {
         edtRestaurantName = EditText(this).apply { hint = "Restoran Adı"; setText("BALIKÇI ŞÜKRÜ"); textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) }
         edtMenuPageDuration = EditText(this).apply { hint = "Süre(sn)"; setText("12"); textSize = 13f; inputType = InputType.TYPE_CLASS_NUMBER; gravity = Gravity.CENTER; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(170, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = 10 } }
         rowRest.addView(edtRestaurantName); rowRest.addView(edtMenuPageDuration); headerBox.addView(rowRest)
-
         edtHeaderNote = EditText(this).apply { hint = "Üst Bilgi / Slogan"; textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 } }
         edtFooterNote = EditText(this).apply { hint = "Alt Bilgi"; setText("Afiyet Olsun • KDV Dahildir"); textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 } }
         edtWebsiteLink = EditText(this).apply { hint = "🔗 QR Kod Linki"; textSize = 13f; setSingleLine(true); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 4 } }
@@ -1118,8 +887,7 @@ class MainActivity : AppCompatActivity() {
     private fun buildFilteredChoicesString(item: SefimProductItem?): String {
         if (item == null) return ""
         return try {
-            val c1 = (item.choice1Text ?: "").trim(); val c2 = (item.choice2Text ?: "").trim()
-            val opt = (item.optionsText ?: "").trim(); val legacySub = (item.subDetails ?: "").trim()
+            val c1 = (item.choice1Text ?: "").trim(); val c2 = (item.choice2Text ?: "").trim(); val opt = (item.optionsText ?: "").trim(); val legacySub = (item.subDetails ?: "").trim()
             val s1 = if (::cbShowChoice1.isInitialized) cbShowChoice1.isChecked else true
             val s2 = if (::cbShowChoice2.isInitialized) cbShowChoice2.isChecked else true
             val sO = if (::cbShowOptions.isInitialized) cbShowOptions.isChecked else true
@@ -1140,19 +908,11 @@ class MainActivity : AppCompatActivity() {
         val items: List<SefimProductItem> = when (catIndex) {
             0 -> {
                 edtRestaurantName.setText("BALIKÇI ŞÜKRÜ"); edtHeaderNote.setText("Günlük Taze Deniz Ürünleri & Izgara"); spinnerSefimTheme.setSelection(4); spinnerSefimBgObject.setSelection(1)
-                listOf(
-                    SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Roka Salatası", "Köz Soğan", "Mısır Ekmeği", "", "Taze deniz levreği, zeytinyağı, limon"),
-                    SefimProductItem("2", "Deniz Çuprası (450gr)", "410 ₺", "Mevsim Salata", "Limon Sos", "Fırın Patates", "", "Çupra balığı, defne yaprağı"),
-                    SefimProductItem("3", "Tereyağlı Karides Güveç", "360 ₺", "Bol Kaşarlı", "Sarımsaklı", "Acı Pul Biber", "", "Çimçim karides, tereyağ, kaşar peyniri, sarımsak"),
-                    SefimProductItem("4", "Kalamar Tava Spesiyal", "340 ₺", "Tarator Sos", "Akdeniz Yeşillik", "Çıtır Kaplama", "", "Ege kalamarı, un, yumurta, ceviz, yoğurt, sarımsak")
-                )
+                listOf(SefimProductItem("1", "Izgara Levrek Porsiyon", "380 ₺", "Roka Salatası", "Köz Soğan", "Mısır Ekmeği", "", "Taze deniz levreği, zeytinyağı, limon"), SefimProductItem("2", "Deniz Çuprası (450gr)", "410 ₺", "Mevsim Salata", "Limon Sos", "Fırın Patates", "", "Çupra balığı, defne yaprağı"))
             }
             1 -> {
                 edtRestaurantName.setText("USTA DÖNER & KEBAP"); edtHeaderNote.setText("%100 Yaprak Et Döner"); spinnerSefimTheme.setSelection(2); spinnerSefimBgObject.setSelection(2)
-                listOf(
-                    SefimProductItem("1", "İskender Kebap", "390 ₺", "Ekstra Tereyağ", "Tava Yoğurdu", "Köz Biber", "", "Yaprak döner, tırnak pide, tereyağ, yoğurt"),
-                    SefimProductItem("2", "Et Döner Dürüm", "270 ₺", "Çift Lavaş", "Patates", "Soğanlı", "", "Yaprak et döner, lavaş ekmeği")
-                )
+                listOf(SefimProductItem("1", "İskender Kebap", "390 ₺", "Ekstra Tereyağ", "Tava Yoğurdu", "Köz Biber", "", "Yaprak döner, tırnak pide, tereyağ, yoğurt"), SefimProductItem("2", "Et Döner Dürüm", "270 ₺", "Çift Lavaş", "Patates", "Soğanlı", "", "Yaprak et döner, lavaş ekmeği"))
             }
             2 -> {
                 edtRestaurantName.setText("ROAST & BREW CAFE"); edtHeaderNote.setText("3. Nesil Kahve"); spinnerSefimTheme.setSelection(5); spinnerSefimBgObject.setSelection(4)
@@ -1209,6 +969,7 @@ class MainActivity : AppCompatActivity() {
             blurOption,
             immersiveOption,
             autoStartOption,
+            "🏠 Varsayılan Ana Ekran (Launcher) Ayarını Aç",
             "⬇️ Güncelleme İndir / Kontrol Et",
             "📦 Uzaktan APK Gönder & Kur",
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
@@ -1223,11 +984,12 @@ class MainActivity : AppCompatActivity() {
                 2 -> showBlurBackgroundDialog(device)
                 3 -> toggleDeviceImmersiveMode(device)
                 4 -> toggleDeviceAutoStart(device)
-                5 -> triggerRemoteUpdateCheck(device)
-                6 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
-                7 -> fetchAndShowInstalledApps(device)
-                8 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
-                9 -> triggerRemoteRestart(device)
+                5 -> { sendRemoteInput(device, "type=nav&act=HOME_SETTINGS"); Toast.makeText(this, "Menuboard'da Varsayılan Ana Ekran ayarları açılıyor...", Toast.LENGTH_SHORT).show() }
+                6 -> triggerRemoteUpdateCheck(device)
+                7 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
+                8 -> fetchAndShowInstalledApps(device)
+                9 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
+                10 -> triggerRemoteRestart(device)
             }
         }.setNegativeButton("Kapat", null).show()
     }
@@ -1235,24 +997,13 @@ class MainActivity : AppCompatActivity() {
     private fun toggleDeviceAutoStart(device: DeviceItem) {
         val newState = !(device.autoStartOnBoot == true)
         httpClient.newCall(Request.Builder().url("http://${device.host}/api/autostart?enabled=$newState").post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Otomatik başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Otomatik başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
                 val ok = response.isSuccessful; response.close()
                 if (ok) {
-                    device.autoStartOnBoot = newState
-                    saveDevices()
-                    runOnUiThread {
-                        Toast.makeText(
-                            this@MainActivity,
-                            if (newState) "🚀 Cihaz açıldığında Menuboard otomatik başlayacak!" else "⏹️ Açılışta otomatik başlatma kapatıldı.",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                } else {
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce Menuboard'u v1.47'ye güncelleyin.", Toast.LENGTH_LONG).show() }
-                }
+                    device.autoStartOnBoot = newState; saveDevices()
+                    runOnUiThread { Toast.makeText(this@MainActivity, if (newState) "🚀 Cihaz açıldığında Menuboard otomatik başlayacak!" else "⏹️ Açılışta otomatik başlatma kapatıldı.", Toast.LENGTH_SHORT).show() }
+                } else runOnUiThread { Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce güncelleyin.", Toast.LENGTH_LONG).show() }
             }
         })
     }
@@ -1260,161 +1011,50 @@ class MainActivity : AppCompatActivity() {
     private fun triggerRemoteRestart(device: DeviceItem) {
         Toast.makeText(this, "${device.nameTag} yeniden başlatılıyor...", Toast.LENGTH_SHORT).show()
         httpClient.newCall(Request.Builder().url("http://${device.host}/api/restart").post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Yeniden başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Yeniden başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
                 val ok = response.isSuccessful; response.close()
-                runOnUiThread {
-                    if (ok) Toast.makeText(this@MainActivity, "🔄 Menuboard kapanıp otomatik tekrar açılıyor...", Toast.LENGTH_LONG).show()
-                    else Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce güncelleyin.", Toast.LENGTH_LONG).show()
-                }
+                runOnUiThread { Toast.makeText(this@MainActivity, if (ok) "🔄 Menuboard kapanıp otomatik tekrar açılıyor..." else "Bu cihaz eski sürümde; önce güncelleyin.", Toast.LENGTH_LONG).show() }
             }
         })
     }
 
     private fun showBlurBackgroundDialog(device: DeviceItem) {
         val scroll = ScrollView(this)
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(50, 35, 50, 15)
-        }
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(50, 35, 50, 15) }
         scroll.addView(layout)
-
-        val cbEnable = CheckBox(this).apply {
-            text = "Bulanık Arka Planı (Blur Dolgu) Etkinleştir"
-            isChecked = device.blurBg
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-        }
-
+        val cbEnable = CheckBox(this).apply { text = "Bulanık Arka Planı (Blur Dolgu) Etkinleştir"; isChecked = device.blurBg; textSize = 14f; typeface = Typeface.DEFAULT_BOLD }
         val curDarkness = (device.blurDarkness ?: 30).coerceIn(0, 85)
-        val txtDarkness = TextView(this).apply {
-            text = "Koyuluk / Karartma: %$curDarkness (0: Açık — 85: Çok Koyu)"
-            setPadding(0, 22, 0, 6)
-            textSize = 13f
-        }
-        val seekDarkness = SeekBar(this).apply {
-            max = 85
-            progress = curDarkness
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    txtDarkness.text = "Koyuluk / Karartma: %$progress (0: Açık — 85: Çok Koyu)"
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
-
+        val txtDarkness = TextView(this).apply { text = "Koyuluk / Karartma: %$curDarkness (0: Açık — 85: Çok Koyu)"; setPadding(0, 22, 0, 6); textSize = 13f }
+        val seekDarkness = SeekBar(this).apply { max = 85; progress = curDarkness; setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(sb: SeekBar?, p: Int, f: Boolean) { txtDarkness.text = "Koyuluk / Karartma: %$p (0: Açık — 85: Çok Koyu)" }; override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {} }) }
         val intensityLabels = arrayOf("Az", "Orta", "Çok")
         val curIntensity = (device.blurIntensity ?: 1).coerceIn(0, 2)
-        val txtIntensity = TextView(this).apply {
-            text = "Bulanıklık Şiddeti: ${intensityLabels[curIntensity]}"
-            setPadding(0, 22, 0, 6)
-            textSize = 13f
-        }
-        val seekIntensity = SeekBar(this).apply {
-            max = 2
-            progress = curIntensity
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    txtIntensity.text = "Bulanıklık Şiddeti: ${intensityLabels[progress.coerceIn(0, 2)]}"
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
-
+        val txtIntensity = TextView(this).apply { text = "Bulanıklık Şiddeti: ${intensityLabels[curIntensity]}"; setPadding(0, 22, 0, 6); textSize = 13f }
+        val seekIntensity = SeekBar(this).apply { max = 2; progress = curIntensity; setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(sb: SeekBar?, p: Int, f: Boolean) { txtIntensity.text = "Bulanıklık Şiddeti: ${intensityLabels[p.coerceIn(0, 2)]}" }; override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {} }) }
         val qualityLabels = arrayOf("Düşük (En Hafif)", "Orta (Dengeli)", "Yüksek (En Net & Akıcı)")
         val curQuality = (device.blurQuality ?: 1).coerceIn(0, 2)
-        val txtQuality = TextView(this).apply {
-            text = "Arka Plan Kalitesi: ${qualityLabels[curQuality]}"
-            setPadding(0, 22, 0, 6)
-            textSize = 13f
-        }
-        val seekQuality = SeekBar(this).apply {
-            max = 2
-            progress = curQuality
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                    txtQuality.text = "Arka Plan Kalitesi: ${qualityLabels[progress.coerceIn(0, 2)]}"
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
+        val txtQuality = TextView(this).apply { text = "Arka Plan Kalitesi: ${qualityLabels[curQuality]}"; setPadding(0, 22, 0, 6); textSize = 13f }
+        val seekQuality = SeekBar(this).apply { max = 2; progress = curQuality; setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(sb: SeekBar?, p: Int, f: Boolean) { txtQuality.text = "Arka Plan Kalitesi: ${qualityLabels[p.coerceIn(0, 2)]}" }; override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {} }) }
+        val cbApplyIg = CheckBox(this).apply { text = "📸 Instagram medyalarını da etkilesin"; isChecked = device.blurApplyIg == true; textSize = 13f; setPadding(0, 18, 0, 4) }
+        val slidersBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(txtDarkness); addView(seekDarkness); addView(txtIntensity); addView(seekIntensity); addView(txtQuality); addView(seekQuality); addView(cbApplyIg) }
+        fun setControlsEnabled(en: Boolean) { slidersBox.alpha = if (en) 1.0f else 0.45f; seekDarkness.isEnabled = en; seekIntensity.isEnabled = en; seekQuality.isEnabled = en; cbApplyIg.isEnabled = en }
+        setControlsEnabled(cbEnable.isChecked); cbEnable.setOnCheckedChangeListener { _, checked -> setControlsEnabled(checked) }
+        layout.addView(cbEnable); layout.addView(slidersBox)
 
-        val cbApplyIg = CheckBox(this).apply {
-            text = "📸 Instagram medyalarını da etkilesin"
-            isChecked = device.blurApplyIg == true
-            textSize = 13f
-            setPadding(0, 18, 0, 4)
-        }
-
-        val slidersBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            alpha = if (cbEnable.isChecked) 1.0f else 0.45f
-            addView(txtDarkness)
-            addView(seekDarkness)
-            addView(txtIntensity)
-            addView(seekIntensity)
-            addView(txtQuality)
-            addView(seekQuality)
-            addView(cbApplyIg)
-        }
-        fun setControlsEnabled(enabled: Boolean) {
-            slidersBox.alpha = if (enabled) 1.0f else 0.45f
-            seekDarkness.isEnabled = enabled
-            seekIntensity.isEnabled = enabled
-            seekQuality.isEnabled = enabled
-            cbApplyIg.isEnabled = enabled
-        }
-        setControlsEnabled(cbEnable.isChecked)
-        cbEnable.setOnCheckedChangeListener { _, checked -> setControlsEnabled(checked) }
-
-        layout.addView(cbEnable)
-        layout.addView(slidersBox)
-
-        AlertDialog.Builder(this)
-            .setTitle("🌫️ Bulanık Arka Plan Ayarları")
-            .setView(scroll)
-            .setPositiveButton("Uygula") { _, _ ->
-                applyDeviceBlurBackground(
-                    device,
-                    cbEnable.isChecked,
-                    seekDarkness.progress,
-                    seekIntensity.progress,
-                    seekQuality.progress,
-                    cbApplyIg.isChecked
-                )
-            }
-            .setNegativeButton("İptal", null)
-            .show()
+        AlertDialog.Builder(this).setTitle("🌫️ Bulanık Arka Plan Ayarları").setView(scroll)
+            .setPositiveButton("Uygula") { _, _ -> applyDeviceBlurBackground(device, cbEnable.isChecked, seekDarkness.progress, seekIntensity.progress, seekQuality.progress, cbApplyIg.isChecked) }
+            .setNegativeButton("İptal", null).show()
     }
 
     private fun applyDeviceBlurBackground(device: DeviceItem, enabled: Boolean, darkness: Int, intensity: Int, quality: Int, applyIg: Boolean) {
         val url = "http://${device.host}/api/blur_bg?enabled=$enabled&darkness=$darkness&intensity=$intensity&quality=$quality&ig=$applyIg"
         httpClient.newCall(Request.Builder().url(url).post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Bulanık arka plan ayarları gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Bulanık arka plan ayarları gönderilemedi!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
                 val ok = response.isSuccessful; response.close()
                 if (ok) {
-                    device.blurBg = enabled
-                    device.blurDarkness = darkness
-                    device.blurIntensity = intensity
-                    device.blurQuality = quality
-                    device.blurApplyIg = applyIg
-                    saveDevices()
-                    val qualStr = when (quality) { 0 -> "Düşük"; 2 -> "Yüksek"; else -> "Orta" }
-                    runOnUiThread {
-                        Toast.makeText(
-                            this@MainActivity,
-                            if (enabled) "🌫️ Bulanık arka plan güncellendi (%$darkness / $qualStr)" else "⬛ Bulanık arka plan kapatıldı!",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
+                    device.blurBg = enabled; device.blurDarkness = darkness; device.blurIntensity = intensity; device.blurQuality = quality; device.blurApplyIg = applyIg; saveDevices()
+                    runOnUiThread { Toast.makeText(this@MainActivity, if (enabled) "🌫️ Bulanık arka plan güncellendi!" else "⬛ Bulanık arka plan kapatıldı!", Toast.LENGTH_SHORT).show() }
                 }
             }
         })
@@ -1423,18 +1063,10 @@ class MainActivity : AppCompatActivity() {
     private fun toggleDeviceImmersiveMode(device: DeviceItem) {
         val newState = !(device.immersiveMode != false)
         httpClient.newCall(Request.Builder().url("http://${device.host}/api/immersive?enabled=$newState").post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Tam ekran komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Tam ekran komutu gönderilemedi!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
                 val ok = response.isSuccessful; response.close()
-                if (ok) {
-                    device.immersiveMode = newState
-                    saveDevices()
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, if (newState) "🖥️ Tam ekran modu açıldı (Çubuklar gizli)" else "📱 Sistem çubukları görünür yapıldı", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                if (ok) { device.immersiveMode = newState; saveDevices(); runOnUiThread { Toast.makeText(this@MainActivity, if (newState) "🖥️ Tam ekran modu açıldı" else "📱 Sistem çubukları görünür yapıldı", Toast.LENGTH_SHORT).show() } }
             }
         })
     }
@@ -1442,18 +1074,10 @@ class MainActivity : AppCompatActivity() {
     private fun toggleDeviceOrientation(device: DeviceItem) {
         val newMode = if (device.orientation == "landscape") "portrait" else "landscape"
         httpClient.newCall(Request.Builder().url("http://${device.host}/api/orientation?mode=$newMode").post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Yön değiştirme komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
-            }
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Yön değiştirme komutu gönderilemedi!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
                 val ok = response.isSuccessful; response.close()
-                if (ok) {
-                    device.orientation = newMode
-                    saveDevices()
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, if (newMode == "landscape") "📺 TV Modu (16:9 Yatay) aktif edildi!" else "📱 Dikey Mod (9:16) aktif edildi!", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                if (ok) { device.orientation = newMode; saveDevices(); runOnUiThread { Toast.makeText(this@MainActivity, if (newMode == "landscape") "📺 TV Modu (16:9 Yatay) aktif!" else "📱 Dikey Mod (9:16) aktif!", Toast.LENGTH_SHORT).show() } }
             }
         })
     }
@@ -1461,15 +1085,10 @@ class MainActivity : AppCompatActivity() {
     private fun triggerRemoteUpdateCheck(device: DeviceItem) {
         Toast.makeText(this, "${device.nameTag} için güncelleme kontrolü başlatılıyor...", Toast.LENGTH_SHORT).show()
         httpClient.newCall(Request.Builder().url("http://${device.host}/api/update/check").post("".toRequestBody(null)).build()).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_SHORT).show() }
-            }
+            override fun onFailure(call: Call, e: IOException) { runOnUiThread { Toast.makeText(this@MainActivity, "Cihaza ulaşılamadı!", Toast.LENGTH_SHORT).show() } }
             override fun onResponse(call: Call, response: Response) {
                 val ok = response.isSuccessful; response.close()
-                runOnUiThread {
-                    if (ok) Toast.makeText(this@MainActivity, "Güncelleme komutu gönderildi! Yeni sürüm varsa Menuboard indirip kurulumu açacaktır.", Toast.LENGTH_LONG).show()
-                    else Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce APK göndererek güncelleyin.", Toast.LENGTH_LONG).show()
-                }
+                runOnUiThread { Toast.makeText(this@MainActivity, if (ok) "Güncelleme komutu gönderildi!" else "Bu cihaz eski sürümde; önce APK göndererek güncelleyin.", Toast.LENGTH_LONG).show() }
             }
         })
     }
@@ -1482,12 +1101,8 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val allGranted = JSONObject(body).optBoolean("allGranted", false)
                     runOnUiThread {
-                        if (!allGranted) {
-                            AlertDialog.Builder(this@MainActivity).setTitle("⚠️ İzin Gerekli")
-                                .setMessage("Gösterim izni yok, menuboardda ekrana gelen izinleri sağlayınız.")
-                                .setPositiveButton("Yine de Touchpad'i Aç") { _, _ -> showVirtualTouchpadAndKeyboardDialog(device) }
-                                .setNegativeButton("Tamam", null).show()
-                        } else showVirtualTouchpadAndKeyboardDialog(device)
+                        if (!allGranted) AlertDialog.Builder(this@MainActivity).setTitle("⚠️ İzin Gerekli").setMessage("Gösterim izni yok, menuboardda ekrana gelen izinleri sağlayınız.").setPositiveButton("Yine de Touchpad'i Aç") { _, _ -> showVirtualTouchpadAndKeyboardDialog(device) }.setNegativeButton("Tamam", null).show()
+                        else showVirtualTouchpadAndKeyboardDialog(device)
                     }
                 } catch (_: Exception) { runOnUiThread { showVirtualTouchpadAndKeyboardDialog(device) } }
             }
@@ -1558,11 +1173,11 @@ class MainActivity : AppCompatActivity() {
             override fun contentType() = "application/octet-stream".toMediaTypeOrNull()
             override fun contentLength(): Long = totalLength
             override fun writeTo(sink: okio.BufferedSink) {
-                contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val buffer = ByteArray(65536); var read: Int; var uploaded = 0L; var lastPct = -1
-                    while (inputStream.read(buffer).also { read = it } != -1) {
-                        sink.write(buffer, 0, read)
-                        if (totalLength > 0) { uploaded += read; val p = ((uploaded * 100) / totalLength).toInt(); if (p != lastPct) { lastPct = p; runOnUiThread { uploadProgressBar?.progress = p } } }
+                contentResolver.openInputStream(uri)?.use { inp ->
+                    val buf = ByteArray(65536); var r: Int; var up = 0L; var lastP = -1
+                    while (inp.read(buf).also { r = it } != -1) {
+                        sink.write(buf, 0, r)
+                        if (totalLength > 0) { up += r; val p = ((up * 100) / totalLength).toInt(); if (p != lastP) { lastP = p; runOnUiThread { uploadProgressBar?.progress = p } } }
                     }
                 }
             }
@@ -1580,7 +1195,7 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 val body = response.body?.string() ?: "[]"; response.close()
                 try {
-                    val apps: List<RemoteAppInfo> = gson.fromJson(body, object : TypeToken<List<RemoteAppInfo>>() {}.type)
+                    val apps: List<RemoteAppInfo> = gson.fromJson(body, object : TypeToken<List<RemoteAppInfo>>() {}.type) ?: emptyList()
                     if (apps.isEmpty()) { runOnUiThread { Toast.makeText(this@MainActivity, "Uygulama listesi alınamadı.", Toast.LENGTH_LONG).show() }; return }
                     val labels = apps.map { "${it.appName}\n(${it.packageName})" }.toTypedArray()
                     runOnUiThread { AlertDialog.Builder(this@MainActivity).setTitle("${device.nameTag} - Uygulama Başlat").setItems(labels) { _, idx -> launchRemoteApp(device, apps[idx]) }.setNegativeButton("İptal", null).show() }
@@ -1737,33 +1352,24 @@ class MainActivity : AppCompatActivity() {
         val selectedItems = sefimProducts.filter { it.isSelected }
         if (selectedItems.isEmpty()) { Toast.makeText(this, "Liste boş!", Toast.LENGTH_LONG).show(); return }
         val restName = edtRestaurantName.text.toString().trim().ifEmpty { "MENÜ" }
-        val topInfo = edtHeaderNote.text.toString().trim()
-        val bottomInfo = edtFooterNote.text.toString().trim()
-        val rawWebLink = edtWebsiteLink.text.toString().trim()
-        val pageDurSec = (edtMenuPageDuration.text.toString().toIntOrNull() ?: 12).coerceAtLeast(3)
-
+        val topInfo = edtHeaderNote.text.toString().trim(); val bottomInfo = edtFooterNote.text.toString().trim()
+        val rawWebLink = edtWebsiteLink.text.toString().trim(); val pageDurSec = (edtMenuPageDuration.text.toString().toIntOrNull() ?: 12).coerceAtLeast(3)
         saveLocalSefimState(); pushSefimBackupToMenuboard()
         Toast.makeText(this, "Menü sayfaları hazırlanıyor...", Toast.LENGTH_SHORT).show()
 
         Thread {
             val width = 1080; val height = 1920
             val (bgColor, textColor, accentColor) = getSelectedThemeColors()
-            val isBold = cbSefimBold.isChecked
-            val baseFontPt = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
+            val isBold = cbSefimBold.isChecked; val baseFontPt = fontSizeValues[spinnerSefimFontSize.selectedItemPosition]
             val titleSizePx = baseFontPt * 2.0f; val subSizePx = baseFontPt * 1.25f
-
             var linkQrBitmap: Bitmap? = null
             if (rawWebLink.isNotEmpty()) {
                 val url = if (rawWebLink.startsWith("http://") || rawWebLink.startsWith("https://")) rawWebLink else "https://$rawWebLink"
                 try { linkQrBitmap = BarcodeEncoder().encodeBitmap(url, BarcodeFormat.QR_CODE, 165, 165) } catch (_: Exception) {}
             }
-
             val startTopY = if (topInfo.isNotEmpty()) 245f else 200f
             val maxBottomY = if (linkQrBitmap != null) height - 220f else if (bottomInfo.isNotEmpty()) height - 150f else height - 90f
-
-            val pages = mutableListOf<List<SefimProductItem>>()
-            var currentPageItems = mutableListOf<SefimProductItem>()
-            var testY = startTopY
+            val pages = mutableListOf<List<SefimProductItem>>(); var currentPageItems = mutableListOf<SefimProductItem>(); var testY = startTopY
             for (item in selectedItems) {
                 val hasImg = !(item.imageBase64 ?: productMetaCache[item.productName ?: ""]?.imageBase64).isNullOrEmpty()
                 val rowH = maxOf(if (hasImg) 145f else 0f, titleSizePx + subSizePx + 60f)
@@ -1771,7 +1377,6 @@ class MainActivity : AppCompatActivity() {
                 currentPageItems.add(item); testY += rowH
             }
             if (currentPageItems.isNotEmpty()) pages.add(currentPageItems)
-
             playlist.removeAll { it.fileName.startsWith("sefim_menu_") }
             val batchTime = System.currentTimeMillis(); val totalPages = pages.size
 
@@ -1782,16 +1387,13 @@ class MainActivity : AppCompatActivity() {
                 val paintTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = textColor; textSize = titleSizePx; typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD else Typeface.NORMAL) }
                 val paintPrice = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; textSize = titleSizePx; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); textAlign = Paint.Align.RIGHT }
                 val paintLine = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor; alpha = 75; strokeWidth = 2f }
-
                 canvas.drawText(restName, width / 2f, 92f, paintRest)
                 var currentY = startTopY
                 for (item in pageItems) {
                     canvas.drawText(item.productName ?: "", 65f, currentY + 12f, paintTitle)
                     canvas.drawText(item.price ?: "", width - 65f, currentY + 12f, paintPrice)
-                    currentY += titleSizePx + 40f
-                    canvas.drawLine(65f, currentY, width - 65f, currentY, paintLine); currentY += 32f
+                    currentY += titleSizePx + 40f; canvas.drawLine(65f, currentY, width - 65f, currentY, paintLine); currentY += 32f
                 }
-
                 val stream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
                 val fileName = "sefim_menu_${batchTime}_p${pageIdx + 1}.jpg"
                 try {
@@ -1807,7 +1409,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkAllDevicesStatus() {
         val now = System.currentTimeMillis()
         if (deviceList.isEmpty()) return
-        for (dev in deviceList) {
+        for (dev in deviceList.toList()) {
             pingClient.newCall(Request.Builder().url("http://${dev.host}/api/ping").build()).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     if (now - dev.lastSeenMs > 10000L) dev.isOnline = false
@@ -1818,34 +1420,37 @@ class MainActivity : AppCompatActivity() {
                     val ok = response.isSuccessful
                     val bodyStr = response.body?.string() ?: ""
                     response.close()
-                    dev.isOnline = ok
                     if (ok) {
-                        dev.lastSeenMs = System.currentTimeMillis()
                         try {
                             val json = JSONObject(bodyStr)
-                            val ver = json.optString("version", "")
-                            if (ver.isNotEmpty()) dev.version = ver
-                            val ori = json.optString("orientation", "")
-                            if (ori.isNotEmpty()) dev.orientation = ori
-                            val blurStr = json.optString("blurBg", "")
-                            if (blurStr.isNotEmpty()) dev.blurBg = (blurStr == "true")
-                            val darkStr = json.optString("blurDarkness", "")
-                            if (darkStr.isNotEmpty()) dev.blurDarkness = darkStr.toIntOrNull() ?: 30
-                            val intenStr = json.optString("blurIntensity", "")
-                            if (intenStr.isNotEmpty()) dev.blurIntensity = intenStr.toIntOrNull() ?: 1
-                            val qualStr = json.optString("blurQuality", "")
-                            if (qualStr.isNotEmpty()) dev.blurQuality = qualStr.toIntOrNull() ?: 1
-                            val igStr = json.optString("blurIg", "")
-                            if (igStr.isNotEmpty()) dev.blurApplyIg = (igStr == "true")
-                            val immStr = json.optString("immersive", "")
-                            if (immStr.isNotEmpty()) dev.immersiveMode = (immStr == "true")
-                            val autoStartStr = json.optString("autoStart", "")
-                            if (autoStartStr.isNotEmpty()) dev.autoStartOnBoot = (autoStartStr == "true")
-                        } catch (_: Exception) {}
+                            val remoteId = json.optString("id", "")
+                            // Aynı IP başka bir cihaza/sıfırlanmış cihaza aitse eski kaydı çevrimdışı yap (çakışma koruması)
+                            if (remoteId.isNotEmpty() && remoteId != dev.id) {
+                                dev.isOnline = false
+                                if (activeDevice?.id == dev.id) updateConnectionUi(false)
+                                runOnUiThread { deviceAdapter.notifyDataSetChanged() }
+                                return
+                            }
+                            dev.isOnline = true
+                            dev.lastSeenMs = System.currentTimeMillis()
+                            val ver = json.optString("version", ""); if (ver.isNotEmpty()) dev.version = ver
+                            val ori = json.optString("orientation", ""); if (ori.isNotEmpty()) dev.orientation = ori
+                            val blurStr = json.optString("blurBg", ""); if (blurStr.isNotEmpty()) dev.blurBg = (blurStr == "true")
+                            val darkStr = json.optString("blurDarkness", ""); if (darkStr.isNotEmpty()) dev.blurDarkness = darkStr.toIntOrNull() ?: 30
+                            val intenStr = json.optString("blurIntensity", ""); if (intenStr.isNotEmpty()) dev.blurIntensity = intenStr.toIntOrNull() ?: 1
+                            val qualStr = json.optString("blurQuality", ""); if (qualStr.isNotEmpty()) dev.blurQuality = qualStr.toIntOrNull() ?: 1
+                            val igStr = json.optString("blurIg", ""); if (igStr.isNotEmpty()) dev.blurApplyIg = (igStr == "true")
+                            val immStr = json.optString("immersive", ""); if (immStr.isNotEmpty()) dev.immersiveMode = (immStr == "true")
+                            val autoStartStr = json.optString("autoStart", ""); if (autoStartStr.isNotEmpty()) dev.autoStartOnBoot = (autoStartStr == "true")
+                        } catch (_: Exception) {
+                            dev.isOnline = false
+                        }
+                    } else {
+                        dev.isOnline = false
                     }
                     if (activeDevice?.id == dev.id) {
-                        val wasDisc = !isConnected; updateConnectionUi(ok)
-                        if (ok && (wasDisc || playlist.isEmpty())) { fetchPlaylist(); syncSefimBackupWithMenuboard() }
+                        val wasDisc = !isConnected; updateConnectionUi(dev.isOnline)
+                        if (dev.isOnline && (wasDisc || playlist.isEmpty())) { fetchPlaylist(); syncSefimBackupWithMenuboard() }
                     }
                     runOnUiThread { deviceAdapter.notifyDataSetChanged() }
                 }
@@ -1921,11 +1526,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean): DeviceItem {
         val now = System.currentTimeMillis()
+        // Aynı IP'yi kullanan ama farklı ID'ye sahip eski kayıtları çevrimdışı yap (çift online görünümü önle)
+        if (online) {
+            deviceList.filter { it.host == host && it.id != id }.forEach { oldDev ->
+                oldDev.isOnline = false
+            }
+        }
         var existing = deviceList.find { it.id == id }
-        if (existing != null) { existing.host = host; existing.isOnline = online; if (online) existing.lastSeenMs = now }
-        else { existing = DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L); deviceList.add(existing) }
+        if (existing != null) {
+            existing.host = host
+            existing.isOnline = online
+            if (online) existing.lastSeenMs = now
+        } else {
+            existing = DeviceItem(id, host, tag, isOnline = online, lastSeenMs = if (online) now else 0L)
+            deviceList.add(existing)
+        }
         saveDevices(); deviceAdapter.notifyDataSetChanged()
-        if (activeDevice?.id == id) { activeDevice?.host = host; activeDevice?.isOnline = online; txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"; updateConnectionUi(online) }
+        if (activeDevice?.id == id) {
+            activeDevice?.host = host; activeDevice?.isOnline = online
+            txtActiveDeviceName.text = "Aktif: ${activeDevice?.nameTag} ($host)"; updateConnectionUi(online)
+        }
         return existing
     }
 
@@ -1939,15 +1559,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectDevice(device: DeviceItem) {
-        if (isSharingScreen) stopScreenShare()
-        activeDevice = device; txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
-        playlist.clear(); mediaAdapter.notifyDataSetChanged()
-        saveDevices(); deviceAdapter.notifyDataSetChanged(); checkAllDevicesStatus(); syncSefimBackupWithMenuboard()
+        try {
+            if (isSharingScreen) stopScreenShare()
+            activeDevice = device
+            txtActiveDeviceName.text = "Aktif: ${device.nameTag} (${device.host})"
+            updateConnectionUi(device.isOnline)
+            playlist.clear(); mediaAdapter.notifyDataSetChanged()
+            saveDevices(); deviceAdapter.notifyDataSetChanged()
+            checkAllDevicesStatus()
+            if (device.isOnline) syncSefimBackupWithMenuboard()
+        } catch (_: Exception) {}
     }
 
     private fun loadSavedDevices() {
         val json = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getString("device_list_json", null)
-        if (!json.isNullOrEmpty()) { deviceList = gson.fromJson(json, object : TypeToken<MutableList<DeviceItem>>() {}.type); deviceList.forEach { it.isOnline = false } }
+        if (!json.isNullOrEmpty()) {
+            try {
+                val loaded: MutableList<DeviceItem>? = gson.fromJson(json, object : TypeToken<MutableList<DeviceItem>>() {}.type)
+                if (loaded != null) {
+                    deviceList = loaded.distinctBy { it.id }.toMutableList()
+                    deviceList.forEach { it.isOnline = false }
+                }
+            } catch (_: Exception) { deviceList = mutableListOf() }
+        }
     }
 
     private fun saveDevices() { getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).edit().putString("device_list_json", gson.toJson(deviceList)).apply() }
@@ -1964,9 +1598,17 @@ class MainActivity : AppCompatActivity() {
         httpClient.newCall(Request.Builder().url("http://$host/api/playlist").build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    playlist = gson.fromJson(response.body?.string() ?: "[]", object : TypeToken<MutableList<MediaItemModel>>() {}.type)
-                    runOnUiThread { mediaAdapter.notifyDataSetChanged() }
+                val body = response.body?.string() ?: "[]"
+                val ok = response.isSuccessful
+                response.close()
+                if (ok) {
+                    try {
+                        val parsed: MutableList<MediaItemModel>? = gson.fromJson(body, object : TypeToken<MutableList<MediaItemModel>>() {}.type)
+                        runOnUiThread {
+                            playlist = parsed ?: mutableListOf()
+                            mediaAdapter.notifyDataSetChanged()
+                        }
+                    } catch (_: Exception) {}
                 }
             }
         })
@@ -2105,7 +1747,7 @@ class MainActivity : AppCompatActivity() {
                 val existingId = resources.getIdentifier("btnDeviceSettings", "id", packageName)
                 val existingBtn = if (existingId != 0) v.findViewById<View>(existingId) else null
                 if (existingBtn is Button) btnDynamicSettings = existingBtn
-                else if (existingBtn != null) existingBtn.setOnClickListener { val p = adapterPosition; if (p != RecyclerView.NO_POSITION) showDeviceAdvancedMenu(deviceList[p]) }
+                else if (existingBtn != null) existingBtn.setOnClickListener { val p = adapterPosition; if (p != RecyclerView.NO_POSITION && p < deviceList.size) showDeviceAdvancedMenu(deviceList[p]) }
                 else if (rowLayout != null) {
                     val b = Button(v.context).apply { text = "⚙️ Ayar"; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#1976D2")); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 92).apply { leftMargin = 8; rightMargin = 4 } }
                     rowLayout.addView(b, (rowLayout.indexOfChild(btnFindDevice) + 1).coerceAtMost(rowLayout.childCount)); btnDynamicSettings = b
@@ -2114,19 +1756,25 @@ class MainActivity : AppCompatActivity() {
         }
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = DeviceViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false))
         override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
-            val dev = deviceList[position]
+            val dev = deviceList.getOrNull(position) ?: return
             val verSuffix = if (dev.isOnline && !dev.version.isNullOrEmpty()) " (v${dev.version})" else ""
             holder.txtDeviceTag.text = "${if (activeDevice?.id == dev.id) "✓ " else ""}${dev.nameTag}$verSuffix"
             holder.txtDeviceIp.text = dev.host
             holder.viewStatusDot.setBackgroundColor(if (dev.isOnline) 0xFF00C853.toInt() else 0xFFD32F2F.toInt())
             holder.btnFindDevice.text = if (dev.isFinding) "Gizle" else "Bul"; holder.btnFindDevice.setBackgroundColor(if (dev.isFinding) 0xFFD32F2F.toInt() else 0xFFF57C00.toInt())
-            holder.itemView.setOnClickListener { selectDevice(dev); switchTab(1) }
+            holder.itemView.setOnClickListener {
+                selectDevice(dev)
+                if (dev.isOnline) switchTab(1)
+                else Toast.makeText(this@MainActivity, "${dev.nameTag} şu an çevrimdışı (eski kayıt olabilir).", Toast.LENGTH_SHORT).show()
+            }
             holder.btnEditTag.setOnClickListener { showEditTagDialog(dev) }
             holder.btnFindDevice.setOnClickListener { toggleFindDevice(dev) }
             holder.btnDynamicSettings?.setOnClickListener { showDeviceAdvancedMenu(dev) }
             holder.btnDeleteDevice.setOnClickListener {
+                val pos = holder.adapterPosition
+                if (pos == RecyclerView.NO_POSITION || pos >= deviceList.size) return@setOnClickListener
                 AlertDialog.Builder(this@MainActivity).setTitle("Cihazı Kaldır").setMessage("${dev.nameTag} silinsin mi?").setPositiveButton("Kaldır") { _, _ ->
-                    deviceList.removeAt(holder.adapterPosition)
+                    if (pos < deviceList.size) deviceList.removeAt(pos)
                     if (activeDevice?.id == dev.id) {
                         activeDevice = deviceList.firstOrNull()
                         if (activeDevice != null) selectDevice(activeDevice!!) else { txtActiveDeviceName.text = "Seçili Cihaz Yok"; playlist.clear(); mediaAdapter.notifyDataSetChanged() }
@@ -2159,12 +1807,9 @@ class MainActivity : AppCompatActivity() {
                         setBackgroundResource(android.R.drawable.list_selector_background)
                         scaleType = ImageView.ScaleType.CENTER_INSIDE
                         contentDescription = "Göster / Gizle"
-                        layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
-                            marginEnd = (4 * density).toInt()
-                        }
+                        layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply { marginEnd = (4 * density).toInt() }
                     }
-                    val editIdx = actionParent.indexOfChild(btnEdit).coerceAtLeast(0)
-                    actionParent.addView(eyeBtn, editIdx)
+                    actionParent.addView(eyeBtn, actionParent.indexOfChild(btnEdit).coerceAtLeast(0))
                     btnToggleVisibility = eyeBtn
                 }
             }
@@ -2173,19 +1818,18 @@ class MainActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = MediaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_media, parent, false))
 
         override fun onBindViewHolder(holder: MediaViewHolder, position: Int) {
-            val item = playlist[position]
+            val item = playlist.getOrNull(position) ?: return
             val host = activeDevice?.host ?: ""
             holder.txtFileName.text = if (item.isHidden) "${item.fileName} (Gizli)" else item.fileName
             holder.txtAnimBadge.text = "Animasyon: ${animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"}"
 
             val contentAlpha = if (item.isHidden) 0.40f else 1.0f
-            holder.imgThumb.alpha = contentAlpha
-            holder.txtFileName.alpha = contentAlpha
-            holder.txtDetails.alpha = contentAlpha
+            holder.imgThumb.alpha = contentAlpha; holder.txtFileName.alpha = contentAlpha; holder.txtDetails.alpha = contentAlpha
             holder.btnToggleVisibility?.alpha = if (item.isHidden) 0.25f else 1.0f
             holder.btnToggleVisibility?.setOnClickListener {
                 item.isHidden = !item.isHidden
-                notifyItemChanged(holder.adapterPosition)
+                val pos = holder.adapterPosition
+                if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos)
                 syncPlaylistToMenuboard()
             }
 
@@ -2226,8 +1870,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             holder.btnDelete.setOnClickListener {
+                val pos = holder.adapterPosition
+                if (pos == RecyclerView.NO_POSITION || pos >= playlist.size) return@setOnClickListener
                 AlertDialog.Builder(this@MainActivity).setTitle("Öğeyi Sil").setMessage("${item.fileName} silinsin mi?").setPositiveButton("Sil") { _, _ ->
-                    playlist.removeAt(holder.adapterPosition); syncPlaylistToMenuboard()
+                    if (pos < playlist.size) playlist.removeAt(pos)
+                    syncPlaylistToMenuboard()
                 }.setNegativeButton("İptal", null).show()
             }
         }
