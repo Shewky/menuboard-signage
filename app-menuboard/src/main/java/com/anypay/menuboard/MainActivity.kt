@@ -434,6 +434,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var findMeOverlay: View
     private lateinit var txtFindMeTag: TextView
     private lateinit var animatedOverlayView: AnimatedOverlayView
+    private var btnWifiSettings: Button? = null
+    private var isWifiPopupOpen = false
 
     private lateinit var webView: WebView
     private lateinit var webQrContainer: FrameLayout
@@ -592,12 +594,28 @@ class MainActivity : AppCompatActivity() {
     private val ipCheckRunnable = object : Runnable {
         override fun run() {
             val freshIp = getActiveLocalIpAddress()
-            if (freshIp != currentKnownIp && freshIp != "127.0.0.1") {
-                currentKnownIp = freshIp
-                txtIpAddress.text = "IP: $freshIp:8080"
-                generateQr(freshIp, deviceId)
+            val hasNetwork = freshIp != "127.0.0.1"
+            if (hasNetwork) {
+                if (freshIp != currentKnownIp) {
+                    currentKnownIp = freshIp
+                    txtIpAddress.text = "IP: $freshIp:8080"
+                    generateQr(freshIp, deviceId)
+                }
+                if (isWifiPopupOpen) {
+                    isWifiPopupOpen = false
+                    // Ağ erişimi geldi: Wi-Fi popup'ını kapatıp Menuboard'u öne al
+                    val backIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    try { startActivity(backIntent) } catch (_: Exception) {}
+                    Toast.makeText(this@MainActivity, "✅ Ağ bağlantısı sağlandı!", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                currentKnownIp = "127.0.0.1"
+                txtIpAddress.text = "Ağ Erişimi Yok"
             }
-            handler.postDelayed(this, 5000L)
+            updateNoNetworkButtonVisibility()
+            handler.postDelayed(this, 2500L)
         }
     }
 
@@ -633,6 +651,7 @@ class MainActivity : AppCompatActivity() {
         findMeOverlay = findViewById(R.id.findMeOverlay)
         txtFindMeTag = findViewById(R.id.txtFindMeTag)
 
+        setupNoNetworkWifiButton()
         updateWelcomeScreenLayout()
         setupBlurBackgroundAndVideoSurface()
         setupWebPlayerAndQrOverlay()
@@ -664,6 +683,62 @@ class MainActivity : AppCompatActivity() {
         startUdpBeacon()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun setupNoNetworkWifiButton() {
+        val parentGroup = btnCloseQr.parent as? ViewGroup ?: return
+        val density = resources.displayMetrics.density
+        val wifiBtn = Button(this).apply {
+            text = "📡 Ağ Erişimi Yok. Wifi ayarlarını aç"
+            isAllCaps = false
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#D32F2F"))
+            setPadding((20 * density).toInt(), (10 * density).toInt(), (20 * density).toInt(), (10 * density).toInt())
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = (8 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+            setOnClickListener { openWifiSettingsPopup() }
+        }
+        val closeIdx = parentGroup.indexOfChild(btnCloseQr).coerceAtLeast(0)
+        parentGroup.addView(wifiBtn, closeIdx)
+        btnWifiSettings = wifiBtn
+    }
+
+    private fun openWifiSettingsPopup() {
+        isWifiPopupOpen = true
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+: Uygulamadan çıkmadan alttan popup Wi-Fi paneli açar
+                startActivity(Intent(Settings.Panel.ACTION_WIFI))
+            } else {
+                startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            }
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            } catch (_: Exception) {
+                isWifiPopupOpen = false
+                Toast.makeText(this, "Wi-Fi ayarları açılamadı!", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun updateNoNetworkButtonVisibility() {
+        val hasNetwork = getActiveLocalIpAddress() != "127.0.0.1"
+        val noMedia = getActivePlaylist().isEmpty()
+        btnWifiSettings?.visibility = if (!hasNetwork && noMedia && qrOverlay.visibility == View.VISIBLE) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
     }
 
     private fun getRealScreenSize(): Pair<Int, Int> {
@@ -1399,6 +1474,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         currentTaskId = taskId
+        isWifiPopupOpen = false
+        updateNoNetworkButtonVisibility()
         applyImmersiveMode(if (isScreenSharing) true else immersiveModeEnabled)
         if (awaitingSequentialPermissionChain) {
             val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
@@ -1614,8 +1691,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun startLocalServer() {
         currentKnownIp = getActiveLocalIpAddress()
-        txtIpAddress.text = "IP: $currentKnownIp:8080"
-        generateQr(currentKnownIp, deviceId)
+        txtIpAddress.text = if (currentKnownIp != "127.0.0.1") "IP: $currentKnownIp:8080" else "Ağ Erişimi Yok"
+        if (currentKnownIp != "127.0.0.1") generateQr(currentKnownIp, deviceId)
+        updateNoNetworkButtonVisibility()
         if (httpServer == null) { httpServer = SignageServer(8080); httpServer?.start(600000, false) }
     }
 
@@ -1625,8 +1703,10 @@ class MainActivity : AppCompatActivity() {
             while (isBroadcasting) {
                 try {
                     val ip = getActiveLocalIpAddress()
-                    val bytes = "ANYPAY_DISCOVERY:$deviceId:$deviceTag:$ip:8080".toByteArray()
-                    socket.send(DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), 8888))
+                    if (ip != "127.0.0.1") {
+                        val bytes = "ANYPAY_DISCOVERY:$deviceId:$deviceTag:$ip:8080".toByteArray()
+                        socket.send(DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), 8888))
+                    }
                 } catch (_: Exception) {}
                 Thread.sleep(3000L)
             }
@@ -1653,8 +1733,19 @@ class MainActivity : AppCompatActivity() {
         try { imgQrCode.setImageBitmap(BarcodeEncoder().encodeBitmap("{\"id\":\"$id\",\"tag\":\"$deviceTag\",\"ip\":\"$ip\",\"port\":8080}", BarcodeFormat.QR_CODE, 500, 500)) } catch (_: Exception) {}
     }
 
-    private fun showQrOverlay() { stopAllPlayback(); imgCornerLogo.visibility = View.GONE; qrOverlay.visibility = View.VISIBLE; updateWelcomeScreenLayout() }
-    private fun hideQrOverlay() { qrOverlay.visibility = View.GONE; imgCornerLogo.visibility = View.VISIBLE }
+    private fun showQrOverlay() {
+        stopAllPlayback()
+        imgCornerLogo.visibility = View.GONE
+        qrOverlay.visibility = View.VISIBLE
+        updateWelcomeScreenLayout()
+        updateNoNetworkButtonVisibility()
+    }
+
+    private fun hideQrOverlay() {
+        qrOverlay.visibility = View.GONE
+        imgCornerLogo.visibility = View.VISIBLE
+        btnWifiSettings?.visibility = View.GONE
+    }
 
     private fun stopAllPlayback() {
         handler.removeCallbacks(mediaEndRunnable)
@@ -1871,7 +1962,6 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Cihaz Açıldığında Otomatik Başlat (BootReceiver)
             if (uri == "/api/autostart" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
                 autoStartOnBoot = enabled
