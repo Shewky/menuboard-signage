@@ -605,6 +605,26 @@ class MainActivity : AppCompatActivity() {
         checkForUpdate(manualTrigger = false)
     }
 
+    private fun getPersistentDeviceId(): String {
+        val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
+        val androidId = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        } catch (_: Exception) {
+            null
+        }
+        if (!androidId.isNullOrBlank() && androidId != "9774d56d682e549c") {
+            val persistentId = androidId.take(12).uppercase()
+            prefs.edit().putString("device_id", persistentId).apply()
+            return persistentId
+        }
+        var savedId = prefs.getString("device_id", "") ?: ""
+        if (savedId.isEmpty()) {
+            savedId = UUID.randomUUID().toString().take(8).uppercase()
+            prefs.edit().putString("device_id", savedId).apply()
+        }
+        return savedId
+    }
+
     // Android TV'de yüksek çözünürlüklü fotoğrafların RAM/GPU taşmasına yol açmadan güvenli yüklenmesi
     private fun loadScaledImageForDisplay(file: File, expectedFileName: String) {
         blurExecutor.execute {
@@ -1231,8 +1251,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSavedState() {
         val prefs = getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE)
-        deviceId = prefs.getString("device_id", "") ?: ""
-        if (deviceId.isEmpty()) { deviceId = UUID.randomUUID().toString().take(8); prefs.edit().putString("device_id", deviceId).apply() }
+        deviceId = getPersistentDeviceId()
         deviceTag = prefs.getString("device_tag", "Menuboard") ?: "Menuboard"
         activeBgObject = prefs.getString("bg_object", "none") ?: "none"
         animatedOverlayView.setAnimationMode(activeBgObject)
