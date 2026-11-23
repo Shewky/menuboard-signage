@@ -11,8 +11,8 @@ android {
         applicationId = "com.anypay.menuboard"
         minSdk = 24
         targetSdk = 34
-        versionCode = 149
-        versionName = "1.49"
+        versionCode = 150
+        versionName = "1.50"
     }
 
     signingConfigs {
