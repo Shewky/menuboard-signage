@@ -469,6 +469,7 @@ class MainActivity : AppCompatActivity() {
     private var blurQualityLevel = 1   // 0: Düşük, 1: Orta, 2: Yüksek
     private var blurApplyInstagram = false
     private var immersiveModeEnabled = true
+    private var autoStartOnBoot = false
 
     private var currentVideoWidth = 0
     private var currentVideoHeight = 0
@@ -575,7 +576,6 @@ class MainActivity : AppCompatActivity() {
             } else {
                 if (item.scrollUntilEnd) {
                     webScrollBottomStrikes++
-                    // Lazy-load içerikler yüklenirken erken kesilmemesi için 3 kez (toplam ~1.5 sn) doğrula
                     if (webScrollBottomStrikes < 3) {
                         handler.postDelayed(this, 500L)
                     } else {
@@ -612,6 +612,7 @@ class MainActivity : AppCompatActivity() {
         blurQualityLevel = prefs.getInt("blur_quality", 1).coerceIn(0, 2)
         blurApplyInstagram = prefs.getBoolean("blur_apply_ig", false)
         immersiveModeEnabled = prefs.getBoolean("immersive_mode", true)
+        autoStartOnBoot = prefs.getBoolean("auto_start_on_boot", false)
         applyScreenOrientation(screenOrientationMode)
 
         setContentView(R.layout.activity_main)
@@ -1805,7 +1806,6 @@ class MainActivity : AppCompatActivity() {
                 webQrContainer.visibility = View.GONE
             }
 
-            // Uzun sayfalarda erken kesilmemesi için 30 dk güvenlik süresi (sayfa bitince otomatik geçer)
             if (item.scrollUntilEnd) handler.postDelayed(mediaEndRunnable, 1800000L)
             else handler.postDelayed(mediaEndRunnable, (if (item.durationSec > 0) item.durationSec else 20) * 1000L)
 
@@ -1871,7 +1871,21 @@ class MainActivity : AppCompatActivity() {
             val uri = session.uri
             val method = session.method
 
-            // Menuboard Uygulamasını Yeniden Başlat
+            // Cihaz Açıldığında Otomatik Başlat (BootReceiver)
+            if (uri == "/api/autostart" && method == Method.POST) {
+                val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
+                autoStartOnBoot = enabled
+                getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putBoolean("auto_start_on_boot", enabled).apply()
+                runOnUiThread {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (enabled) "🚀 Açılışta Otomatik Başlatma: AÇIK" else "⏹️ Açılışta Otomatik Başlatma: KAPALI",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                return newFixedLengthResponse(Response.Status.OK, "text/plain", enabled.toString())
+            }
+
             if (uri == "/api/restart" && method == Method.POST) {
                 restartMenuboardApp()
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "RESTARTING")
@@ -2196,7 +2210,8 @@ class MainActivity : AppCompatActivity() {
                             "blurIntensity" to blurIntensityLevel.toString(),
                             "blurQuality" to blurQualityLevel.toString(),
                             "blurIg" to blurApplyInstagram.toString(),
-                            "immersive" to immersiveModeEnabled.toString()
+                            "immersive" to immersiveModeEnabled.toString(),
+                            "autoStart" to autoStartOnBoot.toString()
                         )
                     )
                 )
