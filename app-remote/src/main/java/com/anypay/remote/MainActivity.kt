@@ -77,7 +77,8 @@ data class DeviceItem(
     var blurIntensity: Int? = 1,
     var blurQuality: Int? = 1,
     var blurApplyIg: Boolean? = false,
-    var immersiveMode: Boolean? = true
+    var immersiveMode: Boolean? = true,
+    var autoStartOnBoot: Boolean? = false
 )
 
 data class MediaItemModel(
@@ -416,7 +417,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.46" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.47" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -1200,11 +1201,14 @@ class MainActivity : AppCompatActivity() {
         val blurOption = if (device.blurBg) "🌫️ Bulanık Arka Plan: AÇIK (%${device.blurDarkness ?: 30} / $qualStr)" else "🌫️ Bulanık Arka Plan: KAPALI (Ayarla)"
         val isImmersive = device.immersiveMode != false
         val immersiveOption = if (isImmersive) "🖥️ Tam Ekran (Çubuklar Gizli) → Göster" else "📱 Sistem Çubukları Görünür → Gizle"
+        val autoStartEnabled = device.autoStartOnBoot == true
+        val autoStartOption = if (autoStartEnabled) "🚀 Açılışta Otomatik Başlat: AÇIK (Kapat)" else "🚀 Açılışta Otomatik Başlat: KAPALI (Aç)"
         val options = arrayOf(
             "🖱️ Mouse & Klavye Kontrolü (Sanal Touchpad)",
             tvModeOption,
             blurOption,
             immersiveOption,
+            autoStartOption,
             "⬇️ Güncelleme İndir / Kontrol Et",
             "📦 Uzaktan APK Gönder & Kur",
             "🚀 Menuboard'da Kurulu Uygulamaları Gör / Başlat",
@@ -1218,13 +1222,39 @@ class MainActivity : AppCompatActivity() {
                 1 -> toggleDeviceOrientation(device)
                 2 -> showBlurBackgroundDialog(device)
                 3 -> toggleDeviceImmersiveMode(device)
-                4 -> triggerRemoteUpdateCheck(device)
-                5 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
-                6 -> fetchAndShowInstalledApps(device)
-                7 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
-                8 -> triggerRemoteRestart(device)
+                4 -> toggleDeviceAutoStart(device)
+                5 -> triggerRemoteUpdateCheck(device)
+                6 -> { targetApkDevice = device; pickRemoteApkLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }) }
+                7 -> fetchAndShowInstalledApps(device)
+                8 -> { sendRemoteInput(device, "type=nav&act=MENUBOARD"); Toast.makeText(this, "Menuboard öne getirme komutu gönderildi.", Toast.LENGTH_SHORT).show() }
+                9 -> triggerRemoteRestart(device)
             }
         }.setNegativeButton("Kapat", null).show()
+    }
+
+    private fun toggleDeviceAutoStart(device: DeviceItem) {
+        val newState = !(device.autoStartOnBoot == true)
+        httpClient.newCall(Request.Builder().url("http://${device.host}/api/autostart?enabled=$newState").post("".toRequestBody(null)).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "Otomatik başlatma komutu gönderilemedi!", Toast.LENGTH_SHORT).show() }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val ok = response.isSuccessful; response.close()
+                if (ok) {
+                    device.autoStartOnBoot = newState
+                    saveDevices()
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (newState) "🚀 Cihaz açıldığında Menuboard otomatik başlayacak!" else "⏹️ Açılışta otomatik başlatma kapatıldı.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Bu cihaz eski sürümde; önce Menuboard'u v1.47'ye güncelleyin.", Toast.LENGTH_LONG).show() }
+                }
+            }
+        })
     }
 
     private fun triggerRemoteRestart(device: DeviceItem) {
@@ -1809,6 +1839,8 @@ class MainActivity : AppCompatActivity() {
                             if (igStr.isNotEmpty()) dev.blurApplyIg = (igStr == "true")
                             val immStr = json.optString("immersive", "")
                             if (immStr.isNotEmpty()) dev.immersiveMode = (immStr == "true")
+                            val autoStartStr = json.optString("autoStart", "")
+                            if (autoStartStr.isNotEmpty()) dev.autoStartOnBoot = (autoStartStr == "true")
                         } catch (_: Exception) {}
                     }
                     if (activeDevice?.id == dev.id) {
