@@ -1,7 +1,6 @@
 package com.anypay.menuboard
 
 import android.app.ActivityManager
-import android.app.ActivityOptions
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.app.Instrumentation
@@ -33,7 +32,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
-import android.view.WindowManager
 import android.view.animation.*
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -67,15 +65,16 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
@@ -114,6 +113,14 @@ data class MediaItemModel(
 data class InstalledAppInfo(
     val appName: String,
     val packageName: String
+)
+
+data class PeerDeviceInfo(
+    val id: String,
+    val tag: String,
+    val host: String,
+    val lastSeenMs: Long,
+    val isSelf: Boolean = false
 )
 
 class AnimatedOverlayView(context: Context) : View(context) {
@@ -377,6 +384,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val GITHUB_REPO = "KULLANICI_ADINIZ/menuboard-signage"
+    private val WEB_PANEL_PASS = "interfon1234"
 
     private lateinit var mediaContainer: FrameLayout
     private lateinit var bgBlurImageView: ImageView
@@ -410,6 +418,9 @@ class MainActivity : AppCompatActivity() {
 
     private var exoPlayer: ExoPlayer? = null
     private var httpServer: SignageServer? = null
+    private var udpPeerSocket: DatagramSocket? = null
+    private val discoveredPeers = ConcurrentHashMap<String, PeerDeviceInfo>()
+
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
     private val updateHttpClient = OkHttpClient()
@@ -588,7 +599,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
-            txtStatus.text = "Sürüm: v$vName | Kumandadan QR Okutun veya Ağı Tarayın"
+            txtStatus.text = "Sürüm: v$vName | Kumandadan QR Okutun veya Tarayıcıdan IP'yi Açın"
         } catch (_: Exception) {}
 
         initPlayer()
@@ -601,6 +612,7 @@ class MainActivity : AppCompatActivity() {
 
         startLocalServer()
         startUdpBeacon()
+        startUdpPeerListener()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
     }
@@ -625,7 +637,6 @@ class MainActivity : AppCompatActivity() {
         return savedId
     }
 
-    // Android TV'de yüksek çözünürlüklü fotoğrafların RAM/GPU taşmasına yol açmadan güvenli yüklenmesi
     private fun loadScaledImageForDisplay(file: File, expectedFileName: String) {
         blurExecutor.execute {
             try {
@@ -724,7 +735,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "🔄 Menuboard yeniden başlatılıyor...", Toast.LENGTH_SHORT).show()
             handler.postDelayed({
                 try {
-                    isBroadcasting = false; httpServer?.stop(); exoPlayer?.release()
+                    isBroadcasting = false; udpPeerSocket?.close(); httpServer?.stop(); exoPlayer?.release()
                     val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
                     startActivity(Intent.makeRestartActivityTask(launchIntent?.component))
                     Runtime.getRuntime().exit(0)
@@ -1281,6 +1292,36 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) {}
                 Thread.sleep(3000L)
             }
+            try { socket.close() } catch (_: Exception) {}
+        }.start()
+    }
+
+    private fun startUdpPeerListener() {
+        Thread {
+            try {
+                val socket = DatagramSocket(null).apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(8888))
+                }
+                udpPeerSocket = socket
+                val buffer = ByteArray(1024)
+                while (isBroadcasting) {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    socket.receive(packet)
+                    val msg = String(packet.data, 0, packet.length)
+                    if (msg.startsWith("ANYPAY_DISCOVERY:")) {
+                        val p = msg.split(":")
+                        if (p.size >= 5) {
+                            val pId = p[1]
+                            val pTag = p[2]
+                            val pHost = "${p[3]}:${p[4]}"
+                            if (pId != deviceId) {
+                                discoveredPeers[pId] = PeerDeviceInfo(pId, pTag, pHost, System.currentTimeMillis(), false)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
         }.start()
     }
 
@@ -1437,6 +1478,30 @@ class MainActivity : AppCompatActivity() {
     inner class SignageServer(port: Int) : NanoHTTPD(port) {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri; val method = session.method
+
+            // Gömülü Web Yönetim Paneli (iPhone / Mac / PC)
+            if ((uri == "/" || uri == "/index.html") && method == Method.GET) {
+                return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", WebPanelHtml.getHtml())
+            }
+
+            // Web Panel Şifre Doğrulama
+            if (uri == "/api/web/login" && method == Method.POST) {
+                val pass = session.parameters["pass"]?.firstOrNull() ?: ""
+                val ok = pass == WEB_PANEL_PASS
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("ok" to ok)))
+            }
+
+            // Ağdaki Diğer Menuboard Cihazları
+            if (uri == "/api/peers" && method == Method.GET) {
+                val now = System.currentTimeMillis()
+                val result = mutableListOf<PeerDeviceInfo>()
+                val selfIp = getActiveLocalIpAddress()
+                result.add(PeerDeviceInfo(deviceId, deviceTag, "$selfIp:8080", now, true))
+                discoveredPeers.values.filter { now - it.lastSeenMs < 15000L }.sortedBy { it.tag.lowercase() }.forEach {
+                    result.add(it)
+                }
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(result))
+            }
 
             if (uri == "/api/autostart" && method == Method.POST) {
                 val enabled = session.parameters["enabled"]?.firstOrNull() == "true"
@@ -1735,6 +1800,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         isBroadcasting = false
+        try { udpPeerSocket?.close() } catch (_: Exception) {}
         handler.removeCallbacks(ipCheckRunnable); handler.removeCallbacks(webScrollRunnable); handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
         blurExecutor.shutdownNow(); httpServer?.stop(); exoPlayer?.release()
     }
