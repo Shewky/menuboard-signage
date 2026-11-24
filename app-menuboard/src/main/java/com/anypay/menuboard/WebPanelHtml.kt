@@ -1,14 +1,42 @@
 package com.anypay.menuboard
 
 object WebPanelHtml {
+    fun getManifestJson(): String = """
+{
+  "name": "İnterfon Menuboard Kumanda",
+  "short_name": "Menuboard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e293b",
+  "icons": [
+    {
+      "src": "/api/logo",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/api/logo",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+""".trimIndent()
+
     fun getHtml(): String = """
 <!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1e293b">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Menuboard">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" href="/api/logo">
+<link rel="apple-touch-icon" href="/api/logo">
 <title>Menuboard Web Kumanda</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -16,14 +44,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .hidden{display:none!important}
 .login-wrap{position:fixed;inset:0;background:#0f172a;z-index:999;display:flex;align-items:center;justify-content:center;padding:24px}
 .login-card{width:100%;max-width:360px;background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px 22px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.5)}
-.login-card h1{font-size:20px;margin-bottom:6px;color:#38bdf8}
+.login-logo{max-height:54px;max-width:220px;object-fit:contain;margin-bottom:14px}
+.login-card h1{font-size:19px;margin-bottom:6px;color:#38bdf8}
 .login-card p{font-size:13px;color:#94a3b8;margin-bottom:18px}
-.topbar{position:sticky;top:0;z-index:50;background:#1e293b;border-bottom:1px solid #334155;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.brand{display:flex;flex-direction:column}
-.brand-title{font-size:15px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px}
-.dot{width:9px;height:9px;border-radius:50%;background:#22c55e;display:inline-block}
+.topbar{position:sticky;top:0;z-index:50;background:#1e293b;border-bottom:1px solid #334155;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.brand-wrap{display:flex;align-items:center;gap:10px;min-width:0}
+.top-logo{height:30px;max-width:96px;object-fit:contain;flex-shrink:0}
+.brand{display:flex;flex-direction:column;min-width:0}
+.brand-title{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:9px;height:9px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0}
 .brand-sub{font-size:11px;color:#94a3b8}
-.top-actions{display:flex;gap:6px}
+.top-actions{display:flex;gap:6px;flex-shrink:0}
 .icon-btn{background:#334155;color:#f8fafc;border:none;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;cursor:pointer}
 .icon-btn.warn{background:#f59e0b;color:#111}
 .icon-btn.danger{background:#dc2626;color:#fff}
@@ -78,7 +109,8 @@ input[type=range]{width:100%;accent-color:#38bdf8}
 
 <div id="loginScreen" class="login-wrap">
   <div class="login-card">
-    <h1>📺 Menuboard Panel</h1>
+    <img src="/api/logo" class="login-logo" alt="İnterfon" onerror="this.style.display='none'">
+    <h1>Menuboard Panel</h1>
     <p>Yönetim paneline erişmek için şifreyi girin</p>
     <div class="field">
       <input id="loginPass" type="password" class="input" placeholder="Şifre" autocomplete="current-password">
@@ -90,9 +122,12 @@ input[type=range]{width:100%;accent-color:#38bdf8}
 
 <div id="appShell" class="hidden">
   <div class="topbar">
-    <div class="brand">
-      <div class="brand-title"><span class="dot"></span><span id="hdrTag">Menuboard</span> <span id="hdrVer" style="font-size:11px;color:#38bdf8"></span></div>
-      <div class="brand-sub" id="hdrHost">Yerel Ağ</div>
+    <div class="brand-wrap">
+      <img src="/api/logo" class="top-logo" alt="İnterfon" onerror="this.style.display='none'">
+      <div class="brand">
+        <div class="brand-title"><span class="dot"></span><span id="hdrTag">Menuboard</span> <span id="hdrVer" style="font-size:11px;color:#38bdf8"></span></div>
+        <div class="brand-sub" id="hdrHost">Yerel Ağ</div>
+      </div>
     </div>
     <div class="top-actions">
       <button id="btnFind" class="icon-btn warn" onclick="toggleFind()">Bul</button>
@@ -181,7 +216,6 @@ input[type=range]{width:100%;accent-color:#38bdf8}
   </div>
 </div>
 
-<!-- MODAL ALANI -->
 <div id="modalBg" class="modal-bg hidden" onclick="if(event.target===this)closeModal()">
   <div class="modal" id="modalContent"></div>
 </div>
