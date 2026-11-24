@@ -14,6 +14,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.graphics.*
+import android.graphics.drawable.BitmapDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -406,6 +407,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var animatedOverlayView: AnimatedOverlayView
     private var btnWifiSettings: Button? = null
     private var isWifiPopupOpen = false
+    private var cachedLogoPngBytes: ByteArray? = null
 
     private lateinit var webView: WebView
     private lateinit var webQrContainer: FrameLayout
@@ -617,6 +619,31 @@ class MainActivity : AppCompatActivity() {
         startUdpPeerListener()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun getLogoPngBytes(): ByteArray? {
+        cachedLogoPngBytes?.let { return it }
+        return try {
+            val drawable = imgCornerLogo.drawable ?: applicationInfo.loadIcon(packageManager)
+            val bmp = if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                drawable.bitmap
+            } else {
+                val w = drawable.intrinsicWidth.takeIf { it > 0 } ?: 192
+                val h = drawable.intrinsicHeight.takeIf { it > 0 } ?: 192
+                val created = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(created)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                created
+            }
+            val baos = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+            val bytes = baos.toByteArray()
+            cachedLogoPngBytes = bytes
+            bytes
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun getPersistentDeviceId(): String {
@@ -1166,15 +1193,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bringMenuboardToFront() {
-        MenuboardControlService.instance?.bringPackageToFront(packageName)
+        try {
+            MenuboardControlService.instance?.bringPackageToFront(packageName)
+        } catch (_: Exception) {}
 
         runOnUiThread {
             try {
-                val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                am?.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    am?.appTasks?.forEach { it.moveToFront() }
-                }
+                // moveTaskToFront ayrı try-catch içinde; SecurityException atsa bile alttaki startActivity çalışır
+                try {
+                    val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    am?.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        am?.appTasks?.forEach { it.moveToFront() }
+                    }
+                } catch (_: Exception) {}
 
                 var tempBridgeView: View? = null
                 val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
@@ -1231,7 +1263,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 } catch (_: Exception) {}
 
-                startActivity(frontIntent)
+                try {
+                    startActivity(frontIntent)
+                } catch (_: Exception) {}
 
                 try {
                     val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -1551,6 +1585,18 @@ class MainActivity : AppCompatActivity() {
 
             if ((uri == "/" || uri == "/index.html") && method == Method.GET) {
                 return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", WebPanelHtml.getHtml())
+            }
+
+            if (uri == "/manifest.json" && method == Method.GET) {
+                return newFixedLengthResponse(Response.Status.OK, "application/manifest+json; charset=utf-8", WebPanelHtml.getManifestJson())
+            }
+
+            if (uri == "/api/logo" && method == Method.GET) {
+                val bytes = getLogoPngBytes()
+                if (bytes != null) {
+                    return newFixedLengthResponse(Response.Status.OK, "image/png", ByteArrayInputStream(bytes), bytes.size.toLong())
+                }
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No Logo")
             }
 
             if (uri == "/api/web/login" && method == Method.POST) {
