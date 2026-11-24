@@ -54,11 +54,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .check-row input{width:18px;height:18px;accent-color:#38bdf8}
 .switch-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #334155;gap:10px}
 .switch-row:last-child{border-bottom:none}
-.touchpad{width:100%;height:240px;background:radial-gradient(circle at center,#1e293b,#0f172a);border:2px dashed #38bdf8;border-radius:14px;display:flex;align-items:center;justify-content:center;text-align:center;color:#7dd3fc;font-size:13px;user-select:none;touch-action:none;margin-bottom:12px}
-.nav-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
-.nav-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-.kb-row{display:flex;gap:6px}
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#1e293b;border-top:1px solid #334155;display:grid;grid-template-columns:repeat(4,1fr);z-index:60}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#1e293b;border-top:1px solid #334155;display:grid;grid-template-columns:repeat(3,1fr);z-index:60}
 .nav-tab{background:none;border:none;color:#94a3b8;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
 .nav-tab.active{color:#38bdf8}
 .nav-tab span{font-size:18px}
@@ -116,29 +112,7 @@ input[type=range]{width:100%;accent-color:#38bdf8}
       <div id="playlistBox"></div>
     </div>
 
-    <!-- TAB 2: TOUCHPAD -->
-    <div id="tabTouchpad" class="hidden">
-      <div class="card">
-        <div class="card-title">🖱️ Sanal Touchpad & Klavye</div>
-        <div id="touchpad" class="touchpad">Parmağınızı gezdirin: İmleç<br>Kısa dokunun: Sol Tık</div>
-        <div class="nav-grid">
-          <button class="btn btn-slate" onclick="sendInput('type=nav&act=BACK')">◀ Geri</button>
-          <button class="btn btn-slate" onclick="sendInput('type=nav&act=HOME')">⏺ Ana Ekran</button>
-          <button class="btn btn-orange" onclick="sendInput('type=nav&act=MENUBOARD')">📺 Öne Getir</button>
-        </div>
-        <div class="nav-grid-2">
-          <button class="btn btn-slate" onclick="sendInput('type=scroll&dy=-350')">▲ Yukarı Kaydır</button>
-          <button class="btn btn-slate" onclick="sendInput('type=scroll&dy=350')">▼ Aşağı Kaydır</button>
-        </div>
-        <div class="kb-row">
-          <input id="kbInput" type="text" class="input" placeholder="Menuboard'a yazılacak metin...">
-          <button class="btn btn-blue" onclick="sendKbText()">Gönder</button>
-          <button class="btn btn-slate" onclick="sendInput('type=key&code=BACKSPACE')">⌫</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 3: AYARLAR -->
+    <!-- TAB 2: AYARLAR -->
     <div id="tabSettings" class="hidden">
       <div class="card">
         <div class="card-title">🖥️ Ekran ve Sistem</div>
@@ -182,13 +156,13 @@ input[type=range]{width:100%;accent-color:#38bdf8}
           <button class="btn btn-blue btn-full" onclick="openAppsModal()">🚀 Kurulu Uygulamaları Gör / Başlat</button>
           <button class="btn btn-teal btn-full" onclick="openApkModal()">📦 Uzaktan APK Gönder & Kur</button>
           <button class="btn btn-slate btn-full" onclick="checkRemoteUpdate()">⬇️ Güncelleme Kontrol Et</button>
-          <button class="btn btn-orange btn-full" onclick="sendInput('type=nav&act=MENUBOARD');toast('Öne getirildi')">📺 Menuboard'u Öne Getir</button>
+          <button class="btn btn-orange btn-full" onclick="sendInput('type=nav&act=MENUBOARD');toast('Menuboard öne getiriliyor...')">📺 Menuboard'u Öne Getir</button>
           <button class="btn btn-red btn-full" onclick="restartDevice()">🔄 Menuboard Uygulamasını Restart Et</button>
         </div>
       </div>
     </div>
 
-    <!-- TAB 4: CİHAZLAR -->
+    <!-- TAB 3: CİHAZLAR -->
     <div id="tabPeers" class="hidden">
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -202,9 +176,8 @@ input[type=range]{width:100%;accent-color:#38bdf8}
 
   <div class="bottom-nav">
     <button class="nav-tab active" id="nav0" onclick="switchTab(0)"><span>📁</span>Medya</button>
-    <button class="nav-tab" id="nav1" onclick="switchTab(1)"><span>🖱️</span>Touchpad</button>
-    <button class="nav-tab" id="nav2" onclick="switchTab(2)"><span>⚙️</span>Ayarlar</button>
-    <button class="nav-tab" id="nav3" onclick="switchTab(3)"><span>📡</span>Cihazlar</button>
+    <button class="nav-tab" id="nav1" onclick="switchTab(1)"><span>⚙️</span>Ayarlar</button>
+    <button class="nav-tab" id="nav2" onclick="switchTab(2)"><span>📡</span>Cihazlar</button>
   </div>
 </div>
 
@@ -279,13 +252,13 @@ function showApp() {
 }
 
 function switchTab(idx) {
-  var tabs = ['tabMedia','tabTouchpad','tabSettings','tabPeers'];
+  var tabs = ['tabMedia','tabSettings','tabPeers'];
   for (var i = 0; i < tabs.length; i++) {
     document.getElementById(tabs[i]).classList.toggle('hidden', i !== idx);
     document.getElementById('nav' + i).classList.toggle('active', i === idx);
   }
-  if (idx === 3) loadPeers();
-  if (idx === 2) loadPing();
+  if (idx === 2) loadPeers();
+  if (idx === 1) loadPing();
 }
 
 function loadPing() {
@@ -685,36 +658,6 @@ function loadPeers() {
 }
 
 function sendInput(q) { fetch('/api/input?' + q, { method: 'POST' }); }
-
-function sendKbText() {
-  var inp = document.getElementById('kbInput');
-  if (inp.value) { sendInput('type=text&val=' + encodeURIComponent(inp.value)); inp.value = ''; toast('Gönderildi'); }
-}
-
-// Touchpad olayları (Dokunmatik + Fare)
-(function(){
-  var tp = document.getElementById('touchpad');
-  var down = false, lx = 0, ly = 0, sx = 0, sy = 0, st = 0, lastSend = 0;
-  function start(x, y) { down = true; lx = sx = x; ly = sy = y; st = Date.now(); }
-  function move(x, y) {
-    if (!down) return;
-    var now = Date.now(), dx = (x - lx) * 2.0, dy = (y - ly) * 2.0;
-    if (now - lastSend > 35 && (Math.abs(dx) > 1.5 || Math.abs(dy) > 1.5)) {
-      lx = x; ly = y; lastSend = now;
-      sendInput('type=move&dx=' + Math.round(dx) + '&dy=' + Math.round(dy));
-    }
-  }
-  function end(x, y) {
-    if (!down) return; down = false;
-    if (Date.now() - st < 260 && Math.hypot(x - sx, y - sy) < 15) sendInput('type=click');
-  }
-  tp.addEventListener('touchstart', function(e){ e.preventDefault(); start(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-  tp.addEventListener('touchmove', function(e){ e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-  tp.addEventListener('touchend', function(e){ e.preventDefault(); var t = e.changedTouches[0]; end(t.clientX, t.clientY); }, { passive: false });
-  tp.addEventListener('mousedown', function(e){ start(e.clientX, e.clientY); });
-  window.addEventListener('mousemove', function(e){ move(e.clientX, e.clientY); });
-  window.addEventListener('mouseup', function(e){ end(e.clientX, e.clientY); });
-})();
 
 document.getElementById('loginPass').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
 
