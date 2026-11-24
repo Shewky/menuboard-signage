@@ -1,6 +1,7 @@
 package com.anypay.menuboard
 
 import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.app.Instrumentation
@@ -32,6 +33,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.view.animation.*
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -1165,29 +1167,97 @@ class MainActivity : AppCompatActivity() {
 
     private fun bringMenuboardToFront() {
         MenuboardControlService.instance?.bringPackageToFront(packageName)
+
         runOnUiThread {
             try {
                 val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
                 am?.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) am?.appTasks?.forEach { it.moveToFront() }
-                val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
-                    action = Intent.ACTION_MAIN; addCategory(Intent.CATEGORY_LAUNCHER)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    am?.appTasks?.forEach { it.moveToFront() }
                 }
-                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE else PendingIntent.FLAG_UPDATE_CURRENT
+
+                var tempBridgeView: View? = null
+                val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this) && wm != null) {
+                    try {
+                        tempBridgeView = View(applicationContext)
+                        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        } else {
+                            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+                        }
+                        val lp = WindowManager.LayoutParams(
+                            1, 1, overlayType,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT
+                        )
+                        wm.addView(tempBridgeView, lp)
+                    } catch (_: Exception) {}
+                }
+
+                val frontIntent = Intent(applicationContext, MainActivity::class.java).apply {
+                    action = Intent.ACTION_MAIN
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                    )
+                }
+
+                val optionsBundle: Bundle? = if (Build.VERSION.SDK_INT >= 34) {
+                    try {
+                        val opts = ActivityOptions.makeBasic()
+                        ActivityOptions::class.java
+                            .getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
+                            .invoke(opts, 1)
+                        opts.toBundle()
+                    } catch (_: Exception) { null }
+                } else null
+
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
                 val pi = PendingIntent.getActivity(applicationContext, 999, frontIntent, flags)
-                try { pi.send() } catch (_: Exception) {}
+                try {
+                    if (optionsBundle != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                        pi.send(applicationContext, 0, null, null, null, null, optionsBundle)
+                    } else {
+                        pi.send()
+                    }
+                } catch (_: Exception) {}
+
                 startActivity(frontIntent)
+
                 try {
                     val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     val chId = "menuboard_front_ch"
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) nm.createNotificationChannel(NotificationChannel(chId, "Menuboard Öne Getirme", NotificationManager.IMPORTANCE_HIGH))
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        nm.createNotificationChannel(
+                            NotificationChannel(chId, "Menuboard Öne Getirme", NotificationManager.IMPORTANCE_HIGH)
+                        )
+                    }
                     val notif = NotificationCompat.Builder(applicationContext, chId)
-                        .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("Menuboard Yayın Sistemi")
-                        .setContentText("Menuboard ekranı öne getiriliyor...").setPriority(NotificationCompat.PRIORITY_MAX)
-                        .setCategory(NotificationCompat.CATEGORY_CALL).setFullScreenIntent(pi, true).setAutoCancel(true).build()
-                    nm.notify(777, notif); handler.postDelayed({ nm.cancel(777) }, 1200L)
+                        .setSmallIcon(android.R.drawable.ic_media_play)
+                        .setContentTitle("Menuboard Yayın Sistemi")
+                        .setContentText("Menuboard ekranı öne getiriliyor...")
+                        .setPriority(NotificationCompat.PRIORITY_MAX)
+                        .setCategory(NotificationCompat.CATEGORY_CALL)
+                        .setFullScreenIntent(pi, true)
+                        .setAutoCancel(true)
+                        .build()
+                    nm.notify(777, notif)
+                    handler.postDelayed({ nm.cancel(777) }, 1200L)
                 } catch (_: Exception) {}
+
+                if (tempBridgeView != null && wm != null) {
+                    val viewToRemove = tempBridgeView
+                    handler.postDelayed({ try { wm.removeView(viewToRemove) } catch (_: Exception) {} }, 500L)
+                }
             } catch (_: Exception) {}
         }
     }
@@ -1479,19 +1549,16 @@ class MainActivity : AppCompatActivity() {
         override fun serve(session: IHTTPSession): Response {
             val uri = session.uri; val method = session.method
 
-            // Gömülü Web Yönetim Paneli (iPhone / Mac / PC)
             if ((uri == "/" || uri == "/index.html") && method == Method.GET) {
                 return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", WebPanelHtml.getHtml())
             }
 
-            // Web Panel Şifre Doğrulama
             if (uri == "/api/web/login" && method == Method.POST) {
                 val pass = session.parameters["pass"]?.firstOrNull() ?: ""
                 val ok = pass == WEB_PANEL_PASS
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("ok" to ok)))
             }
 
-            // Ağdaki Diğer Menuboard Cihazları
             if (uri == "/api/peers" && method == Method.GET) {
                 val now = System.currentTimeMillis()
                 val result = mutableListOf<PeerDeviceInfo>()
