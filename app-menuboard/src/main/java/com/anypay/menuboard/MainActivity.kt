@@ -51,6 +51,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
@@ -110,7 +111,8 @@ data class MediaItemModel(
     val igMediaFilter: String? = "all",
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    var fileSizeBytes: Long = 0L
 )
 
 data class InstalledAppInfo(
@@ -452,10 +454,40 @@ class MainActivity : AppCompatActivity() {
     private var currentVideoHeight = 0
     private var awaitingSequentialPermissionChain = false
 
+    // Video Donma Bekçisi (Watchdog) değişkenleri
+    private var lastVideoPositionMs = -1L
+    private var videoStallStrikes = 0
+
     private val mediaEndRunnable = Runnable { scheduleNextMedia() }
     private val hideCursorRunnable = Runnable {
         animatedOverlayView.showCursor = false
         animatedOverlayView.invalidate()
+    }
+
+    private val videoWatchdogRunnable = object : Runnable {
+        override fun run() {
+            if (isScreenSharing || videoTextureView.visibility != View.VISIBLE) return
+            val player = exoPlayer ?: return
+            val pos = player.currentPosition
+            if (pos == lastVideoPositionMs) {
+                videoStallStrikes++
+                if (videoStallStrikes >= 2) {
+                    // 8 saniyedir (2 x 4sn) kare ilerlemedi -> donan çözücüyü sıfırla ve sonraki medyaya geç
+                    videoStallStrikes = 0
+                    lastVideoPositionMs = -1L
+                    try {
+                        player.stop()
+                        player.clearMediaItems()
+                    } catch (_: Exception) {}
+                    scheduleNextMedia()
+                    return
+                }
+            } else {
+                lastVideoPositionMs = pos
+                videoStallStrikes = 0
+            }
+            handler.postDelayed(this, 4000L)
+        }
     }
 
     private val videoBlurRunnable = object : Runnable {
@@ -1199,7 +1231,6 @@ class MainActivity : AppCompatActivity() {
 
         runOnUiThread {
             try {
-                // moveTaskToFront ayrı try-catch içinde; SecurityException atsa bile alttaki startActivity çalışır
                 try {
                     val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
                     am?.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
@@ -1359,7 +1390,18 @@ class MainActivity : AppCompatActivity() {
                         currentVideoHeight = videoSize.height; updateVideoTextureSize()
                     }
                 }
-                override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) scheduleNextMedia() }
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED) scheduleNextMedia()
+                }
+                override fun onPlayerError(error: PlaybackException) {
+                    // Video çözücü hata verirse donup kalma, hemen sonraki medyaya geç
+                    handler.removeCallbacks(videoWatchdogRunnable)
+                    try {
+                        stop()
+                        clearMediaItems()
+                    } catch (_: Exception) {}
+                    scheduleNextMedia()
+                }
             })
         }
     }
@@ -1453,7 +1495,10 @@ class MainActivity : AppCompatActivity() {
     private fun hideQrOverlay() { qrOverlay.visibility = View.GONE; imgCornerLogo.visibility = View.VISIBLE; btnWifiSettings?.visibility = View.GONE }
 
     private fun stopAllPlayback() {
-        handler.removeCallbacks(mediaEndRunnable); handler.removeCallbacks(webScrollRunnable); handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
+        handler.removeCallbacks(mediaEndRunnable); handler.removeCallbacks(webScrollRunnable)
+        handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
+        handler.removeCallbacks(videoWatchdogRunnable)
+        lastVideoPositionMs = -1L; videoStallStrikes = 0
         igPostUrls.clear(); webScrollActive = false; webScrollBottomStrikes = 0; activeWebItem = null
         exoPlayer?.stop(); exoPlayer?.clearMediaItems()
         bgBlurImageView.visibility = View.GONE; bgBlurImageView.setImageDrawable(null)
@@ -1485,7 +1530,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun playItem(index: Int) {
         if (isScreenSharing) return
-        handler.removeCallbacks(mediaEndRunnable); handler.removeCallbacks(webScrollRunnable); handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
+        handler.removeCallbacks(mediaEndRunnable); handler.removeCallbacks(webScrollRunnable)
+        handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
+        handler.removeCallbacks(videoWatchdogRunnable)
+        lastVideoPositionMs = -1L; videoStallStrikes = 0
         igPostUrls.clear(); webScrollActive = false; webScrollBottomStrikes = 0; activeWebItem = null
 
         val activeList = getActivePlaylist()
@@ -1548,6 +1596,8 @@ class MainActivity : AppCompatActivity() {
             if (blurBackgroundEnabled) { updateBlurVisualEffects(); handler.post(videoBlurRunnable) }
             else { bgBlurImageView.visibility = View.GONE; bgBlurImageView.setImageDrawable(null) }
             exoPlayer?.stop(); exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file))); exoPlayer?.prepare(); exoPlayer?.play()
+            // Donma bekçisini başlat (ilk kontrol 4 saniye sonra)
+            handler.postDelayed(videoWatchdogRunnable, 4000L)
             if (item.durationSec > 0) handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
         } else {
             exoPlayer?.stop(); videoTextureView.visibility = View.GONE; playerView.visibility = View.GONE
@@ -1872,7 +1922,17 @@ class MainActivity : AppCompatActivity() {
                 )))
             }
 
-            if (uri == "/api/playlist" && method == Method.GET) return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(playlist))
+            if (uri == "/api/playlist" && method == Method.GET) {
+                val enriched = playlist.map { item ->
+                    if (item.type == "image" || item.type == "video") {
+                        val f = File(filesDir, item.fileName)
+                        item.copy(fileSizeBytes = if (f.exists()) f.length() else 0L)
+                    } else {
+                        item.copy(fileSizeBytes = 0L)
+                    }
+                }
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(enriched))
+            }
 
             if (uri == "/api/playlist" && method == Method.POST) {
                 val files = HashMap<String, String>(); session.parseBody(files)
@@ -1914,7 +1974,9 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         isBroadcasting = false
         try { udpPeerSocket?.close() } catch (_: Exception) {}
-        handler.removeCallbacks(ipCheckRunnable); handler.removeCallbacks(webScrollRunnable); handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
+        handler.removeCallbacks(ipCheckRunnable); handler.removeCallbacks(webScrollRunnable)
+        handler.removeCallbacks(igSafetyRunnable); handler.removeCallbacks(videoBlurRunnable)
+        handler.removeCallbacks(videoWatchdogRunnable)
         blurExecutor.shutdownNow(); httpServer?.stop(); exoPlayer?.release()
     }
 }
