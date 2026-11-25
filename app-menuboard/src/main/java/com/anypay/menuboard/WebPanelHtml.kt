@@ -259,6 +259,13 @@ function formatBytes(b) {
   return (n / 1073741824).toFixed(2) + ' GB';
 }
 
+function formatDur(sec) {
+  var s = parseInt(sec || 0, 10);
+  if (!s || s <= 0) return '';
+  var m = Math.floor(s / 60), r = s % 60;
+  return (m > 0 ? (m + 'dk ' + (r < 10 ? '0' : '') + r + 'sn') : (r + 'sn'));
+}
+
 function optsHtml(list, sel) {
   var h = '';
   for (var i = 0; i < list.length; i++) {
@@ -395,12 +402,14 @@ function renderPlaylist() {
     var it = state.playlist[i];
     var szStr = formatBytes(it.fileSizeBytes);
     var szSuffix = szStr ? (' | ' + szStr) : '';
+    var totDur = formatDur(it.fileDurationSec);
+    var durSuffix = totDur ? (' (' + totDur + ')') : '';
     var badge = '<span class="badge b-img">RESİM</span>';
     var thumb = '<img class="thumb" src="/api/thumbnail?filename=' + encodeURIComponent(it.fileName) + '" onerror="this.style.display=\'none\'">';
     var meta = (it.durationSec > 0 ? it.durationSec : 10) + 'sn | +' + (it.waitAfterSec || 0) + 'sn ara' + szSuffix;
     if (it.type === 'video') {
       badge = '<span class="badge b-vid">VİDEO</span>';
-      meta = (it.durationSec > 0 ? (it.durationSec + 'sn kesit') : 'Tamamı') + ' | +' + (it.waitAfterSec || 0) + 'sn ara' + szSuffix;
+      meta = (it.durationSec > 0 ? (it.durationSec + 'sn kesit') : 'Tamamı') + durSuffix + ' | +' + (it.waitAfterSec || 0) + 'sn ara' + szSuffix;
     } else if (it.type === 'web') {
       badge = '<span class="badge b-web">URL</span>';
       thumb = '<div class="thumb">🌐</div>';
@@ -471,6 +480,7 @@ function onPickFile(inp) {
   if (inp.files && inp.files[0]) {
     var isVid = (inp.files[0].type || '').indexOf('video') === 0;
     document.getElementById('upDur').value = isVid ? '0' : '10';
+    document.getElementById('upAnim').value = isVid ? 'none' : 'fade';
   }
 }
 
