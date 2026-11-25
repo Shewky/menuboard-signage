@@ -3,6 +3,9 @@ name: Build & Release Menuboard APKs
 on:
   push:
     branches: [ "main", "master" ]
+    paths:
+      - '**/build.gradle'
+      - '**/build.gradle.kts'
   workflow_dispatch:
 
 permissions:
