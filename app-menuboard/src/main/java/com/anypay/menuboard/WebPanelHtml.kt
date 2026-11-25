@@ -52,8 +52,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .top-logo{height:30px;max-width:96px;object-fit:contain;flex-shrink:0}
 .brand{display:flex;flex-direction:column;min-width:0}
 .brand-title{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dot{width:9px;height:9px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0}
+.dot{width:9px;height:9px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;transition:background .2s}
+.dot.offline{background:#ef4444;box-shadow:0 0 8px rgba(239,68,68,.7)}
 .brand-sub{font-size:11px;color:#94a3b8}
+.brand-sub.offline{color:#f87171;font-weight:700}
 .top-actions{display:flex;gap:6px;flex-shrink:0}
 .icon-btn{background:#334155;color:#f8fafc;border:none;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;cursor:pointer}
 .icon-btn.warn{background:#f59e0b;color:#111}
@@ -125,7 +127,7 @@ input[type=range]{width:100%;accent-color:#38bdf8}
     <div class="brand-wrap">
       <img src="/api/logo" class="top-logo" alt="İnterfon" onerror="this.style.display='none'">
       <div class="brand">
-        <div class="brand-title"><span class="dot"></span><span id="hdrTag">Menuboard</span> <span id="hdrVer" style="font-size:11px;color:#38bdf8"></span></div>
+        <div class="brand-title"><span id="hdrDot" class="dot"></span><span id="hdrTag">Menuboard</span> <span id="hdrVer" style="font-size:11px;color:#38bdf8"></span></div>
         <div class="brand-sub" id="hdrHost">Yerel Ağ</div>
       </div>
     </div>
@@ -221,7 +223,8 @@ input[type=range]{width:100%;accent-color:#38bdf8}
 </div>
 
 <script>
-var state = { info: {}, playlist: [], finding: false };
+var state = { info: {}, playlist: [], finding: false, online: true };
+var heartbeatTimer = null;
 var ANIM_OPTS = [
   ['fade','Solma (Fade)'],['slide_left','Soldan Kay'],['slide_right','Sağdan Kay'],
   ['slide_up','Yukarıdan Kay'],['slide_down','Aşağıdan Kay'],['zoom_in','Yakınlaş'],
@@ -247,12 +250,45 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function formatBytes(b) {
+  var n = Number(b || 0);
+  if (!n || n <= 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+  return (n / 1073741824).toFixed(2) + ' GB';
+}
+
 function optsHtml(list, sel) {
   var h = '';
   for (var i = 0; i < list.length; i++) {
     h += '<option value="' + list[i][0] + '"' + (String(list[i][0]) === String(sel) ? ' selected' : '') + '>' + list[i][1] + '</option>';
   }
   return h;
+}
+
+function setConnectionStatus(isOnline) {
+  var wasOffline = !state.online;
+  state.online = isOnline;
+  var dot = document.getElementById('hdrDot');
+  var sub = document.getElementById('hdrHost');
+  if (dot) dot.classList.toggle('offline', !isOnline);
+  if (sub) {
+    sub.classList.toggle('offline', !isOnline);
+    sub.textContent = isOnline ? location.host : 'Bağlantı Kesildi (' + location.host + ')';
+  }
+  if (isOnline && wasOffline) {
+    toast('✅ Menuboard bağlantısı tekrar sağlandı');
+    loadPlaylist();
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(function() {
+    if (document.hidden) return;
+    loadPing(true);
+  }, 5000);
 }
 
 function doLogin() {
@@ -271,6 +307,7 @@ function doLogin() {
 
 function doLogout() {
   localStorage.removeItem('mb_web_auth');
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
   document.getElementById('appShell').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
   document.getElementById('loginPass').value = '';
@@ -280,9 +317,10 @@ function showApp() {
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('hdrHost').textContent = location.host;
-  loadPing();
+  loadPing(false);
   loadPlaylist();
   loadPeers();
+  startHeartbeat();
 }
 
 function switchTab(idx) {
@@ -292,29 +330,44 @@ function switchTab(idx) {
     document.getElementById('nav' + i).classList.toggle('active', i === idx);
   }
   if (idx === 2) loadPeers();
-  if (idx === 1) loadPing();
+  if (idx === 1) loadPing(false);
 }
 
-function loadPing() {
-  fetch('/api/ping').then(function(r){ return r.json(); }).then(function(d){
-    state.info = d;
-    document.getElementById('hdrTag').textContent = d.tag || 'Menuboard';
-    document.getElementById('hdrVer').textContent = d.version ? ('v' + d.version) : '';
-    document.getElementById('txtOrientation').textContent = d.orientation === 'landscape' ? 'TV Modu (16:9 Yatay)' : 'Dikey Mod (9:16)';
-    document.getElementById('txtImmersive').textContent = d.immersive !== 'false' ? 'Açık (Çubuklar Gizli)' : 'Kapalı (Çubuklar Görünür)';
-    document.getElementById('txtAutoStart').textContent = d.autoStart === 'true' ? 'Açık' : 'Kapalı';
-    document.getElementById('cbBlur').checked = d.blurBg === 'true';
-    var dk = parseInt(d.blurDarkness || '30', 10);
-    document.getElementById('rngDark').value = dk;
-    document.getElementById('lblDark').textContent = dk;
-    document.getElementById('selBlurInt').value = d.blurIntensity || '1';
-    document.getElementById('selBlurQual').value = d.blurQuality || '1';
-    document.getElementById('cbBlurIg').checked = d.blurIg === 'true';
-  }).catch(function(){});
+function loadPing(isHeartbeat) {
+  var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  var tId = ctrl ? setTimeout(function(){ ctrl.abort(); }, 3000) : null;
+  fetch('/api/ping', ctrl ? { signal: ctrl.signal, cache: 'no-store' } : { cache: 'no-store' })
+    .then(function(r){
+      if (tId) clearTimeout(tId);
+      if (!r.ok) throw new Error('HTTP');
+      return r.json();
+    })
+    .then(function(d){
+      setConnectionStatus(true);
+      state.info = d;
+      document.getElementById('hdrTag').textContent = d.tag || 'Menuboard';
+      document.getElementById('hdrVer').textContent = d.version ? ('v' + d.version) : '';
+      if (!isHeartbeat) {
+        document.getElementById('txtOrientation').textContent = d.orientation === 'landscape' ? 'TV Modu (16:9 Yatay)' : 'Dikey Mod (9:16)';
+        document.getElementById('txtImmersive').textContent = d.immersive !== 'false' ? 'Açık (Çubuklar Gizli)' : 'Kapalı (Çubuklar Görünür)';
+        document.getElementById('txtAutoStart').textContent = d.autoStart === 'true' ? 'Açık' : 'Kapalı';
+        document.getElementById('cbBlur').checked = d.blurBg === 'true';
+        var dk = parseInt(d.blurDarkness || '30', 10);
+        document.getElementById('rngDark').value = dk;
+        document.getElementById('lblDark').textContent = dk;
+        document.getElementById('selBlurInt').value = d.blurIntensity || '1';
+        document.getElementById('selBlurQual').value = d.blurQuality || '1';
+        document.getElementById('cbBlurIg').checked = d.blurIg === 'true';
+      }
+    })
+    .catch(function(){
+      if (tId) clearTimeout(tId);
+      setConnectionStatus(false);
+    });
 }
 
 function loadPlaylist() {
-  fetch('/api/playlist').then(function(r){ return r.json(); }).then(function(list){
+  fetch('/api/playlist', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(list){
     state.playlist = Array.isArray(list) ? list : [];
     renderPlaylist();
   }).catch(function(){});
@@ -328,7 +381,7 @@ function syncPlaylist(msg) {
   }).then(function(r){
     if (r.ok) { toast(msg || 'Menuboard güncellendi!'); loadPlaylist(); }
     else toast('Kaydetme hatası!');
-  }).catch(function(){ toast('Bağlantı hatası!'); });
+  }).catch(function(){ setConnectionStatus(false); toast('Bağlantı hatası!'); });
 }
 
 function renderPlaylist() {
@@ -340,12 +393,14 @@ function renderPlaylist() {
   var html = '';
   for (var i = 0; i < state.playlist.length; i++) {
     var it = state.playlist[i];
+    var szStr = formatBytes(it.fileSizeBytes);
+    var szSuffix = szStr ? (' | ' + szStr) : '';
     var badge = '<span class="badge b-img">RESİM</span>';
     var thumb = '<img class="thumb" src="/api/thumbnail?filename=' + encodeURIComponent(it.fileName) + '" onerror="this.style.display=\'none\'">';
-    var meta = (it.durationSec > 0 ? it.durationSec : 10) + 'sn | +' + (it.waitAfterSec || 0) + 'sn ara';
+    var meta = (it.durationSec > 0 ? it.durationSec : 10) + 'sn | +' + (it.waitAfterSec || 0) + 'sn ara' + szSuffix;
     if (it.type === 'video') {
       badge = '<span class="badge b-vid">VİDEO</span>';
-      meta = (it.durationSec > 0 ? (it.durationSec + 'sn kesit') : 'Tamamı') + ' | +' + (it.waitAfterSec || 0) + 'sn ara';
+      meta = (it.durationSec > 0 ? (it.durationSec + 'sn kesit') : 'Tamamı') + ' | +' + (it.waitAfterSec || 0) + 'sn ara' + szSuffix;
     } else if (it.type === 'web') {
       badge = '<span class="badge b-web">URL</span>';
       thumb = '<div class="thumb">🌐</div>';
@@ -438,7 +493,7 @@ function doUploadMedia() {
   };
   xhr.onload = function() {
     if (xhr.status === 200) {
-      state.playlist.push({ id: String(Date.now()), fileName: safeName, type: isVid ? 'video' : 'image', durationSec: dur, waitAfterSec: wait, animation: anim, isHidden: false });
+      state.playlist.push({ id: String(Date.now()), fileName: safeName, type: isVid ? 'video' : 'image', durationSec: dur, waitAfterSec: wait, animation: anim, isHidden: false, fileSizeBytes: f.size || 0 });
       closeModal();
       syncPlaylist('Medya yüklendi ve yayınlandı!');
     } else { btn.disabled = false; btn.textContent = '⬆️ Yükle ve Yayınla'; toast('Yükleme başarısız!'); }
@@ -585,7 +640,7 @@ function editTag() {
   var nt = prompt('Cihaz Nametag (Etiket) Belirle:', cur);
   if (nt && nt.trim()) {
     fetch('/api/tag?tag=' + encodeURIComponent(nt.trim()), { method: 'POST' }).then(function(){
-      toast('Etiket güncellendi'); loadPing();
+      toast('Etiket güncellendi'); loadPing(false);
     });
   }
 }
@@ -593,21 +648,21 @@ function editTag() {
 function toggleOrientation() {
   var next = state.info.orientation === 'landscape' ? 'portrait' : 'landscape';
   fetch('/api/orientation?mode=' + next, { method: 'POST' }).then(function(){
-    toast(next === 'landscape' ? '📺 TV Modu (Yatay) aktif' : '📱 Dikey Mod aktif'); loadPing();
+    toast(next === 'landscape' ? '📺 TV Modu (Yatay) aktif' : '📱 Dikey Mod aktif'); loadPing(false);
   });
 }
 
 function toggleImmersive() {
   var next = state.info.immersive === 'false';
   fetch('/api/immersive?enabled=' + next, { method: 'POST' }).then(function(){
-    toast(next ? '🖥️ Tam ekran açıldı' : '📱 Sistem çubukları görünür'); loadPing();
+    toast(next ? '🖥️ Tam ekran açıldı' : '📱 Sistem çubukları görünür'); loadPing(false);
   });
 }
 
 function toggleAutoStart() {
   var next = state.info.autoStart !== 'true';
   fetch('/api/autostart?enabled=' + next, { method: 'POST' }).then(function(){
-    toast(next ? '🚀 Açılışta otomatik başlatma AÇIK' : '⏹️ Açılışta otomatik başlatma KAPALI'); loadPing();
+    toast(next ? '🚀 Açılışta otomatik başlatma AÇIK' : '⏹️ Açılışta otomatik başlatma KAPALI'); loadPing(false);
   });
 }
 
@@ -618,7 +673,7 @@ function saveBlur() {
   var ql = document.getElementById('selBlurQual').value;
   var ig = document.getElementById('cbBlurIg').checked;
   fetch('/api/blur_bg?enabled=' + en + '&darkness=' + dk + '&intensity=' + it + '&quality=' + ql + '&ig=' + ig, { method: 'POST' })
-    .then(function(){ toast('Bulanık arka plan güncellendi'); loadPing(); });
+    .then(function(){ toast('Bulanık arka plan güncellendi'); loadPing(false); });
 }
 
 function checkRemoteUpdate() {
@@ -673,7 +728,7 @@ function doUploadApk() {
 }
 
 function loadPeers() {
-  fetch('/api/peers').then(function(r){ return r.json(); }).then(function(list){
+  fetch('/api/peers', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(list){
     var box = document.getElementById('peersBox');
     if (!list || !list.length) {
       box.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:10px">Başka cihaz bulunamadı.</div>';
