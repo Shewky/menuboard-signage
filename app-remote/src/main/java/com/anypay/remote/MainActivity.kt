@@ -198,6 +198,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingUploadMediaUri: Uri? = null
     private var activeUploadFileLabel: TextView? = null
     private var activeUploadDurEdit: EditText? = null
+    private var activeUploadAnimSpinner: Spinner? = null
 
     private lateinit var edtRestaurantName: EditText
     private lateinit var edtMenuPageDuration: EditText
@@ -338,6 +339,8 @@ class MainActivity : AppCompatActivity() {
             activeUploadFileLabel?.text = "✅ Seçilen: $displayName (${if (isVideo) "Video" else "Resim"})"
             activeUploadFileLabel?.setTextColor(Color.parseColor("#2E7D32"))
             activeUploadDurEdit?.setText(if (isVideo) "0" else "10")
+            val defaultAnimIdx = animValues.indexOf(if (isVideo) "none" else "fade")
+            if (defaultAnimIdx >= 0) activeUploadAnimSpinner?.setSelection(defaultAnimIdx)
         }
     }
 
@@ -397,7 +400,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.55" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.56" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -453,6 +456,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun formatDurationSec(sec: Int): String {
+        if (sec <= 0) return ""
+        val m = sec / 60
+        val r = sec % 60
+        return if (m > 0) "${m}dk ${String.format(java.util.Locale.US, "%02d", r)}sn" else "${r}sn"
+    }
+
     private fun hideLegacyMediaParamInputs() {
         val protectedViews = setOf<View>(btnToggleScreenShare, btnPickMedia, recyclerViewPlaylist)
         fun containsProtected(vg: ViewGroup): Boolean {
@@ -491,6 +501,7 @@ class MainActivity : AppCompatActivity() {
         activeUploadDurEdit = edtDur
         val edtWait = EditText(this).apply { hint = "Ara Bekleme (sn)"; inputType = InputType.TYPE_CLASS_NUMBER; setText("0") }
         val spAnim = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, animOptions) }
+        activeUploadAnimSpinner = spAnim
 
         layout.addView(btnChooseFile); layout.addView(txtSelected)
         layout.addView(TextView(this).apply { text = "Oynatma Süresi (sn):" }); layout.addView(edtDur)
@@ -498,7 +509,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(TextView(this).apply { text = "Giriş Animasyonu:"; setPadding(0, 10, 0, 0) }); layout.addView(spAnim)
 
         val dlg = AlertDialog.Builder(this).setTitle("📁 Medya Yükle").setView(layout).setPositiveButton("Yükle", null).setNegativeButton("İptal", null).create()
-        dlg.setOnDismissListener { activeUploadFileLabel = null; activeUploadDurEdit = null }
+        dlg.setOnDismissListener { activeUploadFileLabel = null; activeUploadDurEdit = null; activeUploadAnimSpinner = null }
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val selectedUri = pendingUploadMediaUri
@@ -1435,7 +1446,6 @@ class MainActivity : AppCompatActivity() {
                         try {
                             val json = JSONObject(bodyStr)
                             val remoteId = json.optString("id", "")
-                            // Aynı IP başka bir cihaza/sıfırlanmış cihaza aitse eski kaydı çevrimdışı yap (çakışma koruması)
                             if (remoteId.isNotEmpty() && remoteId != dev.id) {
                                 dev.isOnline = false
                                 if (activeDevice?.id == dev.id) updateConnectionUi(false)
@@ -1537,7 +1547,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateOrAddDevice(id: String, host: String, tag: String, online: Boolean): DeviceItem {
         val now = System.currentTimeMillis()
-        // Aynı IP'yi kullanan ama farklı ID'ye sahip eski kayıtları çevrimdışı yap (çift online görünümü önle)
         if (online) {
             deviceList.filter { it.host == host && it.id != id }.forEach { oldDev ->
                 oldDev.isOnline = false
@@ -1862,9 +1871,11 @@ class MainActivity : AppCompatActivity() {
             } else {
                 val sizeStr = formatFileSize(item.fileSizeBytes)
                 val sizeSuffix = if (sizeStr.isNotEmpty()) " | $sizeStr" else ""
+                val totDur = formatDurationSec(item.fileDurationSec)
+                val durSuffix = if (totDur.isNotEmpty()) " ($totDur)" else ""
                 holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
                 holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
-                holder.txtDetails.text = if (item.type == "video") "Video: ${if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı"} | +${item.waitAfterSec}s ara$sizeSuffix"
+                holder.txtDetails.text = if (item.type == "video") "Video: ${if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı"}$durSuffix | +${item.waitAfterSec}s ara$sizeSuffix"
                 else "Resim: ${if (item.durationSec > 0) item.durationSec else 10}s süre | +${item.waitAfterSec}s ara$sizeSuffix"
                 holder.imgThumb.setBackgroundColor(Color.TRANSPARENT)
                 Glide.with(holder.itemView.context).load("http://$host/api/thumbnail?filename=${item.fileName}").diskCacheStrategy(DiskCacheStrategy.ALL).centerCrop().into(holder.imgThumb)
