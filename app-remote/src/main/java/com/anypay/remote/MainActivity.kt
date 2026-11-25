@@ -108,7 +108,8 @@ data class MediaItemModel(
     var igMediaFilter: String? = "all",
     var igSlideSec: Int = 8,
     var igAudioEnabled: Boolean = false,
-    var isHidden: Boolean = false
+    var isHidden: Boolean = false,
+    var fileSizeBytes: Long = 0L
 )
 
 data class SefimProductItem(
@@ -396,7 +397,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.50" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.55" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
@@ -440,6 +441,16 @@ class MainActivity : AppCompatActivity() {
 
         if (deviceList.isNotEmpty() && activeDevice == null) selectDevice(deviceList.first())
         startUdpListener(); checkForUpdate()
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        if (bytes <= 0L) return ""
+        return when {
+            bytes < 1024L -> "$bytes B"
+            bytes < 1048576L -> "${bytes / 1024L} KB"
+            bytes < 1073741824L -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
+            else -> String.format(java.util.Locale.US, "%.2f GB", bytes / 1073741824.0)
+        }
     }
 
     private fun hideLegacyMediaParamInputs() {
@@ -1648,7 +1659,7 @@ class MainActivity : AppCompatActivity() {
                 val ok = response.isSuccessful; response.close()
                 runOnUiThread { uploadProgressBar?.visibility = View.GONE }
                 if (ok) {
-                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = fileName, type = if (isVideo) "video" else "image", durationSec = durationSec, waitAfterSec = waitAfterSec, animation = animation, fileDurationSec = fileDurSec))
+                    playlist.add(MediaItemModel(id = System.currentTimeMillis().toString(), fileName = fileName, type = if (isVideo) "video" else "image", durationSec = durationSec, waitAfterSec = waitAfterSec, animation = animation, fileDurationSec = fileDurSec, fileSizeBytes = if (totalLen > 0) totalLen else 0L))
                     syncPlaylistToMenuboard()
                 } else runOnUiThread { Toast.makeText(this@MainActivity, "Sunucu dosyayı kaydedemedi!", Toast.LENGTH_SHORT).show() }
             }
@@ -1849,10 +1860,12 @@ class MainActivity : AppCompatActivity() {
                 holder.imgThumb.setImageResource(android.R.drawable.ic_menu_camera); holder.imgThumb.setBackgroundColor(Color.parseColor("#FCE4EC"))
                 holder.btnEdit.setOnClickListener { checkInstagramStatusAndOpenDialog(existingItem = item) }
             } else {
+                val sizeStr = formatFileSize(item.fileSizeBytes)
+                val sizeSuffix = if (sizeStr.isNotEmpty()) " | $sizeStr" else ""
                 holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
                 holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
-                holder.txtDetails.text = if (item.type == "video") "Video: ${if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı"} | +${item.waitAfterSec}s ara"
-                else "Resim: ${if (item.durationSec > 0) item.durationSec else 10}s süre | +${item.waitAfterSec}s ara"
+                holder.txtDetails.text = if (item.type == "video") "Video: ${if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı"} | +${item.waitAfterSec}s ara$sizeSuffix"
+                else "Resim: ${if (item.durationSec > 0) item.durationSec else 10}s süre | +${item.waitAfterSec}s ara$sizeSuffix"
                 holder.imgThumb.setBackgroundColor(Color.TRANSPARENT)
                 Glide.with(holder.itemView.context).load("http://$host/api/thumbnail?filename=${item.fileName}").diskCacheStrategy(DiskCacheStrategy.ALL).centerCrop().into(holder.imgThumb)
                 holder.btnEdit.setOnClickListener {
