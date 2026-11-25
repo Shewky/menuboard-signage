@@ -112,7 +112,8 @@ data class MediaItemModel(
     val igSlideSec: Int = 8,
     val igAudioEnabled: Boolean = false,
     val isHidden: Boolean = false,
-    var fileSizeBytes: Long = 0L
+    var fileSizeBytes: Long = 0L,
+    var fileDurationSec: Int = 0
 )
 
 data class InstalledAppInfo(
@@ -426,6 +427,7 @@ class MainActivity : AppCompatActivity() {
     private var httpServer: SignageServer? = null
     private var udpPeerSocket: DatagramSocket? = null
     private val discoveredPeers = ConcurrentHashMap<String, PeerDeviceInfo>()
+    private val videoDurationCache = ConcurrentHashMap<String, Int>()
 
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
@@ -651,6 +653,23 @@ class MainActivity : AppCompatActivity() {
         startUdpPeerListener()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun getVideoDurationSec(file: File): Int {
+        if (!file.exists()) return 0
+        val key = "${file.name}_${file.length()}"
+        videoDurationCache[key]?.let { return it }
+        val retriever = MediaMetadataRetriever()
+        val sec = try {
+            retriever.setDataSource(file.absolutePath)
+            ((retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) / 1000L).toInt()
+        } catch (_: Exception) {
+            0
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+        videoDurationCache[key] = sec
+        return sec
     }
 
     private fun getLogoPngBytes(): ByteArray? {
@@ -1926,9 +1945,10 @@ class MainActivity : AppCompatActivity() {
                 val enriched = playlist.map { item ->
                     if (item.type == "image" || item.type == "video") {
                         val f = File(filesDir, item.fileName)
-                        item.copy(fileSizeBytes = if (f.exists()) f.length() else 0L)
+                        val dur = if (item.type == "video") getVideoDurationSec(f) else 0
+                        item.copy(fileSizeBytes = if (f.exists()) f.length() else 0L, fileDurationSec = dur)
                     } else {
-                        item.copy(fileSizeBytes = 0L)
+                        item.copy(fileSizeBytes = 0L, fileDurationSec = 0)
                     }
                 }
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(enriched))
