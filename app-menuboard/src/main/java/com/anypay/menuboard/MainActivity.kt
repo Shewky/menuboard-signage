@@ -63,8 +63,11 @@ import com.journeyapps.barcodescanner.BarcodeEncoder
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -80,6 +83,7 @@ import java.net.NetworkInterface
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
 import kotlin.math.sin
@@ -128,6 +132,60 @@ data class PeerDeviceInfo(
     val lastSeenMs: Long,
     val isSelf: Boolean = false
 )
+
+data class ShareRequestPayload(
+    val item: MediaItemModel? = null,
+    val targets: List<String>? = emptyList()
+)
+
+class NoWifiIconView(context: Context) : View(context) {
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+    }
+    private val slashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    init {
+        alpha = 0.35f
+        isClickable = false
+        isFocusable = false
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val s = minOf(w, h)
+        if (s <= 0f) return
+
+        val cx = w / 2f
+        val cy = h * 0.78f
+        strokePaint.strokeWidth = s * 0.085f
+        slashPaint.strokeWidth = s * 0.09f
+
+        val r1 = s * 0.20f
+        val r2 = s * 0.36f
+        val r3 = s * 0.52f
+
+        canvas.drawArc(RectF(cx - r3, cy - r3, cx + r3, cy + r3), 225f, 90f, false, strokePaint)
+        canvas.drawArc(RectF(cx - r2, cy - r2, cx + r2, cy + r2), 225f, 90f, false, strokePaint)
+        canvas.drawArc(RectF(cx - r1, cy - r1, cx + r1, cy + r1), 225f, 90f, false, strokePaint)
+        canvas.drawCircle(cx, cy, s * 0.065f, fillPaint)
+
+        // Üzeri çapraz çizgi
+        val pad = s * 0.14f
+        canvas.drawLine(pad, pad, w - pad, h - pad, slashPaint)
+    }
+}
 
 class AnimatedOverlayView(context: Context) : View(context) {
     private var mode: String = "none"
@@ -408,6 +466,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var findMeOverlay: View
     private lateinit var txtFindMeTag: TextView
     private lateinit var animatedOverlayView: AnimatedOverlayView
+    private lateinit var noWifiIconView: NoWifiIconView
     private var btnWifiSettings: Button? = null
     private var isWifiPopupOpen = false
     private var cachedLogoPngBytes: ByteArray? = null
@@ -432,6 +491,11 @@ class MainActivity : AppCompatActivity() {
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
     private val updateHttpClient = OkHttpClient()
+    private val shareHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(300, TimeUnit.SECONDS)
+        .readTimeout(300, TimeUnit.SECONDS)
+        .build()
     private val blurExecutor = Executors.newSingleThreadExecutor()
     private val isBlurProcessing = AtomicBoolean(false)
 
@@ -474,7 +538,6 @@ class MainActivity : AppCompatActivity() {
             if (pos == lastVideoPositionMs) {
                 videoStallStrikes++
                 if (videoStallStrikes >= 2) {
-                    // 8 saniyedir (2 x 4sn) kare ilerlemedi -> donan çözücüyü sıfırla ve sonraki medyaya geç
                     videoStallStrikes = 0
                     lastVideoPositionMs = -1L
                     try {
@@ -571,6 +634,7 @@ class MainActivity : AppCompatActivity() {
             val freshIp = getActiveLocalIpAddress()
             val hasNetwork = freshIp != "127.0.0.1"
             if (hasNetwork) {
+                noWifiIconView.visibility = View.GONE
                 if (freshIp != currentKnownIp) {
                     currentKnownIp = freshIp
                     txtIpAddress.text = "IP: $freshIp:8080"
@@ -588,6 +652,8 @@ class MainActivity : AppCompatActivity() {
             } else {
                 currentKnownIp = "127.0.0.1"
                 txtIpAddress.text = "Ağ Erişimi Yok"
+                noWifiIconView.visibility = View.VISIBLE
+                noWifiIconView.bringToFront()
             }
             updateNoNetworkButtonVisibility()
             handler.postDelayed(this, 2500L)
@@ -635,6 +701,19 @@ class MainActivity : AppCompatActivity() {
         animatedOverlayView = AnimatedOverlayView(this)
         rootFrame.addView(animatedOverlayView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
+        // Sağ üst köşede silik, üzeri çizgili Wi-Fi simgesi (ağ kesilince görünür)
+        val density = resources.displayMetrics.density
+        val iconSizePx = (36 * density).toInt()
+        val marginPx = (16 * density).toInt()
+        noWifiIconView = NoWifiIconView(this).apply {
+            visibility = View.GONE
+            elevation = 32f
+        }
+        rootFrame.addView(noWifiIconView, FrameLayout.LayoutParams(iconSizePx, iconSizePx, Gravity.TOP or Gravity.END).apply {
+            topMargin = marginPx
+            marginEnd = marginPx
+        })
+
         try {
             val vName = packageManager.getPackageInfo(packageName, 0).versionName
             txtStatus.text = "Sürüm: v$vName | Kumandadan QR Okutun veya Tarayıcıdan IP'yi Açın"
@@ -653,6 +732,50 @@ class MainActivity : AppCompatActivity() {
         startUdpPeerListener()
         handler.post(ipCheckRunnable)
         checkForUpdate(manualTrigger = false)
+    }
+
+    private fun shareMediaItemToTargets(item: MediaItemModel, targets: List<String>): Int {
+        var successCount = 0
+        val isLocalFile = item.type == "image" || item.type == "video"
+        val sourceFile = if (isLocalFile) File(filesDir, item.fileName) else null
+        if (isLocalFile && (sourceFile == null || !sourceFile.exists())) return 0
+
+        for (rawTarget in targets) {
+            val host = rawTarget.trim()
+            if (host.isEmpty()) continue
+            try {
+                if (isLocalFile && sourceFile != null) {
+                    val uploadReq = Request.Builder()
+                        .url("http://$host/api/upload_raw?filename=${Uri.encode(item.fileName)}")
+                        .post(sourceFile.asRequestBody("application/octet-stream".toMediaTypeOrNull()))
+                        .build()
+                    val upOk = shareHttpClient.newCall(uploadReq).execute().use { it.isSuccessful }
+                    if (!upOk) continue
+                }
+
+                val getPlReq = Request.Builder().url("http://$host/api/playlist").build()
+                val targetPlaylist: MutableList<MediaItemModel> = shareHttpClient.newCall(getPlReq).execute().use { resp ->
+                    if (!resp.isSuccessful) mutableListOf()
+                    else {
+                        val txt = resp.body?.string() ?: "[]"
+                        try {
+                            gson.fromJson(txt, object : TypeToken<MutableList<MediaItemModel>>() {}.type) ?: mutableListOf()
+                        } catch (_: Exception) { mutableListOf() }
+                    }
+                }
+
+                val cloned = item.copy(id = UUID.randomUUID().toString(), isHidden = false)
+                targetPlaylist.add(cloned)
+
+                val postPlReq = Request.Builder()
+                    .url("http://$host/api/playlist")
+                    .post(gson.toJson(targetPlaylist).toRequestBody("application/json".toMediaTypeOrNull()))
+                    .build()
+                val plOk = shareHttpClient.newCall(postPlReq).execute().use { it.isSuccessful }
+                if (plOk) successCount++
+            } catch (_: Exception) {}
+        }
+        return successCount
     }
 
     private fun getVideoDurationSec(file: File): Int {
@@ -1413,7 +1536,6 @@ class MainActivity : AppCompatActivity() {
                     if (state == Player.STATE_ENDED) scheduleNextMedia()
                 }
                 override fun onPlayerError(error: PlaybackException) {
-                    // Video çözücü hata verirse donup kalma, hemen sonraki medyaya geç
                     handler.removeCallbacks(videoWatchdogRunnable)
                     try {
                         stop()
@@ -1547,6 +1669,11 @@ class MainActivity : AppCompatActivity() {
         anim?.let { mediaContainer.startAnimation(it) }
     }
 
+    private fun bringOverlaysToFront() {
+        animatedOverlayView.bringToFront()
+        if (noWifiIconView.visibility == View.VISIBLE) noWifiIconView.bringToFront()
+    }
+
     private fun playItem(index: Int) {
         if (isScreenSharing) return
         handler.removeCallbacks(mediaEndRunnable); handler.removeCallbacks(webScrollRunnable)
@@ -1576,7 +1703,7 @@ class MainActivity : AppCompatActivity() {
             webView.loadUrl("https://www.instagram.com/$cleanUser/")
             applyTransitionAnimation(item.animation)
             handler.postDelayed(mediaEndRunnable, if (item.scrollUntilEnd) 1800000L else (if (item.durationSec > 0) item.durationSec else 30) * 1000L)
-            animatedOverlayView.bringToFront(); return
+            bringOverlaysToFront(); return
         }
 
         if (item.type == "web") {
@@ -1602,7 +1729,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) { webQrContainer.visibility = View.GONE }
             } else webQrContainer.visibility = View.GONE
             handler.postDelayed(mediaEndRunnable, if (item.scrollUntilEnd) 1800000L else (if (item.durationSec > 0) item.durationSec else 20) * 1000L)
-            animatedOverlayView.bringToFront(); return
+            bringOverlaysToFront(); return
         }
 
         webView.stopLoading(); webView.visibility = View.GONE; webQrContainer.visibility = View.GONE
@@ -1615,7 +1742,6 @@ class MainActivity : AppCompatActivity() {
             if (blurBackgroundEnabled) { updateBlurVisualEffects(); handler.post(videoBlurRunnable) }
             else { bgBlurImageView.visibility = View.GONE; bgBlurImageView.setImageDrawable(null) }
             exoPlayer?.stop(); exoPlayer?.setMediaItem(MediaItem.fromUri(Uri.fromFile(file))); exoPlayer?.prepare(); exoPlayer?.play()
-            // Donma bekçisini başlat (ilk kontrol 4 saniye sonra)
             handler.postDelayed(videoWatchdogRunnable, 4000L)
             if (item.durationSec > 0) handler.postDelayed(mediaEndRunnable, item.durationSec * 1000L)
         } else {
@@ -1626,7 +1752,7 @@ class MainActivity : AppCompatActivity() {
             loadScaledImageForDisplay(file, item.fileName)
             handler.postDelayed(mediaEndRunnable, (if (item.durationSec > 0) item.durationSec else 10) * 1000L)
         }
-        animatedOverlayView.bringToFront()
+        bringOverlaysToFront()
     }
 
     private fun scheduleNextMedia() {
@@ -1683,6 +1809,25 @@ class MainActivity : AppCompatActivity() {
                     result.add(it)
                 }
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(result))
+            }
+
+            if (uri == "/api/share" && method == Method.POST) {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val postData = files["postData"] ?: "{}"
+                return try {
+                    val req = gson.fromJson(postData, ShareRequestPayload::class.java)
+                    val item = req?.item
+                    val targets = req?.targets ?: emptyList()
+                    if (item == null || targets.isEmpty()) {
+                        newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", gson.toJson(mapOf("sent" to 0)))
+                    } else {
+                        val sent = shareMediaItemToTargets(item, targets)
+                        newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("sent" to sent)))
+                    }
+                } catch (_: Exception) {
+                    newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json", gson.toJson(mapOf("sent" to 0)))
+                }
             }
 
             if (uri == "/api/autostart" && method == Method.POST) {
@@ -1823,7 +1968,7 @@ class MainActivity : AppCompatActivity() {
                 val mode = session.parameters["mode"]?.firstOrNull() ?: "none"
                 activeBgObject = mode
                 getSharedPreferences("menuboard_prefs", Context.MODE_PRIVATE).edit().putString("bg_object", mode).apply()
-                runOnUiThread { animatedOverlayView.setAnimationMode(mode); animatedOverlayView.bringToFront() }
+                runOnUiThread { animatedOverlayView.setAnimationMode(mode); bringOverlaysToFront() }
                 return newFixedLengthResponse(Response.Status.OK, "text/plain", "OK")
             }
 
