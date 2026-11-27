@@ -400,12 +400,13 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.56" }
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.57" }
         supportActionBar?.title = "Menuboard Kumanda"
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
 
         hideLegacyMediaParamInputs()
+        injectDeviceBatchButtons()
         injectAddUrlButton()
         setupDynamicSefimTabAndControls()
         spinnerAnim.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, animOptions)
@@ -444,6 +445,152 @@ class MainActivity : AppCompatActivity() {
 
         if (deviceList.isNotEmpty() && activeDevice == null) selectDevice(deviceList.first())
         startUdpListener(); checkForUpdate()
+    }
+
+    private fun injectDeviceBatchButtons() {
+        val parentLayout = rvDevices.parent as? LinearLayout ?: return
+        val rvIdx = parentLayout.indexOfChild(rvDevices)
+        if (rvIdx < 0) return
+
+        val density = resources.displayMetrics.density
+        val gapPx = (6 * density).toInt()
+        val btnHeightPx = (40 * density).toInt()
+
+        val batchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (4 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        }
+
+        val btnClearOffline = Button(this).apply {
+            text = "🧹 Offline Temizle"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#546E7A"))
+            setPadding(6, 0, 6, 0)
+            layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
+            setOnClickListener { clearOfflineDevices() }
+        }
+
+        val btnUpdateAll = Button(this).apply {
+            text = "⬇️ Tümünü Güncelle"
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0277BD"))
+            setPadding(6, 0, 6, 0)
+            layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f)
+            setOnClickListener { updateAllOnlineMenuboards() }
+        }
+
+        batchRow.addView(btnClearOffline)
+        batchRow.addView(btnUpdateAll)
+        parentLayout.addView(batchRow, rvIdx)
+    }
+
+    private fun clearOfflineDevices() {
+        val offlineCount = deviceList.count { !it.isOnline }
+        if (offlineCount == 0) {
+            Toast.makeText(this, "Temizlenecek çevrimdışı cihaz yok.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        deviceList.removeAll { !it.isOnline }
+        if (activeDevice != null && deviceList.none { it.id == activeDevice?.id }) {
+            activeDevice = deviceList.firstOrNull()
+            if (activeDevice != null) {
+                selectDevice(activeDevice!!)
+            } else {
+                txtActiveDeviceName.text = "Seçili Cihaz Yok"
+                updateConnectionUi(false)
+                playlist.clear()
+                mediaAdapter.notifyDataSetChanged()
+            }
+        }
+        saveDevices()
+        deviceAdapter.notifyDataSetChanged()
+        Toast.makeText(this, "🧹 $offlineCount çevrimdışı cihaz temizlendi.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateAllOnlineMenuboards() {
+        val onlineDevices = deviceList.filter { it.isOnline }
+        if (onlineDevices.isEmpty()) {
+            Toast.makeText(this, "Güncellenecek online Menuboard bulunamadı!", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("⬇️ Tüm Menuboardları Güncelle")
+            .setMessage("Online olan ${onlineDevices.size} cihazda güncelleme kontrolü başlatılsın mı?\n\nGüncel olmayan cihazlar yeni sürümü otomatik indirip kurulum ekranını açacaktır.")
+            .setPositiveButton("Başlat") { _, _ ->
+                onlineDevices.forEach { dev ->
+                    httpClient.newCall(
+                        Request.Builder().url("http://${dev.host}/api/update/check").post("".toRequestBody(null)).build()
+                    ).enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {}
+                        override fun onResponse(call: Call, response: Response) { response.close() }
+                    })
+                }
+                Toast.makeText(this, "⬇️ ${onlineDevices.size} cihaza güncelleme komutu gönderildi!", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun showShareMediaDialog(item: MediaItemModel) {
+        val sourceDevice = activeDevice ?: return
+        val otherOnlineDevices = deviceList.filter { it.isOnline && it.id != sourceDevice.id }
+        if (otherOnlineDevices.isEmpty()) {
+            Toast.makeText(this, "Paylaşılacak başka online Menuboard bulunamadı!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val labels = otherOnlineDevices.map { "${it.nameTag} (${it.host})" }.toTypedArray()
+        val checked = BooleanArray(otherOnlineDevices.size) { true }
+
+        AlertDialog.Builder(this)
+            .setTitle("📤 Menuboardlar Arası Paylaş")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton("Gönder") { _, _ ->
+                val selectedHosts = mutableListOf<String>()
+                for (i in otherOnlineDevices.indices) {
+                    if (checked[i]) selectedHosts.add(otherOnlineDevices[i].host)
+                }
+                if (selectedHosts.isEmpty()) {
+                    Toast.makeText(this, "En az bir hedef cihaz seçin!", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                Toast.makeText(this, "📤 '${item.fileName}' ${selectedHosts.size} cihaza gönderiliyor...", Toast.LENGTH_SHORT).show()
+                val payload = mapOf("item" to item, "targets" to selectedHosts)
+                httpClient.newCall(
+                    Request.Builder()
+                        .url("http://${sourceDevice.host}/api/share")
+                        .post(gson.toJson(payload).toRequestBody("application/json".toMediaTypeOrNull()))
+                        .build()
+                ).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Paylaşım sırasında bağlantı hatası!", Toast.LENGTH_LONG).show() }
+                    }
+                    override fun onResponse(call: Call, response: Response) {
+                        val body = response.body?.string() ?: "{}"
+                        val ok = response.isSuccessful
+                        response.close()
+                        val sent = try { JSONObject(body).optInt("sent", 0) } catch (_: Exception) { 0 }
+                        runOnUiThread {
+                            if (ok) Toast.makeText(this@MainActivity, "✅ $sent / ${selectedHosts.size} Menuboard'a paylaşıldı!", Toast.LENGTH_LONG).show()
+                            else Toast.makeText(this@MainActivity, "Paylaşım başarısız (Kaynak cihaz v1.57 olmalı).", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                })
+            }
+            .setNegativeButton("İptal", null)
+            .show()
     }
 
     private fun formatFileSize(bytes: Long): String {
@@ -1851,6 +1998,11 @@ class MainActivity : AppCompatActivity() {
                 val pos = holder.adapterPosition
                 if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos)
                 syncPlaylistToMenuboard()
+            }
+
+            // Medya/URL/Instagram satırına tıklayınca Menuboardlar Arası Paylaş açılır
+            holder.itemView.setOnClickListener {
+                showShareMediaDialog(item)
             }
 
             if (item.type == "web") {
