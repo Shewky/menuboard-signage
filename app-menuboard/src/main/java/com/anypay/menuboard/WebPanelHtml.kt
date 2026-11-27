@@ -79,6 +79,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .media-btns{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
 .mini-btn{background:#334155;color:#fff;border:none;border-radius:7px;padding:6px 8px;font-size:12px;cursor:pointer}
 .mini-btn.del{background:#991b1b}
+.mini-btn.share{background:#0369a1}
 .field{margin-bottom:11px;text-align:left}
 .field label{display:block;font-size:12px;color:#cbd5e1;margin-bottom:4px;font-weight:600}
 .input,select{width:100%;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:9px;padding:10px 12px;font-size:14px;outline:none}
@@ -202,9 +203,12 @@ input[type=range]{width:100%;accent-color:#38bdf8}
     <!-- TAB 3: CİHAZLAR -->
     <div id="tabPeers" class="hidden">
       <div class="card">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <span>📡 Ağdaki Menuboardlar</span>
-          <button class="mini-btn" onclick="loadPeers()">🔄 Yenile</button>
+          <div style="display:flex;gap:6px">
+            <button class="mini-btn share" onclick="updateAllPeers()">⬇️ Tümünü Güncelle</button>
+            <button class="mini-btn" onclick="loadPeers()">🔄 Yenile</button>
+          </div>
         </div>
         <div id="peersBox"></div>
       </div>
@@ -223,7 +227,7 @@ input[type=range]{width:100%;accent-color:#38bdf8}
 </div>
 
 <script>
-var state = { info: {}, playlist: [], finding: false, online: true };
+var state = { info: {}, playlist: [], peers: [], finding: false, online: true };
 var heartbeatTimer = null;
 var ANIM_OPTS = [
   ['fade','Solma (Fade)'],['slide_left','Soldan Kay'],['slide_right','Sağdan Kay'],
@@ -425,12 +429,72 @@ function renderPlaylist() {
       '<div class="media-btns">' +
       (i > 0 ? '<button class="mini-btn" onclick="moveItem(' + i + ',-1)">▲</button>' : '') +
       (i < state.playlist.length - 1 ? '<button class="mini-btn" onclick="moveItem(' + i + ',1)">▼</button>' : '') +
+      '<button class="mini-btn share" title="Diğer Menuboardlara Paylaş" onclick="openShareModal(' + i + ')">📤</button>' +
       '<button class="mini-btn" onclick="toggleHide(' + i + ')">' + (it.isHidden ? '🙈' : '👁️') + '</button>' +
       '<button class="mini-btn" onclick="editItem(' + i + ')">✏️</button>' +
       '<button class="mini-btn del" onclick="delItem(' + i + ')">🗑️</button>' +
       '</div></div>';
   }
   box.innerHTML = html;
+}
+
+function openShareModal(idx) {
+  var it = state.playlist[idx];
+  if (!it) return;
+  fetch('/api/peers', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(list){
+    state.peers = Array.isArray(list) ? list : [];
+    var others = state.peers.filter(function(p){ return !p.isSelf; });
+    if (!others.length) {
+      toast('Ağda paylaşılacak başka online Menuboard bulunamadı!');
+      return;
+    }
+    var h = '<div class="modal-head"><h3>📤 Menuboardlar Arası Paylaş</h3><button class="mini-btn" onclick="closeModal()">✖</button></div>' +
+      '<div style="font-size:12px;color:#cbd5e1;margin-bottom:10px"><b>Paylaşılacak:</b> ' + esc(it.fileName) + '</div>' +
+      '<div style="margin-bottom:12px">';
+    for (var i = 0; i < others.length; i++) {
+      h += '<label class="check-row"><input type="checkbox" class="share-chk" value="' + esc(others[i].host) + '" checked> ' + esc(others[i].tag) + ' (' + esc(others[i].host) + ')</label>';
+    }
+    h += '</div><button id="btnDoShare" class="btn btn-blue btn-full" onclick="doShareItem(' + idx + ')">📤 Seçili Cihazlara Gönder</button>';
+    openModal(h);
+  }).catch(function(){ toast('Cihaz listesi alınamadı!'); });
+}
+
+function doShareItem(idx) {
+  var chks = document.querySelectorAll('.share-chk:checked');
+  var targets = [];
+  for (var i = 0; i < chks.length; i++) targets.push(chks[i].value);
+  if (!targets.length) { toast('En az bir hedef cihaz seçin!'); return; }
+  var btn = document.getElementById('btnDoShare');
+  btn.disabled = true; btn.textContent = 'Gönderiliyor...';
+  fetch('/api/share', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: state.playlist[idx], targets: targets })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    closeModal();
+    toast('✅ ' + (res.sent || 0) + ' / ' + targets.length + ' cihaza paylaşıldı!');
+  }).catch(function(){
+    btn.disabled = false; btn.textContent = '📤 Seçili Cihazlara Gönder';
+    toast('Paylaşım sırasında hata oluştu!');
+  });
+}
+
+function updateAllPeers() {
+  if (!confirm('Ağdaki tüm online Menuboard cihazlarında güncelleme kontrolü başlatılsın mı?')) return;
+  fetch('/api/peers', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(list){
+    var arr = Array.isArray(list) ? list : [];
+    var count = 0;
+    for (var i = 0; i < arr.length; i++) {
+      var p = arr[i];
+      if (p.isSelf) {
+        fetch('/api/update/check', { method: 'POST' });
+      } else {
+        fetch('http://' + p.host + '/api/update/check', { method: 'POST', mode: 'no-cors' }).catch(function(){});
+      }
+      count++;
+    }
+    toast('⬇️ ' + count + ' cihazda güncelleme kontrolü başlatıldı!');
+  }).catch(function(){ toast('Cihaz listesi alınamadı!'); });
 }
 
 function moveItem(i, dir) {
@@ -739,14 +803,15 @@ function doUploadApk() {
 
 function loadPeers() {
   fetch('/api/peers', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(list){
+    state.peers = Array.isArray(list) ? list : [];
     var box = document.getElementById('peersBox');
-    if (!list || !list.length) {
+    if (!state.peers.length) {
       box.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:10px">Başka cihaz bulunamadı.</div>';
       return;
     }
     var h = '';
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
+    for (var i = 0; i < state.peers.length; i++) {
+      var p = state.peers[i];
       h += '<div class="peer-item"><div><div style="font-size:14px;font-weight:700"><span class="dot"></span> ' + esc(p.tag) + (p.isSelf ? ' (Şu an bağlı)' : '') + '</div>' +
         '<div style="font-size:11px;color:#94a3b8">' + esc(p.host) + ' • ID: ' + esc(p.id) + '</div></div>' +
         (p.isSelf ? '<span class="badge b-img">AKTİF</span>' : '<a class="btn btn-blue" style="text-decoration:none;padding:8px 12px" href="http://' + esc(p.host) + '/">Yönet →</a>') +
