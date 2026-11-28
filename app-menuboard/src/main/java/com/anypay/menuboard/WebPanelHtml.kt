@@ -7,8 +7,8 @@ object WebPanelHtml {
   "short_name": "Menuboard",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#1e293b",
+  "background_color": "#f4f6f9",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/api/logo",
@@ -30,80 +30,80 @@ object WebPanelHtml {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#1e293b">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Menuboard">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/png" href="/api/logo">
 <link rel="apple-touch-icon" href="/api/logo">
 <title>Menuboard Web Kumanda</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;min-height:100vh;padding-bottom:76px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f4f6f9;color:#0f172a;min-height:100vh;padding-bottom:78px}
 .hidden{display:none!important}
-.login-wrap{position:fixed;inset:0;background:#0f172a;z-index:999;display:flex;align-items:center;justify-content:center;padding:24px}
-.login-card{width:100%;max-width:360px;background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px 22px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.login-wrap{position:fixed;inset:0;background:#f4f6f9;z-index:999;display:flex;align-items:center;justify-content:center;padding:24px}
+.login-card{width:100%;max-width:360px;background:#ffffff;border:1px solid #e2e8f0;border-radius:20px;padding:30px 24px;text-align:center;box-shadow:0 12px 32px rgba(15,23,42,.08)}
 .login-logo{max-height:54px;max-width:220px;object-fit:contain;margin-bottom:14px}
-.login-card h1{font-size:19px;margin-bottom:6px;color:#38bdf8}
-.login-card p{font-size:13px;color:#94a3b8;margin-bottom:18px}
-.topbar{position:sticky;top:0;z-index:50;background:#1e293b;border-bottom:1px solid #334155;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.login-card h1{font-size:20px;margin-bottom:6px;color:#0f172a}
+.login-card p{font-size:13px;color:#64748b;margin-bottom:20px}
+.topbar{position:sticky;top:0;z-index:50;background:#ffffff;border-bottom:1px solid #e2e8f0;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;box-shadow:0 2px 8px rgba(15,23,42,.04)}
 .brand-wrap{display:flex;align-items:center;gap:10px;min-width:0}
 .top-logo{height:30px;max-width:96px;object-fit:contain;flex-shrink:0}
 .brand{display:flex;flex-direction:column;min-width:0}
-.brand-title{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dot{width:9px;height:9px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;transition:background .2s}
-.dot.offline{background:#ef4444;box-shadow:0 0 8px rgba(239,68,68,.7)}
-.brand-sub{font-size:11px;color:#94a3b8}
-.brand-sub.offline{color:#f87171;font-weight:700}
+.brand-title{font-size:14px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:9px;height:9px;border-radius:50%;background:#16a34a;display:inline-block;flex-shrink:0;transition:background .2s}
+.dot.offline{background:#dc2626;box-shadow:0 0 8px rgba(220,38,38,.45)}
+.brand-sub{font-size:11px;color:#64748b}
+.brand-sub.offline{color:#dc2626;font-weight:700}
 .top-actions{display:flex;gap:6px;flex-shrink:0}
-.icon-btn{background:#334155;color:#f8fafc;border:none;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;cursor:pointer}
-.icon-btn.warn{background:#f59e0b;color:#111}
-.icon-btn.danger{background:#dc2626;color:#fff}
+.icon-btn{background:#f1f5f9;color:#1e293b;border:1px solid #e2e8f0;border-radius:10px;padding:8px 11px;font-size:13px;font-weight:600;cursor:pointer}
+.icon-btn.warn{background:#f59e0b;color:#ffffff;border-color:#f59e0b}
+.icon-btn.danger{background:#dc2626;color:#ffffff;border-color:#dc2626}
 .container{max-width:720px;margin:0 auto;padding:14px}
 .btn-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
-.btn{border:none;border-radius:10px;padding:11px 10px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;text-align:center}
+.btn{border:none;border-radius:12px;padding:11px 10px;font-size:13px;font-weight:700;color:#ffffff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;text-align:center;box-shadow:0 2px 6px rgba(15,23,42,.08)}
 .btn-blue{background:#0284c7}.btn-teal{background:#0d9488}.btn-pink{background:#db2777}
-.btn-orange{background:#ea580c}.btn-red{background:#dc2626}.btn-slate{background:#334155}
+.btn-orange{background:#ea580c}.btn-red{background:#dc2626}.btn-slate{background:#475569}
 .btn-green{background:#16a34a}.btn-full{width:100%}
-.card{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:14px;margin-bottom:12px}
-.card-title{font-size:14px;font-weight:700;color:#38bdf8;margin-bottom:10px}
-.media-item{display:flex;align-items:center;gap:10px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:10px;margin-bottom:9px}
-.media-item.is-hidden{opacity:.45}
-.thumb{width:54px;height:54px;border-radius:8px;object-fit:cover;background:#0f172a;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px}
+.card{background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 2px 10px rgba(15,23,42,.04)}
+.card-title{font-size:14px;font-weight:700;color:#0369a1;margin-bottom:10px}
+.media-item{display:flex;align-items:center;gap:10px;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:10px;margin-bottom:10px;box-shadow:0 2px 8px rgba(15,23,42,.04)}
+.media-item.is-hidden{opacity:.5}
+.thumb{width:54px;height:54px;border-radius:10px;object-fit:cover;background:#f1f5f9;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px;border:1px solid #e2e8f0}
 .media-info{flex:1;min-width:0}
-.media-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.media-meta{font-size:11px;color:#94a3b8;margin-top:3px}
-.badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;margin-right:4px;color:#fff}
+.media-name{font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.media-meta{font-size:11px;color:#64748b;margin-top:3px}
+.badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;margin-right:5px;color:#ffffff}
 .b-img{background:#16a34a}.b-vid{background:#2563eb}.b-web{background:#0d9488}.b-ig{background:#db2777}
 .media-btns{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
-.mini-btn{background:#334155;color:#fff;border:none;border-radius:7px;padding:6px 8px;font-size:12px;cursor:pointer}
-.mini-btn.del{background:#991b1b}
-.mini-btn.share{background:#0369a1}
+.mini-btn{background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-radius:8px;padding:6px 8px;font-size:12px;font-weight:600;cursor:pointer}
+.mini-btn.del{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
+.mini-btn.share{background:#e0f2fe;color:#0369a1;border-color:#bae6fd}
 .field{margin-bottom:11px;text-align:left}
-.field label{display:block;font-size:12px;color:#cbd5e1;margin-bottom:4px;font-weight:600}
-.input,select{width:100%;background:#0f172a;color:#fff;border:1px solid #475569;border-radius:9px;padding:10px 12px;font-size:14px;outline:none}
-.input:focus,select:focus{border-color:#38bdf8}
-.check-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px;cursor:pointer}
-.check-row input{width:18px;height:18px;accent-color:#38bdf8}
-.switch-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #334155;gap:10px}
+.field label{display:block;font-size:12px;color:#334155;margin-bottom:4px;font-weight:600}
+.input,select{width:100%;background:#f8fafc;color:#0f172a;border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;font-size:14px;outline:none}
+.input:focus,select:focus{border-color:#0284c7;background:#ffffff;box-shadow:0 0 0 3px rgba(2,132,199,.12)}
+.check-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px;color:#1e293b;cursor:pointer}
+.check-row input{width:18px;height:18px;accent-color:#0284c7}
+.switch-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9;gap:10px}
 .switch-row:last-child{border-bottom:none}
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#1e293b;border-top:1px solid #334155;display:grid;grid-template-columns:repeat(3,1fr);z-index:60}
-.nav-tab{background:none;border:none;color:#94a3b8;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
-.nav-tab.active{color:#38bdf8}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#ffffff;border-top:1px solid #e2e8f0;display:grid;grid-template-columns:repeat(3,1fr);z-index:60;box-shadow:0 -2px 10px rgba(15,23,42,.04)}
+.nav-tab{background:none;border:none;color:#64748b;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
+.nav-tab.active{color:#0284c7}
 .nav-tab span{font-size:18px}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:flex;align-items:flex-end;justify-content:center;padding:10px}
-.modal{width:100%;max-width:520px;max-height:90vh;overflow-y:auto;background:#1e293b;border:1px solid #475569;border-radius:16px;padding:18px}
+.modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:200;display:flex;align-items:flex-end;justify-content:center;padding:10px}
+.modal{width:100%;max-width:520px;max-height:90vh;overflow-y:auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:20px;padding:18px;box-shadow:0 20px 50px rgba(15,23,42,.2)}
 .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.modal-head h3{font-size:16px;color:#38bdf8}
-.toast{position:fixed;top:66px;left:50%;transform:translateX(-50%);background:#0284c7;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .25s}
+.modal-head h3{font-size:16px;color:#0f172a}
+.toast{position:fixed;top:66px;left:50%;transform:translateX(-50%);background:#0f172a;color:#ffffff;padding:10px 18px;border-radius:12px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 8px 24px rgba(15,23,42,.25);opacity:0;pointer-events:none;transition:opacity .25s}
 .toast.show{opacity:1}
-.prog-wrap{width:100%;height:8px;background:#0f172a;border-radius:6px;overflow:hidden;margin:10px 0}
-.prog-bar{height:100%;width:0%;background:#22c55e;transition:width .15s}
-.peer-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px;background:#0f172a;border:1px solid #334155;border-radius:10px;margin-bottom:8px}
+.prog-wrap{width:100%;height:8px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin:10px 0}
+.prog-bar{height:100%;width:0%;background:#16a34a;transition:width .15s}
+.peer-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:8px}
 .app-list{max-height:320px;overflow-y:auto}
-.app-row{display:flex;justify-content:space-between;align-items:center;padding:9px 6px;border-bottom:1px solid #334155;gap:8px}
-input[type=range]{width:100%;accent-color:#38bdf8}
+.app-row{display:flex;justify-content:space-between;align-items:center;padding:9px 6px;border-bottom:1px solid #f1f5f9;gap:8px}
+input[type=range]{width:100%;accent-color:#0284c7}
 </style>
 </head>
 <body>
@@ -119,7 +119,7 @@ input[type=range]{width:100%;accent-color:#38bdf8}
       <input id="loginPass" type="password" class="input" placeholder="Şifre" autocomplete="current-password">
     </div>
     <button class="btn btn-blue btn-full" onclick="doLogin()">🔓 Giriş Yap</button>
-    <div id="loginErr" style="color:#f87171;font-size:12px;margin-top:10px"></div>
+    <div id="loginErr" style="color:#dc2626;font-size:12px;margin-top:10px"></div>
   </div>
 </div>
 
@@ -128,7 +128,7 @@ input[type=range]{width:100%;accent-color:#38bdf8}
     <div class="brand-wrap">
       <img src="/api/logo" class="top-logo" alt="İnterfon" onerror="this.style.display='none'">
       <div class="brand">
-        <div class="brand-title"><span id="hdrDot" class="dot"></span><span id="hdrTag">Menuboard</span> <span id="hdrVer" style="font-size:11px;color:#38bdf8"></span></div>
+        <div class="brand-title"><span id="hdrDot" class="dot"></span><span id="hdrTag">Menuboard</span> <span id="hdrVer" style="font-size:11px;color:#0284c7"></span></div>
         <div class="brand-sub" id="hdrHost">Yerel Ağ</div>
       </div>
     </div>
@@ -155,15 +155,15 @@ input[type=range]{width:100%;accent-color:#38bdf8}
       <div class="card">
         <div class="card-title">🖥️ Ekran ve Sistem</div>
         <div class="switch-row">
-          <div><b>Ekran Yönü</b><div style="font-size:11px;color:#94a3b8" id="txtOrientation">Dikey (9:16)</div></div>
+          <div><b>Ekran Yönü</b><div style="font-size:11px;color:#64748b" id="txtOrientation">Dikey (9:16)</div></div>
           <button class="btn btn-blue" onclick="toggleOrientation()">🔄 Değiştir</button>
         </div>
         <div class="switch-row">
-          <div><b>Tam Ekran (Çubuklar Gizli)</b><div style="font-size:11px;color:#94a3b8" id="txtImmersive">Açık</div></div>
+          <div><b>Tam Ekran (Çubuklar Gizli)</b><div style="font-size:11px;color:#64748b" id="txtImmersive">Açık</div></div>
           <button class="btn btn-slate" onclick="toggleImmersive()">Değiştir</button>
         </div>
         <div class="switch-row">
-          <div><b>Açılışta Otomatik Başlat</b><div style="font-size:11px;color:#94a3b8" id="txtAutoStart">Kapalı</div></div>
+          <div><b>Açılışta Otomatik Başlat</b><div style="font-size:11px;color:#64748b" id="txtAutoStart">Kapalı</div></div>
           <button class="btn btn-slate" onclick="toggleAutoStart()">Değiştir</button>
         </div>
       </div>
@@ -398,7 +398,7 @@ function syncPlaylist(msg) {
 function renderPlaylist() {
   var box = document.getElementById('playlistBox');
   if (!state.playlist.length) {
-    box.innerHTML = '<div class="card" style="text-align:center;color:#94a3b8;padding:30px">Henüz medya eklenmedi.<br>Yukarıdaki butonlardan Fotoğraf, Video, URL veya Instagram ekleyin.</div>';
+    box.innerHTML = '<div class="card" style="text-align:center;color:#64748b;padding:30px">Henüz medya eklenmedi.<br>Yukarıdaki butonlardan Fotoğraf, Video, URL veya Instagram ekleyin.</div>';
     return;
   }
   var html = '';
@@ -449,7 +449,7 @@ function openShareModal(idx) {
       return;
     }
     var h = '<div class="modal-head"><h3>📤 Menuboardlar Arası Paylaş</h3><button class="mini-btn" onclick="closeModal()">✖</button></div>' +
-      '<div style="font-size:12px;color:#cbd5e1;margin-bottom:10px"><b>Paylaşılacak:</b> ' + esc(it.fileName) + '</div>' +
+      '<div style="font-size:12px;color:#475569;margin-bottom:10px"><b>Paylaşılacak:</b> ' + esc(it.fileName) + '</div>' +
       '<div style="margin-bottom:12px">';
     for (var i = 0; i < others.length; i++) {
       h += '<label class="check-row"><input type="checkbox" class="share-chk" value="' + esc(others[i].host) + '" checked> ' + esc(others[i].tag) + ' (' + esc(others[i].host) + ')</label>';
@@ -692,7 +692,7 @@ function openIgModal(idx) {
     var fltOpts = [['all','Tümü (Fotoğraf + Video)'],['photo','Sadece Fotoğraflar'],['video','Sadece Videolar']];
     openModal(
       '<div class="modal-head"><h3>📸 ' + (idx != null ? 'Instagram Düzenle' : 'Instagram Ekle') + '</h3><button class="mini-btn" onclick="closeModal()">✖</button></div>' +
-      '<div style="padding:10px;border-radius:9px;margin-bottom:12px;font-size:12px;font-weight:700;background:' + (active ? '#14532d;color:#86efac' : '#7f1d1d;color:#fecaca') + '">' +
+      '<div style="padding:10px;border-radius:10px;margin-bottom:12px;font-size:12px;font-weight:700;background:' + (active ? '#dcfce7;color:#166534;border:1px solid #bbf7d0' : '#fee2e2;color:#991b1b;border:1px solid #fecaca') + '">' +
         (active ? '🟢 Menuboard Instagram Oturumu: AKTİF' : '🔴 Oturum Yok — İlk Instagram girişini Android kumandadan bir kez yapın.') +
       '</div>' +
       '<div class="field"><label>Instagram Kullanıcı Adı</label><input id="igUser" class="input" placeholder="ornekrestoran" value="' + esc(it.fileName || '') + '"></div>' +
@@ -791,7 +791,7 @@ function openAppsModal() {
   fetch('/api/apps').then(function(r){ return r.json(); }).then(function(apps){
     var h = '<div class="modal-head"><h3>🚀 Kurulu Uygulamalar</h3><button class="mini-btn" onclick="closeModal()">✖</button></div><div class="app-list">';
     for (var i = 0; i < apps.length; i++) {
-      h += '<div class="app-row"><div><div style="font-size:13px;font-weight:700">' + esc(apps[i].appName) + '</div><div style="font-size:11px;color:#94a3b8">' + esc(apps[i].packageName) + '</div></div>' +
+      h += '<div class="app-row"><div><div style="font-size:13px;font-weight:700;color:#0f172a">' + esc(apps[i].appName) + '</div><div style="font-size:11px;color:#64748b">' + esc(apps[i].packageName) + '</div></div>' +
         '<button class="mini-btn" onclick="launchApp(\'' + esc(apps[i].packageName) + '\')">Başlat</button></div>';
     }
     h += '</div>';
@@ -833,14 +833,14 @@ function loadPeers() {
     state.peers = Array.isArray(list) ? list : [];
     var box = document.getElementById('peersBox');
     if (!state.peers.length) {
-      box.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:10px">Başka cihaz bulunamadı.</div>';
+      box.innerHTML = '<div style="color:#64748b;font-size:13px;padding:10px">Başka cihaz bulunamadı.</div>';
       return;
     }
     var h = '';
     for (var i = 0; i < state.peers.length; i++) {
       var p = state.peers[i];
-      h += '<div class="peer-item"><div><div style="font-size:14px;font-weight:700"><span class="dot"></span> ' + esc(p.tag) + (p.isSelf ? ' (Şu an bağlı)' : '') + '</div>' +
-        '<div style="font-size:11px;color:#94a3b8">' + esc(p.host) + ' • ID: ' + esc(p.id) + '</div></div>' +
+      h += '<div class="peer-item"><div><div style="font-size:14px;font-weight:700;color:#0f172a"><span class="dot"></span> ' + esc(p.tag) + (p.isSelf ? ' (Şu an bağlı)' : '') + '</div>' +
+        '<div style="font-size:11px;color:#64748b">' + esc(p.host) + ' • ID: ' + esc(p.id) + '</div></div>' +
         (p.isSelf ? '<span class="badge b-img">AKTİF</span>' : '<a class="btn btn-blue" style="text-decoration:none;padding:8px 12px" href="http://' + esc(p.host) + '/">Yönet →</a>') +
         '</div>';
     }
