@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.*
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaMetadataRetriever
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -170,6 +171,8 @@ class MainActivity : AppCompatActivity() {
     private var panelTabSefimWrapper: FrameLayout? = null
     private lateinit var sefimScrollView: NestedScrollView
 
+    private var isDarkMode = false
+    private var currentTabIndex = 0
     private var isSefimUnlocked = false
     private var sefimTapCount = 0
     private var lastSefimTapMs = 0L
@@ -381,13 +384,16 @@ class MainActivity : AppCompatActivity() {
                 putExtra("result_code", res.resultCode); putExtra("result_data", res.data); putExtra("target_host", host)
             }
             ContextCompat.startForegroundService(this, serviceIntent)
-            isSharingScreen = true; btnToggleScreenShare.text = "⏹ Paylaşımı Durdur"; btnToggleScreenShare.setBackgroundColor(0xFFD32F2F.toInt())
+            isSharingScreen = true
+            btnToggleScreenShare.text = "⏹ Paylaşımı Durdur"
+            btnToggleScreenShare.background = roundedBg(0xFFDC2626.toInt(), 12f)
             moveTaskToBack(true)
         } else { Toast.makeText(this, "Ekran paylaşımına izin verilmedi", Toast.LENGTH_SHORT).show() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        supportActionBar?.hide()
         setContentView(R.layout.activity_main)
 
         tabDevices = findViewById(R.id.tabDevices); tabMedia = findViewById(R.id.tabMedia)
@@ -400,8 +406,7 @@ class MainActivity : AppCompatActivity() {
 
         val resIdProg = resources.getIdentifier("uploadProgressBar", "id", packageName)
         if (resIdProg != 0) uploadProgressBar = findViewById(resIdProg)
-        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "1.57" }
-        supportActionBar?.title = "Menuboard Kumanda"
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "2.00" }
         val resIdVer = resources.getIdentifier("txtRemoteVersion", "id", packageName)
         if (resIdVer != 0) findViewById<TextView>(resIdVer)?.text = "v$vName"
 
@@ -443,8 +448,85 @@ class MainActivity : AppCompatActivity() {
         val resIdSupport = resources.getIdentifier("btnSupportCall", "id", packageName)
         if (resIdSupport != 0) findViewById<View>(resIdSupport)?.setOnClickListener { startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:03243292001"))) }
 
+        initThemeAndModernUi()
         if (deviceList.isNotEmpty() && activeDevice == null) selectDevice(deviceList.first())
         startUdpListener(); checkForUpdate()
+    }
+
+    private fun roundedBg(colorInt: Int, radiusDp: Float = 12f): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = radiusDp * resources.displayMetrics.density
+            setColor(colorInt)
+        }
+    }
+
+    private fun circleBg(colorInt: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(colorInt)
+        }
+    }
+
+    private fun cardBg(): GradientDrawable {
+        val d = resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 16f * d
+            setColor(if (isDarkMode) Color.parseColor("#1E293B") else Color.parseColor("#FFFFFF"))
+            setStroke((1f * d).toInt().coerceAtLeast(1), if (isDarkMode) Color.parseColor("#334155") else Color.parseColor("#E2E8F0"))
+        }
+    }
+
+    private fun initThemeAndModernUi() {
+        isDarkMode = getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).getBoolean("dark_mode", false)
+        val themeBtnId = resources.getIdentifier("btnThemeToggle", "id", packageName)
+        if (themeBtnId != 0) {
+            findViewById<TextView?>(themeBtnId)?.setOnClickListener {
+                isDarkMode = !isDarkMode
+                getSharedPreferences("remote_prefs", Context.MODE_PRIVATE).edit().putBoolean("dark_mode", isDarkMode).apply()
+                applyAppTheme()
+            }
+        }
+        applyAppTheme()
+    }
+
+    private fun applyAppTheme() {
+        val bgMain = if (isDarkMode) Color.parseColor("#0F172A") else Color.parseColor("#F4F6F9")
+        val bgSurface = if (isDarkMode) Color.parseColor("#1E293B") else Color.parseColor("#FFFFFF")
+        val txtPrimary = if (isDarkMode) Color.parseColor("#F8FAFC") else Color.parseColor("#0F172A")
+        val txtMuted = if (isDarkMode) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
+        val divColor = if (isDarkMode) Color.parseColor("#334155") else Color.parseColor("#E2E8F0")
+
+        fun vById(name: String): View? {
+            val id = resources.getIdentifier(name, "id", packageName)
+            return if (id != 0) findViewById(id) else null
+        }
+
+        vById("rootLayout")?.setBackgroundColor(bgMain)
+        vById("topHeaderBar")?.setBackgroundColor(bgSurface)
+        vById("footerBar")?.setBackgroundColor(bgSurface)
+        vById("bottomNavBar")?.setBackgroundColor(bgSurface)
+        vById("bottomNavDivider")?.setBackgroundColor(divColor)
+        txtActiveDeviceName.setTextColor(txtPrimary)
+        (vById("btnSupportCall") as? TextView)?.setTextColor(txtMuted)
+
+        (vById("btnThemeToggle") as? TextView)?.apply {
+            text = if (isDarkMode) "☀️" else "🌙"
+            background = roundedBg(if (isDarkMode) Color.parseColor("#334155") else Color.parseColor("#F1F5F9"), 10f)
+        }
+
+        try {
+            window.statusBarColor = bgSurface
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = if (isDarkMode) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            }
+        } catch (_: Exception) {}
+
+        switchTab(currentTabIndex)
+        if (::deviceAdapter.isInitialized) deviceAdapter.notifyDataSetChanged()
+        if (::mediaAdapter.isInitialized) mediaAdapter.notifyDataSetChanged()
     }
 
     private fun injectDeviceBatchButtons() {
@@ -460,31 +542,31 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = (4 * density).toInt()
-                bottomMargin = (8 * density).toInt()
+                topMargin = (2 * density).toInt()
+                bottomMargin = (10 * density).toInt()
             }
         }
 
         val btnClearOffline = Button(this).apply {
             text = "🧹 Offline Temizle"
-            textSize = 11.5f
+            textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             isAllCaps = false
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#546E7A"))
-            setPadding(6, 0, 6, 0)
+            background = roundedBg(Color.parseColor("#546E7A"), 12f)
+            setPadding(8, 0, 8, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
             setOnClickListener { clearOfflineDevices() }
         }
 
         val btnUpdateAll = Button(this).apply {
             text = "⬇️ Tümünü Güncelle"
-            textSize = 11.5f
+            textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             isAllCaps = false
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0277BD"))
-            setPadding(6, 0, 6, 0)
+            background = roundedBg(Color.parseColor("#0284C7"), 12f)
+            setPadding(8, 0, 8, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f)
             setOnClickListener { updateAllOnlineMenuboards() }
         }
@@ -584,7 +666,7 @@ class MainActivity : AppCompatActivity() {
                         val sent = try { JSONObject(body).optInt("sent", 0) } catch (_: Exception) { 0 }
                         runOnUiThread {
                             if (ok) Toast.makeText(this@MainActivity, "✅ $sent / ${selectedHosts.size} Menuboard'a paylaşıldı!", Toast.LENGTH_LONG).show()
-                            else Toast.makeText(this@MainActivity, "Paylaşım başarısız (Kaynak cihaz v1.57 olmalı).", Toast.LENGTH_LONG).show()
+                            else Toast.makeText(this@MainActivity, "Paylaşım başarısız (Kaynak cihaz güncel olmalı).", Toast.LENGTH_LONG).show()
                         }
                     }
                 })
@@ -639,7 +721,7 @@ class MainActivity : AppCompatActivity() {
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(50, 30, 50, 15) }
         val btnChooseFile = Button(this).apply {
             text = "📂 Telefonundan Medya Seç"; isAllCaps = false; textSize = 13.5f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#1976D2"))
+            setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#0284C7"), 12f)
             setOnClickListener { pickMediaLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"; putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*")) }) }
         }
         val txtSelected = TextView(this).apply { text = "Henüz fotoğraf veya video seçilmedi"; textSize = 12.5f; setTextColor(Color.parseColor("#666666")); setPadding(0, 12, 0, 16) }
@@ -701,15 +783,16 @@ class MainActivity : AppCompatActivity() {
 
         val actionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (8 * density).toInt(); bottomMargin = (4 * density).toInt() }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * density).toInt(); bottomMargin = (4 * density).toInt() }
         }
         btnPickMedia.apply {
-            text = "📁 MEDYA"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setPadding(4, 0, 4, 0)
+            text = "📁 Medya"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setPadding(4, 0, 4, 0)
+            background = roundedBg(Color.parseColor("#0284C7"), 12f)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
         }
         val btnAddUrl = Button(this).apply {
-            text = "🌐 URL"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#00897B")); setPadding(4, 0, 4, 0)
+            text = "🌐 URL"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setTextColor(Color.WHITE)
+            background = roundedBg(Color.parseColor("#0D9488"), 12f); setPadding(4, 0, 4, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1f).apply { marginEnd = gapPx }
             setOnClickListener {
                 if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
@@ -717,8 +800,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val btnAddInstagram = Button(this).apply {
-            text = "📸 INSTAGRAM"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#E1306C")); setPadding(4, 0, 4, 0)
+            text = "📸 Instagram"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false; setTextColor(Color.WHITE)
+            background = roundedBg(Color.parseColor("#DB2777"), 12f); setPadding(4, 0, 4, 0)
             layoutParams = LinearLayout.LayoutParams(0, btnHeightPx, 1.15f)
             setOnClickListener {
                 if (activeDevice == null) { Toast.makeText(this@MainActivity, "Lütfen önce bir Menuboard seçin!", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
@@ -776,7 +859,7 @@ class MainActivity : AppCompatActivity() {
 
         val btnLoginIg = Button(this).apply {
             text = if (initialSessionActive) "🔄 Instagram Oturumunu Yenile" else "🔑 Instagram Oturumu Aç"
-            isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#E1306C"))
+            isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#DB2777"), 12f)
             setOnClickListener { openInstagramLoginAndSyncCookie { ok -> if (ok) { text = "🔄 Instagram Oturumunu Yenile"; updateSessionUi(true) } } }
         }
         layout.addView(txtSessionStatus); layout.addView(btnLoginIg); layout.addView(formContainer)
@@ -846,7 +929,7 @@ class MainActivity : AppCompatActivity() {
         activeUrlInputField = edtUrl
         val qrBtnSize = (38 * density).toInt()
         val btnScanUrlQr = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_menu_camera); setColorFilter(Color.WHITE); setBackgroundColor(Color.parseColor("#0288D1"))
+            setImageResource(android.R.drawable.ic_menu_camera); setColorFilter(Color.WHITE); background = roundedBg(Color.parseColor("#0284C7"), 10f)
             scaleType = ImageView.ScaleType.CENTER_INSIDE; setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
             layoutParams = LinearLayout.LayoutParams(qrBtnSize, qrBtnSize).apply { leftMargin = (8 * density).toInt() }
             setOnClickListener { urlQrLauncher.launch(ScanOptions().apply { setPrompt("URL içeren QR kodu kameraya gösterin"); setBeepEnabled(true); setOrientationLocked(false) }) }
@@ -936,24 +1019,25 @@ class MainActivity : AppCompatActivity() {
         val existingTabSefimId = resources.getIdentifier("tabSefim", "id", packageName)
         tabSefim = if (existingTabSefimId != 0) findViewById<Button>(existingTabSefimId)?.apply { text = "🍽️ 🔒" }
         else Button(this).apply {
-            text = "🍽️ 🔒"; setTextColor(0xFF888888.toInt()); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
-            setBackgroundResource(android.R.drawable.list_selector_background)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f); topTabsBar?.addView(this)
+            text = "🍽️ 🔒"; setTextColor(0xFF64748B.toInt()); textSize = 13f; typeface = Typeface.DEFAULT_BOLD; isAllCaps = false
+            background = null
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.7f); topTabsBar?.addView(this)
         }
         val mainRoot = panelTabDevices.parent as? LinearLayout
         val existingPanelSefimId = resources.getIdentifier("panelTabSefim", "id", packageName)
         if (existingPanelSefimId != 0) findViewById<View>(existingPanelSefimId)?.let { mainRoot?.removeView(it) }
         val wrapper = FrameLayout(this).apply { visibility = View.GONE; layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f) }
-        mainRoot?.addView(wrapper, ((mainRoot.childCount) - 1).coerceAtLeast(2)); panelTabSefimWrapper = wrapper
+        val insertIdx = mainRoot?.indexOfChild(panelTabMedia)?.let { it + 1 } ?: 2
+        mainRoot?.addView(wrapper, insertIdx.coerceAtMost(mainRoot.childCount)); panelTabSefimWrapper = wrapper
 
         sefimScrollView = NestedScrollView(this).apply { isFillViewport = true; layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
         val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 16, 20, 30); layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
         sefimScrollView.addView(container); wrapper.addView(sefimScrollView)
 
         val topBtnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) }
-        topBtnRow.addView(Button(this).apply { text = "⚙️ DB Ayarları"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#455A64")); layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }; setOnClickListener { showDbConfigDialog() } })
-        topBtnRow.addView(Button(this).apply { text = "🔄 DB'den Çek"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#0288D1")); layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }; setOnClickListener { fetchSefimProductsFromDb() } })
-        topBtnRow.addView(Button(this).apply { text = "🧪 Test Menüleri"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#7B1FA2")); layoutParams = LinearLayout.LayoutParams(0, 115, 1.1f); setOnClickListener { showDemoMenuSelectorDialog() } })
+        topBtnRow.addView(Button(this).apply { text = "⚙️ DB Ayarları"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#455A64"), 10f); layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }; setOnClickListener { showDbConfigDialog() } })
+        topBtnRow.addView(Button(this).apply { text = "🔄 DB'den Çek"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#0284C7"), 10f); layoutParams = LinearLayout.LayoutParams(0, 115, 1f).apply { rightMargin = 10 }; setOnClickListener { fetchSefimProductsFromDb() } })
+        topBtnRow.addView(Button(this).apply { text = "🧪 Test Menüleri"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#7B1FA2"), 10f); layoutParams = LinearLayout.LayoutParams(0, 115, 1.1f); setOnClickListener { showDemoMenuSelectorDialog() } })
         container.addView(topBtnRow)
 
         val headerBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#ECEFF1")); setPadding(16, 12, 16, 12); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = 12 } }
@@ -999,7 +1083,7 @@ class MainActivity : AppCompatActivity() {
 
         container.addView(Button(this).apply {
             text = "📺 Menüyü & Animasyonu Menuboard'da Yayınla"; isAllCaps = false; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; textSize = 14f
-            setBackgroundColor(Color.parseColor("#E65100")); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120).apply { topMargin = 10 }
+            background = roundedBg(Color.parseColor("#E65100"), 12f); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120).apply { topMargin = 10 }
             setOnClickListener { publishSefimMenuToMenuboard() }
         })
 
@@ -1009,8 +1093,8 @@ class MainActivity : AppCompatActivity() {
         }
         sefimAdapter = SefimProductAdapter(); rvSefimProducts.adapter = sefimAdapter; container.addView(rvSefimProducts)
 
-        wrapper.addView(Button(this).apply { text = "▲"; textSize = 16f; setTextColor(Color.WHITE); setBackgroundColor(Color.argb(210, 25, 118, 210)); layoutParams = FrameLayout.LayoutParams(110, 110).apply { gravity = Gravity.TOP or Gravity.END; topMargin = 18; rightMargin = 18 }; setOnClickListener { sefimScrollView.smoothScrollBy(0, -650) }; setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_UP); true } })
-        wrapper.addView(Button(this).apply { text = "▼"; textSize = 16f; setTextColor(Color.WHITE); setBackgroundColor(Color.argb(210, 25, 118, 210)); layoutParams = FrameLayout.LayoutParams(110, 110).apply { gravity = Gravity.BOTTOM or Gravity.END; bottomMargin = 18; rightMargin = 18 }; setOnClickListener { sefimScrollView.smoothScrollBy(0, 650) }; setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_DOWN); true } })
+        wrapper.addView(Button(this).apply { text = "▲"; textSize = 16f; setTextColor(Color.WHITE); background = roundedBg(Color.argb(210, 25, 118, 210), 14f); layoutParams = FrameLayout.LayoutParams(110, 110).apply { gravity = Gravity.TOP or Gravity.END; topMargin = 18; rightMargin = 18 }; setOnClickListener { sefimScrollView.smoothScrollBy(0, -650) }; setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_UP); true } })
+        wrapper.addView(Button(this).apply { text = "▼"; textSize = 16f; setTextColor(Color.WHITE); background = roundedBg(Color.argb(210, 25, 118, 210), 14f); layoutParams = FrameLayout.LayoutParams(110, 110).apply { gravity = Gravity.BOTTOM or Gravity.END; bottomMargin = 18; rightMargin = 18 }; setOnClickListener { sefimScrollView.smoothScrollBy(0, 650) }; setOnLongClickListener { sefimScrollView.fullScroll(View.FOCUS_DOWN); true } })
 
         val styleListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { applySefimPreviewBackground(); sefimAdapter.notifyDataSetChanged(); saveLocalSefimState() }
@@ -1300,7 +1384,7 @@ class MainActivity : AppCompatActivity() {
         val navRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 10, 0, 4) }
         navRow1.addView(Button(this).apply { text = "◀ Geri"; textSize = 12f; isAllCaps = false; setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = 6 }; setOnClickListener { sendRemoteInput(device, "type=nav&act=BACK") } })
         navRow1.addView(Button(this).apply { text = "⏺ Ana Ekran"; textSize = 12f; isAllCaps = false; setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f).apply { rightMargin = 6 }; setOnClickListener { sendRemoteInput(device, "type=nav&act=HOME") } })
-        navRow1.addView(Button(this).apply { text = "📺 Öne Getir"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#E65100")); setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f); setOnClickListener { sendRemoteInput(device, "type=nav&act=MENUBOARD") } })
+        navRow1.addView(Button(this).apply { text = "📺 Öne Getir"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#E65100"), 10f); setPadding(4, 16, 4, 16); layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f); setOnClickListener { sendRemoteInput(device, "type=nav&act=MENUBOARD") } })
         root.addView(navRow1)
 
         val navRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 4, 0, 8) }
@@ -1674,7 +1758,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopScreenShare() {
         startService(Intent(this, ScreenCaptureService::class.java).apply { action = "STOP" })
-        isSharingScreen = false; btnToggleScreenShare.text = "📱 Ekranı Paylaş"; btnToggleScreenShare.setBackgroundColor(0xFF7B1FA2.toInt())
+        isSharingScreen = false
+        btnToggleScreenShare.text = "📱 Ekranı Paylaş"
+        btnToggleScreenShare.background = roundedBg(0xFF7B1FA2.toInt(), 12f)
     }
 
     private fun startUdpListener() {
@@ -1717,12 +1803,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchTab(tabIndex: Int) {
+        currentTabIndex = tabIndex
         panelTabDevices.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
         panelTabMedia.visibility = if (tabIndex == 1) View.VISIBLE else View.GONE
         panelTabSefimWrapper?.visibility = if (tabIndex == 2) View.VISIBLE else View.GONE
-        tabDevices.setTextColor(if (tabIndex == 0) 0xFF00E676.toInt() else 0xFF888888.toInt())
-        tabMedia.setTextColor(if (tabIndex == 1) 0xFF00E676.toInt() else 0xFF888888.toInt())
-        tabSefim?.setTextColor(if (tabIndex == 2) 0xFF00E676.toInt() else 0xFF888888.toInt())
+
+        val activeBg = if (isDarkMode) Color.parseColor("#0369A1") else Color.parseColor("#E0F2FE")
+        val activeTxt = if (isDarkMode) Color.WHITE else Color.parseColor("#0369A1")
+        val inactiveTxt = if (isDarkMode) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
+
+        fun styleTab(btn: Button?, selected: Boolean) {
+            if (btn == null) return
+            btn.background = if (selected) roundedBg(activeBg, 14f) else null
+            btn.setTextColor(if (selected) activeTxt else inactiveTxt)
+        }
+        styleTab(tabDevices, tabIndex == 0)
+        styleTab(tabMedia, tabIndex == 1)
+        styleTab(tabSefim, tabIndex == 2)
     }
 
     private fun selectDevice(device: DeviceItem) {
@@ -1757,7 +1854,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateConnectionUi(connected: Boolean) {
         isConnected = connected
-        runOnUiThread { txtConnectionStatus.text = if (connected) "Bağlı" else "Bağlı Değil"; txtConnectionStatus.setTextColor(if (connected) 0xFF2E7D32.toInt() else 0xFFD32F2F.toInt()) }
+        runOnUiThread { txtConnectionStatus.text = if (connected) "Bağlı" else "Bağlı Değil"; txtConnectionStatus.setTextColor(if (connected) 0xFF16A34A.toInt() else 0xFFDC2626.toInt()) }
     }
 
     private fun fetchPlaylist() {
@@ -1865,7 +1962,7 @@ class MainActivity : AppCompatActivity() {
             mid.addView(tN); mid.addView(tC); mid.addView(tA)
             val rCol = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END or Gravity.CENTER_VERTICAL }
             val tP = TextView(parent.context).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
-            val bR = Button(parent.context).apply { text = "📝 İçerik"; textSize = 10f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#37474F")); layoutParams = LinearLayout.LayoutParams(170, 82).apply { topMargin = 6 } }
+            val bR = Button(parent.context).apply { text = "📝 İçerik"; textSize = 10f; isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#37474F"), 8f); layoutParams = LinearLayout.LayoutParams(170, 82).apply { topMargin = 6 } }
             rCol.addView(tP); rCol.addView(bR); row.addView(cb); row.addView(pf); row.addView(mid); row.addView(rCol)
             return SefimViewHolder(row, cb, img, cam, tN, tC, tA, tP, bR)
         }
@@ -1916,7 +2013,7 @@ class MainActivity : AppCompatActivity() {
                 if (existingBtn is Button) btnDynamicSettings = existingBtn
                 else if (existingBtn != null) existingBtn.setOnClickListener { val p = adapterPosition; if (p != RecyclerView.NO_POSITION && p < deviceList.size) showDeviceAdvancedMenu(deviceList[p]) }
                 else if (rowLayout != null) {
-                    val b = Button(v.context).apply { text = "⚙️ Ayar"; textSize = 11f; isAllCaps = false; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#1976D2")); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 92).apply { leftMargin = 8; rightMargin = 4 } }
+                    val b = Button(v.context).apply { text = "⚙️ Ayarlar"; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE); background = roundedBg(Color.parseColor("#0284C7"), 12f); layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 92).apply { leftMargin = 8; rightMargin = 4 } }
                     rowLayout.addView(b, (rowLayout.indexOfChild(btnFindDevice) + 1).coerceAtMost(rowLayout.childCount)); btnDynamicSettings = b
                 }
             }
@@ -1924,11 +2021,18 @@ class MainActivity : AppCompatActivity() {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = DeviceViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_device, parent, false))
         override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
             val dev = deviceList.getOrNull(position) ?: return
+            holder.itemView.background = cardBg()
+            holder.txtDeviceTag.setTextColor(if (isDarkMode) Color.parseColor("#F8FAFC") else Color.parseColor("#0F172A"))
+            holder.txtDeviceIp.setTextColor(if (isDarkMode) Color.parseColor("#94A3B8") else Color.parseColor("#64748B"))
+
             val verSuffix = if (dev.isOnline && !dev.version.isNullOrEmpty()) " (v${dev.version})" else ""
             holder.txtDeviceTag.text = "${if (activeDevice?.id == dev.id) "✓ " else ""}${dev.nameTag}$verSuffix"
             holder.txtDeviceIp.text = dev.host
-            holder.viewStatusDot.setBackgroundColor(if (dev.isOnline) 0xFF00C853.toInt() else 0xFFD32F2F.toInt())
-            holder.btnFindDevice.text = if (dev.isFinding) "Gizle" else "Bul"; holder.btnFindDevice.setBackgroundColor(if (dev.isFinding) 0xFFD32F2F.toInt() else 0xFFF57C00.toInt())
+            holder.viewStatusDot.background = circleBg(if (dev.isOnline) 0xFF16A34A.toInt() else 0xFFDC2626.toInt())
+            holder.btnFindDevice.text = if (dev.isFinding) "Gizle" else "Bul"
+            holder.btnFindDevice.background = roundedBg(if (dev.isFinding) 0xFFDC2626.toInt() else 0xFFF59E0B.toInt(), 12f)
+            holder.btnDynamicSettings?.background = roundedBg(0xFF0284C7.toInt(), 12f)
+
             holder.itemView.setOnClickListener {
                 selectDevice(dev)
                 if (dev.isOnline) switchTab(1)
@@ -1968,7 +2072,7 @@ class MainActivity : AppCompatActivity() {
                 val actionParent = btnEdit.parent as? LinearLayout
                 if (actionParent != null) {
                     val density = v.resources.displayMetrics.density
-                    val sizePx = (40 * density).toInt()
+                    val sizePx = (38 * density).toInt()
                     val eyeBtn = ImageButton(v.context).apply {
                         setImageResource(android.R.drawable.ic_menu_view)
                         setBackgroundResource(android.R.drawable.list_selector_background)
@@ -1987,6 +2091,12 @@ class MainActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: MediaViewHolder, position: Int) {
             val item = playlist.getOrNull(position) ?: return
             val host = activeDevice?.host ?: ""
+
+            holder.itemView.background = cardBg()
+            holder.txtFileName.setTextColor(if (isDarkMode) Color.parseColor("#F8FAFC") else Color.parseColor("#0F172A"))
+            holder.txtDetails.setTextColor(if (isDarkMode) Color.parseColor("#94A3B8") else Color.parseColor("#475569"))
+            holder.txtAnimBadge.setTextColor(if (isDarkMode) Color.parseColor("#38BDF8") else Color.parseColor("#0284C7"))
+
             holder.txtFileName.text = if (item.isHidden) "${item.fileName} (Gizli)" else item.fileName
             holder.txtAnimBadge.text = "Animasyon: ${animOptions.getOrNull(animValues.indexOf(item.animation)) ?: "Solma"}"
 
@@ -2000,25 +2110,22 @@ class MainActivity : AppCompatActivity() {
                 syncPlaylistToMenuboard()
             }
 
-            // Medya/URL/Instagram satırına tıklayınca Menuboardlar Arası Paylaş açılır
-            holder.itemView.setOnClickListener {
-                showShareMediaDialog(item)
-            }
+            holder.itemView.setOnClickListener { showShareMediaDialog(item) }
 
             if (item.type == "web") {
-                holder.txtTypeBadge.text = "URL"; holder.txtTypeBadge.setBackgroundColor(0xCC00897B.toInt())
+                holder.txtTypeBadge.text = "URL"; holder.txtTypeBadge.background = roundedBg(0xFF0D9488.toInt(), 6f)
                 val spd = scrollSpeedLabels.getOrElse(scrollSpeedValues.indexOf(item.webScrollSpeed ?: "medium")) { "Orta" }
                 val scr = when { item.scrollUntilEnd -> "Sonuna Kadar ($spd)"; item.autoScroll -> "${item.durationSec}sn ($spd)"; else -> "${item.durationSec}sn Sabit" }
                 holder.txtDetails.text = "$scr | Zoom:%${item.webZoomPercent}${if (item.showQr) " | QR" else ""}"
-                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_compass); holder.imgThumb.setBackgroundColor(Color.parseColor("#E0F2F1"))
+                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_compass); holder.imgThumb.setBackgroundColor(Color.parseColor(if (isDarkMode) "#134E4A" else "#E0F2F1"))
                 holder.btnEdit.setOnClickListener { showUrlConfigDialog(existingItem = item) }
             } else if (item.type == "instagram") {
-                holder.txtTypeBadge.text = "IG"; holder.txtTypeBadge.setBackgroundColor(0xCCE1306C.toInt())
+                holder.txtTypeBadge.text = "IG"; holder.txtTypeBadge.background = roundedBg(0xFFDB2777.toInt(), 6f)
                 val modeStr = if (item.scrollUntilEnd) "Medyalar Bitene Kadar" else "${item.durationSec}sn"
                 val fltStr = when (item.igMediaFilter) { "photo" -> "Fotoğraf"; "video" -> "Video"; else -> "Tümü" }
                 val audioStr = if (item.igAudioEnabled) " | Sesli" else ""
                 holder.txtDetails.text = "IG: $modeStr | $fltStr$audioStr"
-                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_camera); holder.imgThumb.setBackgroundColor(Color.parseColor("#FCE4EC"))
+                holder.imgThumb.setImageResource(android.R.drawable.ic_menu_camera); holder.imgThumb.setBackgroundColor(Color.parseColor(if (isDarkMode) "#831843" else "#FCE4EC"))
                 holder.btnEdit.setOnClickListener { checkInstagramStatusAndOpenDialog(existingItem = item) }
             } else {
                 val sizeStr = formatFileSize(item.fileSizeBytes)
@@ -2026,7 +2133,7 @@ class MainActivity : AppCompatActivity() {
                 val totDur = formatDurationSec(item.fileDurationSec)
                 val durSuffix = if (totDur.isNotEmpty()) " ($totDur)" else ""
                 holder.txtTypeBadge.text = if (item.type == "video") "VIDEO" else "RESIM"
-                holder.txtTypeBadge.setBackgroundColor(if (item.type == "video") 0xCC1976D2.toInt() else 0xCC388E3C.toInt())
+                holder.txtTypeBadge.background = roundedBg(if (item.type == "video") 0xFF2563EB.toInt() else 0xFF16A34A.toInt(), 6f)
                 holder.txtDetails.text = if (item.type == "video") "Video: ${if (item.durationSec > 0) "${item.durationSec}sn kesit" else "Tamamı"}$durSuffix | +${item.waitAfterSec}s ara$sizeSuffix"
                 else "Resim: ${if (item.durationSec > 0) item.durationSec else 10}s süre | +${item.waitAfterSec}s ara$sizeSuffix"
                 holder.imgThumb.setBackgroundColor(Color.TRANSPARENT)
