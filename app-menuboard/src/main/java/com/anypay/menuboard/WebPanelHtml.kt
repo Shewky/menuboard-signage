@@ -40,7 +40,7 @@ object WebPanelHtml {
 <title>Menuboard Web Kumanda</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f4f6f9;color:#0f172a;min-height:100vh;padding-bottom:78px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f4f6f9;color:#0f172a;min-height:100vh;padding-bottom:78px;transition:background .2s,color .2s}
 .hidden{display:none!important}
 .login-wrap{position:fixed;inset:0;background:#f4f6f9;z-index:999;display:flex;align-items:center;justify-content:center;padding:24px}
 .login-card{width:100%;max-width:360px;background:#ffffff;border:1px solid #e2e8f0;border-radius:20px;padding:30px 24px;text-align:center;box-shadow:0 12px 32px rgba(15,23,42,.08)}
@@ -57,7 +57,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .brand-sub{font-size:11px;color:#64748b}
 .brand-sub.offline{color:#dc2626;font-weight:700}
 .top-actions{display:flex;gap:6px;flex-shrink:0}
-.icon-btn{background:#f1f5f9;color:#1e293b;border:1px solid #e2e8f0;border-radius:10px;padding:8px 11px;font-size:13px;font-weight:600;cursor:pointer}
+.icon-btn{background:#f1f5f9;color:#1e293b;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;cursor:pointer}
 .icon-btn.warn{background:#f59e0b;color:#ffffff;border-color:#f59e0b}
 .icon-btn.danger{background:#dc2626;color:#ffffff;border-color:#dc2626}
 .container{max-width:720px;margin:0 auto;padding:14px}
@@ -88,9 +88,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .check-row input{width:18px;height:18px;accent-color:#0284c7}
 .switch-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9;gap:10px}
 .switch-row:last-child{border-bottom:none}
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#ffffff;border-top:1px solid #e2e8f0;display:grid;grid-template-columns:repeat(3,1fr);z-index:60;box-shadow:0 -2px 10px rgba(15,23,42,.04)}
-.nav-tab{background:none;border:none;color:#64748b;padding:10px 4px;font-size:11px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
-.nav-tab.active{color:#0284c7}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#ffffff;border-top:1px solid #e2e8f0;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 10px;z-index:60;box-shadow:0 -2px 10px rgba(15,23,42,.04)}
+.nav-tab{background:none;border:none;border-radius:12px;color:#64748b;padding:7px 4px;font-size:11px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.nav-tab.active{background:#e0f2fe;color:#0369a1}
 .nav-tab span{font-size:18px}
 .modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:200;display:flex;align-items:flex-end;justify-content:center;padding:10px}
 .modal{width:100%;max-width:520px;max-height:90vh;overflow-y:auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:20px;padding:18px;box-shadow:0 20px 50px rgba(15,23,42,.2)}
@@ -104,6 +104,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .app-list{max-height:320px;overflow-y:auto}
 .app-row{display:flex;justify-content:space-between;align-items:center;padding:9px 6px;border-bottom:1px solid #f1f5f9;gap:8px}
 input[type=range]{width:100%;accent-color:#0284c7}
+
+/* KARANLIK MOD */
+body.dark,body.dark .login-wrap{background:#0f172a;color:#f1f5f9}
+body.dark .topbar,body.dark .card,body.dark .media-item,body.dark .bottom-nav,body.dark .modal,body.dark .login-card{background:#1e293b;border-color:#334155;color:#f1f5f9}
+body.dark .brand-title,body.dark .media-name,body.dark .modal-head h3,body.dark .login-card h1{color:#f8fafc}
+body.dark .brand-sub,body.dark .media-meta,body.dark .login-card p{color:#94a3b8}
+body.dark .card-title{color:#38bdf8}
+body.dark .input,body.dark select,body.dark .peer-item,body.dark .thumb{background:#0f172a;border-color:#475569;color:#f8fafc}
+body.dark .icon-btn,body.dark .mini-btn{background:#334155;border-color:#475569;color:#f8fafc}
+body.dark .icon-btn.warn{background:#f59e0b;border-color:#f59e0b;color:#ffffff}
+body.dark .icon-btn.danger{background:#dc2626;border-color:#dc2626;color:#ffffff}
+body.dark .mini-btn.del{background:#7f1d1d;border-color:#991b1b;color:#fecaca}
+body.dark .mini-btn.share{background:#0c4a6e;border-color:#0369a1;color:#bae6fd}
+body.dark .check-row,body.dark .field label{color:#cbd5e1}
+body.dark .switch-row,body.dark .app-row{border-color:#334155}
+body.dark .nav-tab{color:#94a3b8}
+body.dark .nav-tab.active{background:#0369a1;color:#ffffff}
+body.dark .toast{background:#0284c7;color:#ffffff}
 </style>
 </head>
 <body>
@@ -134,7 +152,8 @@ input[type=range]{width:100%;accent-color:#0284c7}
     </div>
     <div class="top-actions">
       <button id="btnFind" class="icon-btn warn" onclick="toggleFind()">Bul</button>
-      <button class="icon-btn" onclick="editTag()">✏️</button>
+      <button class="icon-btn" onclick="editTag()" title="İsim Düzenle">✏️</button>
+      <button id="btnTheme" class="icon-btn" onclick="toggleTheme()" title="Tema Değiştir">🌙</button>
       <button class="icon-btn danger" onclick="doLogout()" title="Çıkış">🔒</button>
     </div>
   </div>
@@ -241,6 +260,20 @@ var FONT_OPTS = [
   ['Merriweather','Merriweather'],['sans-serif','Sistem Sans-Serif'],['serif','Sistem Serif'],
   ['monospace','Monospace'],['cursive','El Yazısı']
 ];
+
+function applyTheme(dark) {
+  document.body.classList.toggle('dark', dark);
+  var b = document.getElementById('btnTheme');
+  if (b) b.textContent = dark ? '☀️' : '🌙';
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#1e293b' : '#ffffff');
+}
+
+function toggleTheme() {
+  var next = !document.body.classList.contains('dark');
+  localStorage.setItem('mb_web_dark', next ? '1' : '0');
+  applyTheme(next);
+}
 
 function toast(msg) {
   var el = document.getElementById('toast');
@@ -449,7 +482,7 @@ function openShareModal(idx) {
       return;
     }
     var h = '<div class="modal-head"><h3>📤 Menuboardlar Arası Paylaş</h3><button class="mini-btn" onclick="closeModal()">✖</button></div>' +
-      '<div style="font-size:12px;color:#475569;margin-bottom:10px"><b>Paylaşılacak:</b> ' + esc(it.fileName) + '</div>' +
+      '<div style="font-size:12px;color:#64748b;margin-bottom:10px"><b>Paylaşılacak:</b> ' + esc(it.fileName) + '</div>' +
       '<div style="margin-bottom:12px">';
     for (var i = 0; i < others.length; i++) {
       h += '<label class="check-row"><input type="checkbox" class="share-chk" value="' + esc(others[i].host) + '" checked> ' + esc(others[i].tag) + ' (' + esc(others[i].host) + ')</label>';
@@ -791,7 +824,7 @@ function openAppsModal() {
   fetch('/api/apps').then(function(r){ return r.json(); }).then(function(apps){
     var h = '<div class="modal-head"><h3>🚀 Kurulu Uygulamalar</h3><button class="mini-btn" onclick="closeModal()">✖</button></div><div class="app-list">';
     for (var i = 0; i < apps.length; i++) {
-      h += '<div class="app-row"><div><div style="font-size:13px;font-weight:700;color:#0f172a">' + esc(apps[i].appName) + '</div><div style="font-size:11px;color:#64748b">' + esc(apps[i].packageName) + '</div></div>' +
+      h += '<div class="app-row"><div><div style="font-size:13px;font-weight:700">' + esc(apps[i].appName) + '</div><div style="font-size:11px;color:#64748b">' + esc(apps[i].packageName) + '</div></div>' +
         '<button class="mini-btn" onclick="launchApp(\'' + esc(apps[i].packageName) + '\')">Başlat</button></div>';
     }
     h += '</div>';
@@ -839,7 +872,7 @@ function loadPeers() {
     var h = '';
     for (var i = 0; i < state.peers.length; i++) {
       var p = state.peers[i];
-      h += '<div class="peer-item"><div><div style="font-size:14px;font-weight:700;color:#0f172a"><span class="dot"></span> ' + esc(p.tag) + (p.isSelf ? ' (Şu an bağlı)' : '') + '</div>' +
+      h += '<div class="peer-item"><div><div style="font-size:14px;font-weight:700"><span class="dot"></span> ' + esc(p.tag) + (p.isSelf ? ' (Şu an bağlı)' : '') + '</div>' +
         '<div style="font-size:11px;color:#64748b">' + esc(p.host) + ' • ID: ' + esc(p.id) + '</div></div>' +
         (p.isSelf ? '<span class="badge b-img">AKTİF</span>' : '<a class="btn btn-blue" style="text-decoration:none;padding:8px 12px" href="http://' + esc(p.host) + '/">Yönet →</a>') +
         '</div>';
@@ -852,6 +885,7 @@ function sendInput(q) { fetch('/api/input?' + q, { method: 'POST' }); }
 
 document.getElementById('loginPass').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
 
+applyTheme(localStorage.getItem('mb_web_dark') === '1');
 if (localStorage.getItem('mb_web_auth') === 'ok_152') showApp();
 </script>
 </body>
