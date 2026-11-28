@@ -1251,7 +1251,8 @@ class MainActivity : AppCompatActivity() {
                         vid.setAttribute('playsinline', ''); vid.setAttribute('webkit-playsinline', ''); vid.loop = false; vid.muted = !audioEnabled; vid.volume = 1.0;
                         ov.appendChild(vid);
 
-                        // Instagram'ın otomatik pause çağrısını engelle
+                        // Orijinal pause metodunu sakla, Instagram'ın otomatik pause çağrısını engelle
+                        var origPause = HTMLMediaElement.prototype.pause.bind(vid);
                         try { vid.pause = function() {}; } catch (e) {}
                         vid.addEventListener('pause', function() {
                             if (!bgStopped && !vid.ended) {
@@ -1264,8 +1265,20 @@ class MainActivity : AppCompatActivity() {
                             bgStopped = true;
                             if (bgTimer !== null) clearInterval(bgTimer);
                             if (watchTimer !== null) clearInterval(watchTimer);
+                            try {
+                                vid.muted = true;
+                                vid.style.visibility = 'hidden';
+                                origPause();
+                            } catch (e) {}
                             if (window.AnypayIg) window.AnypayIg.nextPost();
                         }
+
+                        // Instagram videoyu başa sarmadan hemen önce yakala
+                        vid.addEventListener('timeupdate', function() {
+                            if (!bgStopped && vid.duration > 1 && vid.currentTime >= vid.duration - 0.15) {
+                                finishVideo();
+                            }
+                        });
                         vid.onended = finishVideo; vid.onerror = finishVideo;
 
                         // Donma bekçisi: 6 saniye boyunca ilerleme olmazsa sonraki gönderiye geç
