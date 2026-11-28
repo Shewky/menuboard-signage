@@ -602,7 +602,13 @@ function openUrlModal(idx) {
   var cornerOpts = [['bottom_right','Sağ Alt'],['bottom_left','Sol Alt'],['top_right','Sağ Üst'],['top_left','Sol Üst']];
   openModal(
     '<div class="modal-head"><h3>🌐 ' + (idx != null ? 'URL Düzenle' : 'Yeni URL Ekle') + '</h3><button class="mini-btn" onclick="closeModal()">✖</button></div>' +
-    '<div class="field"><label>Web Adresi (URL)</label><input id="uUrl" type="url" class="input" placeholder="https://..." value="' + esc(it.fileName || '') + '"></div>' +
+    '<div class="field"><label>Web Adresi (URL)</label>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<input id="uUrl" type="url" class="input" style="flex:1" placeholder="https://..." value="' + esc(it.fileName || '') + '">' +
+        '<button type="button" class="btn btn-blue" style="padding:10px 12px;flex-shrink:0" title="QR Kod Okut" onclick="document.getElementById(\'uQrFile\').click()">📷 QR</button>' +
+        '<input id="uQrFile" type="file" accept="image/*" capture="environment" class="hidden" onchange="scanUrlQrFromFile(this)">' +
+      '</div>' +
+    '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
       '<div class="field"><label>Süre (sn)</label><input id="uDur" type="number" class="input" value="' + (it.durationSec || 20) + '"></div>' +
       '<div class="field"><label>Ara Bekleme (sn)</label><input id="uWait" type="number" class="input" value="' + (it.waitAfterSec || 0) + '"></div>' +
@@ -624,6 +630,27 @@ function openUrlModal(idx) {
     '<div class="field"><label>QR Köşesi</label><select id="uQrC">' + optsHtml(cornerOpts, it.qrCorner || 'bottom_right') + '</select></div>' +
     '<button class="btn btn-teal btn-full" onclick="saveUrl(' + (idx != null ? idx : -1) + ')">💾 Kaydet ve Yayınla</button>'
   );
+}
+
+function scanUrlQrFromFile(inp) {
+  var f = inp.files && inp.files[0];
+  if (!f) return;
+  toast('📷 QR kod okunuyor...');
+  fetch('/api/decode_qr', { method: 'POST', body: f })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      inp.value = '';
+      if (d.ok && d.text) {
+        document.getElementById('uUrl').value = d.text.trim();
+        toast('✅ URL QR koddan okundu!');
+      } else {
+        toast('❌ QR kod algılanamadı, daha net çekin.');
+      }
+    })
+    .catch(function(){
+      inp.value = '';
+      toast('Bağlantı hatası!');
+    });
 }
 
 function saveUrl(idx) {
