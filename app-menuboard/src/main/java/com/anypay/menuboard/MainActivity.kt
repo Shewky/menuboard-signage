@@ -59,6 +59,10 @@ import androidx.media3.ui.PlayerView
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
 import com.journeyapps.barcodescanner.BarcodeEncoder
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.Call
@@ -1850,6 +1854,40 @@ class MainActivity : AppCompatActivity() {
                 val pass = session.parameters["pass"]?.firstOrNull() ?: ""
                 val ok = pass == WEB_PANEL_PASS
                 return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("ok" to ok)))
+            }
+
+            if (uri == "/api/decode_qr" && method == Method.POST) {
+                val contentLength = session.headers["content-length"]?.toIntOrNull() ?: 0
+                if (contentLength <= 0 || contentLength > 15 * 1024 * 1024) {
+                    return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", gson.toJson(mapOf("ok" to false)))
+                }
+                return try {
+                    val buffer = ByteArray(contentLength)
+                    var totalRead = 0
+                    val input = session.inputStream
+                    while (totalRead < contentLength) {
+                        val r = input.read(buffer, totalRead, contentLength - totalRead)
+                        if (r <= 0) break
+                        totalRead += r
+                    }
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(buffer, 0, totalRead, bounds)
+                    var sample = 1
+                    while ((bounds.outWidth / sample) > 1200 || (bounds.outHeight / sample) > 1200) sample *= 2
+                    val bmp = BitmapFactory.decodeByteArray(buffer, 0, totalRead, BitmapFactory.Options().apply { inSampleSize = sample })
+                        ?: return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("ok" to false)))
+
+                    val w = bmp.width; val h = bmp.height
+                    val pixels = IntArray(w * h)
+                    bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+                    bmp.recycle()
+
+                    val source = RGBLuminanceSource(w, h, pixels)
+                    val result = MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(source)))
+                    newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("ok" to true, "text" to (result.text ?: ""))))
+                } catch (_: Exception) {
+                    newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(mapOf("ok" to false)))
+                }
             }
 
             if (uri == "/api/peers" && method == Method.GET) {
