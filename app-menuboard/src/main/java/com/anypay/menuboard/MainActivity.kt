@@ -744,6 +744,26 @@ class MainActivity : AppCompatActivity() {
             val host = rawTarget.trim()
             if (host.isEmpty()) continue
             try {
+                // Önce hedef cihazın mevcut listesini çek
+                val getPlReq = Request.Builder().url("http://$host/api/playlist").build()
+                val targetPlaylist: MutableList<MediaItemModel> = shareHttpClient.newCall(getPlReq).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use mutableListOf()
+                    val txt = resp.body?.string() ?: "[]"
+                    try {
+                        gson.fromJson(txt, object : TypeToken<MutableList<MediaItemModel>>() {}.type) ?: mutableListOf()
+                    } catch (_: Exception) { mutableListOf() }
+                }
+
+                // Aynı medya veya URL zaten listede varsa tekrar yükleme ve ekleme
+                val alreadyExists = targetPlaylist.any {
+                    it.type.equals(item.type, ignoreCase = true) &&
+                        it.fileName.equals(item.fileName, ignoreCase = true)
+                }
+                if (alreadyExists) {
+                    successCount++
+                    continue
+                }
+
                 if (isLocalFile && sourceFile != null) {
                     val uploadReq = Request.Builder()
                         .url("http://$host/api/upload_raw?filename=${Uri.encode(item.fileName)}")
@@ -751,17 +771,6 @@ class MainActivity : AppCompatActivity() {
                         .build()
                     val upOk = shareHttpClient.newCall(uploadReq).execute().use { it.isSuccessful }
                     if (!upOk) continue
-                }
-
-                val getPlReq = Request.Builder().url("http://$host/api/playlist").build()
-                val targetPlaylist: MutableList<MediaItemModel> = shareHttpClient.newCall(getPlReq).execute().use { resp ->
-                    if (!resp.isSuccessful) mutableListOf()
-                    else {
-                        val txt = resp.body?.string() ?: "[]"
-                        try {
-                            gson.fromJson(txt, object : TypeToken<MutableList<MediaItemModel>>() {}.type) ?: mutableListOf()
-                        } catch (_: Exception) { mutableListOf() }
-                    }
                 }
 
                 val cloned = item.copy(id = UUID.randomUUID().toString(), isHidden = false)
@@ -1199,8 +1208,8 @@ class MainActivity : AppCompatActivity() {
         val audioEnabled = item.igAudioEnabled
         val blurBg = blurBackgroundEnabled && blurApplyInstagram
         val darkAlpha = String.format(java.util.Locale.US, "%.2f", blurDarknessPercent.coerceIn(0, 85) / 100.0)
-        val videoLongDim = when (blurQualityLevel) { 0 -> 140; 2 -> 280; else -> 200 }
-        val videoBlurPx = when (blurIntensityLevel) { 0 -> 6; 2 -> 20; else -> 12 }
+        val videoLongDim = when (blurQualityLevel) { 0 -> 120; 2 -> 240; else -> 160 }
+        val videoBlurPx = when (blurIntensityLevel) { 0 -> 8; 2 -> 24; else -> 14 }
         val photoBlurPx = when (blurIntensityLevel) { 0 -> 12; 2 -> 40; else -> 24 }
         val js = """
             (function() {
@@ -1214,16 +1223,15 @@ class MainActivity : AppCompatActivity() {
                         var ov = document.createElement('div');
                         ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2147483647;display:flex;align-items:center;justify-content:center;overflow:hidden;';
                         document.body.appendChild(ov);
-                        var bgStopped = false, rafId = null;
+                        var bgStopped = false, bgTimer = null, watchTimer = null;
                         if (blurBg) {
                             var bgCanvas = document.createElement('canvas'); bgCanvas.width = vLong; bgCanvas.height = vLong;
-                            bgCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1;pointer-events:none;image-rendering:auto;transform:translateZ(0);';
+                            bgCanvas.style.cssText = 'position:absolute;top:-20px;left:-20px;width:calc(100vw + 40px);height:calc(100vh + 40px);object-fit:cover;z-index:1;pointer-events:none;filter:blur(' + vBlur + 'px);transform:translateZ(0);';
                             ov.appendChild(bgCanvas);
                             if (darkAlpha > 0) { var dim = document.createElement('div'); dim.style.cssText = 'position:absolute;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,' + darkAlpha + ');z-index:2;pointer-events:none;'; ov.appendChild(dim); }
                             var ctx = bgCanvas.getContext('2d', { alpha: false }), sized = false;
                             if (ctx) {
-                                ctx.imageSmoothingEnabled = true;
-                                function renderFrame() {
+                                bgTimer = setInterval(function() {
                                     if (bgStopped) return;
                                     try {
                                         if (!vid.paused && !vid.ended && vid.videoWidth > 0 && vid.videoHeight > 0) {
@@ -1233,20 +1241,51 @@ class MainActivity : AppCompatActivity() {
                                                 else { bgCanvas.height = vLong; bgCanvas.width = Math.max(48, Math.round(vLong * ratio)); }
                                                 sized = true;
                                             }
-                                            var pad = vBlur * 2; ctx.filter = 'blur(' + vBlur + 'px)';
-                                            ctx.drawImage(vid, -pad, -pad, bgCanvas.width + pad * 2, bgCanvas.height + pad * 2);
+                                            ctx.drawImage(vid, 0, 0, bgCanvas.width, bgCanvas.height);
                                         }
-                                    } catch (e) { bgStopped = true; return; }
-                                    if (typeof vid.requestVideoFrameCallback === 'function') vid.requestVideoFrameCallback(renderFrame); else rafId = requestAnimationFrame(renderFrame);
-                                }
-                                if (typeof vid.requestVideoFrameCallback === 'function') vid.requestVideoFrameCallback(renderFrame); else rafId = requestAnimationFrame(renderFrame);
+                                    } catch (e) { clearInterval(bgTimer); }
+                                }, 100);
                             }
                         }
                         vid.style.cssText = 'width:100vw !important;height:100vh !important;object-fit:contain !important;background:transparent !important;position:relative !important;z-index:3 !important;display:block !important;';
                         vid.setAttribute('playsinline', ''); vid.setAttribute('webkit-playsinline', ''); vid.loop = false; vid.muted = !audioEnabled; vid.volume = 1.0;
                         ov.appendChild(vid);
-                        function finishVideo() { bgStopped = true; if (rafId !== null) cancelAnimationFrame(rafId); if (window.AnypayIg) window.AnypayIg.nextPost(); }
+
+                        // Instagram'ın otomatik pause çağrısını engelle
+                        try { vid.pause = function() {}; } catch (e) {}
+                        vid.addEventListener('pause', function() {
+                            if (!bgStopped && !vid.ended) {
+                                vid.play().catch(function() { vid.muted = true; vid.play().catch(function(){}); });
+                            }
+                        });
+
+                        function finishVideo() {
+                            if (bgStopped) return;
+                            bgStopped = true;
+                            if (bgTimer !== null) clearInterval(bgTimer);
+                            if (watchTimer !== null) clearInterval(watchTimer);
+                            if (window.AnypayIg) window.AnypayIg.nextPost();
+                        }
                         vid.onended = finishVideo; vid.onerror = finishVideo;
+
+                        // Donma bekçisi: 6 saniye boyunca ilerleme olmazsa sonraki gönderiye geç
+                        var lastT = -1, stallCount = 0;
+                        watchTimer = setInterval(function() {
+                            if (bgStopped) return;
+                            if (vid.ended) { finishVideo(); return; }
+                            if (vid.currentTime === lastT) {
+                                stallCount++;
+                                if (stallCount === 1) {
+                                    vid.play().catch(function() { vid.muted = true; vid.play().catch(function(){}); });
+                                } else if (stallCount >= 3) {
+                                    finishVideo();
+                                }
+                            } else {
+                                lastT = vid.currentTime;
+                                stallCount = 0;
+                            }
+                        }, 2000);
+
                         vid.play().catch(function() { vid.muted = true; vid.play().catch(finishVideo); });
                         return;
                     }
